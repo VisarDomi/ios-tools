@@ -18,7 +18,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         controller.view.backgroundColor = .systemBackground
         let label = UILabel()
         label.numberOfLines = 0
-        label.text = "Gallery Reader Extension\n\nEnable in Settings → Apps → Safari → Extensions. Allow Hitomi and IMHentai.\n\nDisable the Gallery Reader userscript while testing. Reload the site after granting access.\n\nThis is separate from the offline Gallery Reader app."
+        label.text = "Reader Extensions\n\nEnable each extension separately in Settings → Apps → Safari → Extensions.\n\nGallery Reader: Hitomi and IMHentai.\nKM Explorer: ytboob.com.\nStream Viewer: tango.me.\n\nDisable the matching userscript while its extension is enabled. Reload the site after granting access.\n\nEach extension keeps its existing website data and server connections. This is separate from the offline Gallery Reader app."
         label.translatesAutoresizingMaskIntoConstraints = false
         controller.view.addSubview(label)
         NSLayoutConstraint.activate([

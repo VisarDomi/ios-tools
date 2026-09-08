@@ -6,6 +6,144 @@
 	objectVersion = 77;
 	objects = {
 
+/* Independent KM Explorer iOS extension. Resources are staged by build:extensions. */
+		A10000000000000000000001 /* KM Explorer (iOS) */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A1000000000000000000000E;
+			buildPhases = (A10000000000000000000006, A10000000000000000000007, A10000000000000000000008, );
+			buildRules = ();
+			dependencies = ();
+			name = "KM Explorer (iOS)";
+			productName = "KM Explorer";
+			productReference = A10000000000000000000002;
+			productType = "com.apple.product-type.app-extension";
+		};
+		A10000000000000000000002 /* KM Explorer.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "KM Explorer.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000000000000000000003 /* KM Explorer.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A10000000000000000000002; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		A10000000000000000000004 = {isa = PBXContainerItemProxy; containerPortal = 4D791210304FA21C001BD39A; proxyType = 1; remoteGlobalIDString = A10000000000000000000001; remoteInfo = "KM Explorer (iOS)"; };
+		A10000000000000000000005 = {isa = PBXTargetDependency; target = A10000000000000000000001; targetProxy = A10000000000000000000004; };
+		A10000000000000000000006 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000009, ); runOnlyForDeploymentPostprocessing = 0; };
+		A10000000000000000000007 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		A10000000000000000000008 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A1000000000000000000000C, A1000000000000000000000D, ); runOnlyForDeploymentPostprocessing = 0; };
+		A10000000000000000000009 = {isa = PBXBuildFile; fileRef = 4D79121E304FA220001BD39A; };
+		A1000000000000000000000A /* KM manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = manifest.json; path = ../../dist/km-explorer-extension/manifest.json; sourceTree = SOURCE_ROOT; };
+		A1000000000000000000000B /* KM content.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = content.js; path = ../../dist/km-explorer-extension/content.js; sourceTree = SOURCE_ROOT; };
+		A1000000000000000000000C = {isa = PBXBuildFile; fileRef = A1000000000000000000000A; };
+		A1000000000000000000000D = {isa = PBXBuildFile; fileRef = A1000000000000000000000B; };
+		A1000000000000000000000E = {isa = XCConfigurationList; buildConfigurations = (A1000000000000000000000F, A10000000000000000000010, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		A1000000000000000000000F = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "iOS (Extension)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "KM Explorer";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks", );
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = ("-framework", SafariServices, );
+				PRODUCT_BUNDLE_IDENTIFIER = com.visar.galleryreader.extensiontest.KMExplorer;
+				PRODUCT_NAME = "KM Explorer";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A10000000000000000000010 = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "iOS (Extension)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "KM Explorer";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks", );
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = ("-framework", SafariServices, );
+				PRODUCT_BUNDLE_IDENTIFIER = com.visar.galleryreader.extensiontest.KMExplorer;
+				PRODUCT_NAME = "KM Explorer";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		A10000000000000000000011 /* KM Explorer resources */ = {isa = PBXGroup; children = (A1000000000000000000000A, A1000000000000000000000B, ); name = "KM Explorer resources"; sourceTree = "<group>"; };
+
+/* Independent Stream Viewer iOS extension. Resources are staged by build:extensions. */
+		A20000000000000000000001 /* Stream Viewer (iOS) */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A2000000000000000000000E;
+			buildPhases = (A20000000000000000000006, A20000000000000000000007, A20000000000000000000008, );
+			buildRules = ();
+			dependencies = ();
+			name = "Stream Viewer (iOS)";
+			productName = "Stream Viewer";
+			productReference = A20000000000000000000002;
+			productType = "com.apple.product-type.app-extension";
+		};
+		A20000000000000000000002 /* Stream Viewer.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Stream Viewer.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000000000000000000003 /* Stream Viewer.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		A20000000000000000000004 = {isa = PBXContainerItemProxy; containerPortal = 4D791210304FA21C001BD39A; proxyType = 1; remoteGlobalIDString = A20000000000000000000001; remoteInfo = "Stream Viewer (iOS)"; };
+		A20000000000000000000005 = {isa = PBXTargetDependency; target = A20000000000000000000001; targetProxy = A20000000000000000000004; };
+		A20000000000000000000006 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A20000000000000000000009, ); runOnlyForDeploymentPostprocessing = 0; };
+		A20000000000000000000007 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		A20000000000000000000008 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A2000000000000000000000C, A2000000000000000000000D, ); runOnlyForDeploymentPostprocessing = 0; };
+		A20000000000000000000009 = {isa = PBXBuildFile; fileRef = 4D79121E304FA220001BD39A; };
+		A2000000000000000000000A /* Stream manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = manifest.json; path = ../../dist/stream-viewer-extension/manifest.json; sourceTree = SOURCE_ROOT; };
+		A2000000000000000000000B /* Stream content.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = content.js; path = ../../dist/stream-viewer-extension/content.js; sourceTree = SOURCE_ROOT; };
+		A2000000000000000000000C = {isa = PBXBuildFile; fileRef = A2000000000000000000000A; };
+		A2000000000000000000000D = {isa = PBXBuildFile; fileRef = A2000000000000000000000B; };
+		A2000000000000000000000E = {isa = XCConfigurationList; buildConfigurations = (A2000000000000000000000F, A20000000000000000000010, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		A2000000000000000000000F = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "iOS (Extension)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Stream Viewer";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks", );
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = ("-framework", SafariServices, );
+				PRODUCT_BUNDLE_IDENTIFIER = com.visar.galleryreader.extensiontest.StreamViewer;
+				PRODUCT_NAME = "Stream Viewer";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A20000000000000000000010 = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "iOS (Extension)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Stream Viewer";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks", );
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = ("-framework", SafariServices, );
+				PRODUCT_BUNDLE_IDENTIFIER = com.visar.galleryreader.extensiontest.StreamViewer;
+				PRODUCT_NAME = "Stream Viewer";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		A20000000000000000000011 /* Stream Viewer resources */ = {isa = PBXGroup; children = (A2000000000000000000000A, A2000000000000000000000B, ); name = "Stream Viewer resources"; sourceTree = "<group>"; };
+
 /* Begin PBXBuildFile section */
 		4D791227304FA220001BD39A /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D791226304FA220001BD39A /* AppDelegate.swift */; };
 		4D791229304FA220001BD39A /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D791228304FA220001BD39A /* SceneDelegate.swift */; };
@@ -64,6 +202,8 @@
 			dstSubfolderSpec = 13;
 			files = (
 				4D791242304FA220001BD39A /* Gallery Reader Extension Extension.appex in Embed Foundation Extensions */,
+				A10000000000000000000003 /* KM Explorer.appex in Embed Foundation Extensions */,
+				A20000000000000000000003 /* Stream Viewer.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -145,6 +285,8 @@
 			isa = PBXGroup;
 			children = (
 				4D791214304FA21C001BD39A /* Shared (App) */,
+				A10000000000000000000011 /* KM Explorer resources */,
+				A20000000000000000000011 /* Stream Viewer resources */,
 				4D79121D304FA220001BD39A /* Shared (Extension) */,
 				4D791225304FA220001BD39A /* iOS (App) */,
 				4D791236304FA220001BD39A /* macOS (App) */,
@@ -190,6 +332,8 @@
 				4D791223304FA220001BD39A /* Gallery Reader Extension.app */,
 				4D791235304FA220001BD39A /* Gallery Reader Extension.app */,
 				4D791241304FA220001BD39A /* Gallery Reader Extension Extension.appex */,
+				A10000000000000000000002 /* KM Explorer.appex */,
+				A20000000000000000000002 /* Stream Viewer.appex */,
 				4D79124B304FA220001BD39A /* Gallery Reader Extension Extension.appex */,
 			);
 			name = Products;
@@ -261,6 +405,8 @@
 			);
 			dependencies = (
 				4D791244304FA220001BD39A /* PBXTargetDependency */,
+				A10000000000000000000005 /* KM Explorer dependency */,
+				A20000000000000000000005 /* Stream Viewer dependency */,
 			);
 			name = "Gallery Reader Extension (iOS)";
 			packageProductDependencies = (
@@ -369,6 +515,8 @@
 				4D791222304FA220001BD39A /* Gallery Reader Extension (iOS) */,
 				4D791234304FA220001BD39A /* Gallery Reader Extension (macOS) */,
 				4D791240304FA220001BD39A /* Gallery Reader Extension Extension (iOS) */,
+				A10000000000000000000001 /* KM Explorer (iOS) */,
+				A20000000000000000000001 /* Stream Viewer (iOS) */,
 				4D79124A304FA220001BD39A /* Gallery Reader Extension Extension (macOS) */,
 			);
 		};
