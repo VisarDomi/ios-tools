@@ -144,6 +144,75 @@
 		};
 		A20000000000000000000011 /* Stream Viewer resources */ = {isa = PBXGroup; children = (A2000000000000000000000A, A2000000000000000000000B, ); name = "Stream Viewer resources"; sourceTree = "<group>"; };
 
+/* Independent Manga Reader iOS extension. Resources are staged by build:extensions. */
+		A30000000000000000000001 /* Manga Reader (iOS) */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A3000000000000000000000E;
+			buildPhases = (A30000000000000000000006, A30000000000000000000007, A30000000000000000000008, );
+			buildRules = ();
+			dependencies = ();
+			name = "Manga Reader (iOS)";
+			productName = "Manga Reader";
+			productReference = A30000000000000000000002;
+			productType = "com.apple.product-type.app-extension";
+		};
+		A30000000000000000000002 /* Manga Reader.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Manga Reader.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A30000000000000000000003 /* Manga Reader.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A30000000000000000000002; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		A30000000000000000000004 = {isa = PBXContainerItemProxy; containerPortal = 4D791210304FA21C001BD39A; proxyType = 1; remoteGlobalIDString = A30000000000000000000001; remoteInfo = "Manga Reader (iOS)"; };
+		A30000000000000000000005 = {isa = PBXTargetDependency; target = A30000000000000000000001; targetProxy = A30000000000000000000004; };
+		A30000000000000000000006 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A30000000000000000000009, ); runOnlyForDeploymentPostprocessing = 0; };
+		A30000000000000000000007 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		A30000000000000000000008 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A3000000000000000000000C, A3000000000000000000000D, ); runOnlyForDeploymentPostprocessing = 0; };
+		A30000000000000000000009 = {isa = PBXBuildFile; fileRef = 4D79121E304FA220001BD39A; };
+		A3000000000000000000000A /* Manga manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = manifest.json; path = ../../dist/manga-reader-extension/manifest.json; sourceTree = SOURCE_ROOT; };
+		A3000000000000000000000B /* Manga content.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = content.js; path = ../../dist/manga-reader-extension/content.js; sourceTree = SOURCE_ROOT; };
+		A3000000000000000000000C = {isa = PBXBuildFile; fileRef = A3000000000000000000000A; };
+		A3000000000000000000000D = {isa = PBXBuildFile; fileRef = A3000000000000000000000B; };
+		A3000000000000000000000E = {isa = XCConfigurationList; buildConfigurations = (A3000000000000000000000F, A30000000000000000000010, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		A3000000000000000000000F = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "iOS (Extension)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Manga Reader";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks", );
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = ("-framework", SafariServices, );
+				PRODUCT_BUNDLE_IDENTIFIER = com.visar.galleryreader.extensiontest.MangaReader;
+				PRODUCT_NAME = "Manga Reader";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A30000000000000000000010 = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "iOS (Extension)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Manga Reader";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks", );
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = ("-framework", SafariServices, );
+				PRODUCT_BUNDLE_IDENTIFIER = com.visar.galleryreader.extensiontest.MangaReader;
+				PRODUCT_NAME = "Manga Reader";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		A30000000000000000000011 /* Manga Reader resources */ = {isa = PBXGroup; children = (A3000000000000000000000A, A3000000000000000000000B, ); name = "Manga Reader resources"; sourceTree = "<group>"; };
+
 /* Begin PBXBuildFile section */
 		4D791227304FA220001BD39A /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D791226304FA220001BD39A /* AppDelegate.swift */; };
 		4D791229304FA220001BD39A /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D791228304FA220001BD39A /* SceneDelegate.swift */; };
@@ -204,6 +273,7 @@
 				4D791242304FA220001BD39A /* Gallery Reader Extension Extension.appex in Embed Foundation Extensions */,
 				A10000000000000000000003 /* KM Explorer.appex in Embed Foundation Extensions */,
 				A20000000000000000000003 /* Stream Viewer.appex in Embed Foundation Extensions */,
+				A30000000000000000000003 /* Manga Reader.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -229,13 +299,13 @@
 		4D79121B304FA21C001BD39A /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
 		4D79121C304FA220001BD39A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		4D79121E304FA220001BD39A /* SafariWebExtensionHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafariWebExtensionHandler.swift; sourceTree = "<group>"; };
-		4D791223304FA220001BD39A /* Gallery Reader Extension.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Gallery Reader Extension.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		4D791223304FA220001BD39A /* Reader Extensions.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Reader Extensions.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		4D791226304FA220001BD39A /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		4D791228304FA220001BD39A /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		4D79122B304FA220001BD39A /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		4D79122E304FA220001BD39A /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
 		4D791230304FA220001BD39A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		4D791235304FA220001BD39A /* Gallery Reader Extension.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Gallery Reader Extension.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		4D791235304FA220001BD39A /* Reader Extensions.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Reader Extensions.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		4D791237304FA220001BD39A /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		4D79123A304FA220001BD39A /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
 		4D79123C304FA220001BD39A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -287,6 +357,7 @@
 				4D791214304FA21C001BD39A /* Shared (App) */,
 				A10000000000000000000011 /* KM Explorer resources */,
 				A20000000000000000000011 /* Stream Viewer resources */,
+				A30000000000000000000011 /* Manga Reader resources */,
 				4D79121D304FA220001BD39A /* Shared (Extension) */,
 				4D791225304FA220001BD39A /* iOS (App) */,
 				4D791236304FA220001BD39A /* macOS (App) */,
@@ -329,11 +400,12 @@
 		4D791224304FA220001BD39A /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				4D791223304FA220001BD39A /* Gallery Reader Extension.app */,
-				4D791235304FA220001BD39A /* Gallery Reader Extension.app */,
+				4D791223304FA220001BD39A /* Reader Extensions.app */,
+				4D791235304FA220001BD39A /* Reader Extensions.app */,
 				4D791241304FA220001BD39A /* Gallery Reader Extension Extension.appex */,
 				A10000000000000000000002 /* KM Explorer.appex */,
 				A20000000000000000000002 /* Stream Viewer.appex */,
+				A30000000000000000000002 /* Manga Reader.appex */,
 				4D79124B304FA220001BD39A /* Gallery Reader Extension Extension.appex */,
 			);
 			name = Products;
@@ -407,12 +479,13 @@
 				4D791244304FA220001BD39A /* PBXTargetDependency */,
 				A10000000000000000000005 /* KM Explorer dependency */,
 				A20000000000000000000005 /* Stream Viewer dependency */,
+				A30000000000000000000005 /* Manga Reader dependency */,
 			);
 			name = "Gallery Reader Extension (iOS)";
 			packageProductDependencies = (
 			);
 			productName = "Gallery Reader Extension (iOS)";
-			productReference = 4D791223304FA220001BD39A /* Gallery Reader Extension.app */;
+			productReference = 4D791223304FA220001BD39A /* Reader Extensions.app */;
 			productType = "com.apple.product-type.application";
 		};
 		4D791234304FA220001BD39A /* Gallery Reader Extension (macOS) */ = {
@@ -433,7 +506,7 @@
 			packageProductDependencies = (
 			);
 			productName = "Gallery Reader Extension (macOS)";
-			productReference = 4D791235304FA220001BD39A /* Gallery Reader Extension.app */;
+			productReference = 4D791235304FA220001BD39A /* Reader Extensions.app */;
 			productType = "com.apple.product-type.application";
 		};
 		4D791240304FA220001BD39A /* Gallery Reader Extension Extension (iOS) */ = {
@@ -517,6 +590,7 @@
 				4D791240304FA220001BD39A /* Gallery Reader Extension Extension (iOS) */,
 				A10000000000000000000001 /* KM Explorer (iOS) */,
 				A20000000000000000000001 /* Stream Viewer (iOS) */,
+				A30000000000000000000001 /* Manga Reader (iOS) */,
 				4D79124A304FA220001BD39A /* Gallery Reader Extension Extension (macOS) */,
 			);
 		};
@@ -778,7 +852,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "iOS (Extension)/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "Gallery Reader Extension Extension";
+				INFOPLIST_KEY_CFBundleDisplayName = "Gallery Reader";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -811,7 +885,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "iOS (Extension)/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "Gallery Reader Extension Extension";
+				INFOPLIST_KEY_CFBundleDisplayName = "Gallery Reader";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -847,7 +921,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "iOS (App)/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "Gallery Reader Extension";
+				INFOPLIST_KEY_CFBundleDisplayName = "Reader Extensions";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -865,7 +939,7 @@
 					WebKit,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.visar.galleryreader.extensiontest;
-				PRODUCT_NAME = "Gallery Reader Extension";
+				PRODUCT_NAME = "Reader Extensions";
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -886,7 +960,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "iOS (App)/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "Gallery Reader Extension";
+				INFOPLIST_KEY_CFBundleDisplayName = "Reader Extensions";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -904,7 +978,7 @@
 					WebKit,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.visar.galleryreader.extensiontest;
-				PRODUCT_NAME = "Gallery Reader Extension";
+				PRODUCT_NAME = "Reader Extensions";
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -927,7 +1001,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "macOS (Extension)/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "Gallery Reader Extension Extension";
+				INFOPLIST_KEY_CFBundleDisplayName = "Gallery Reader";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -962,7 +1036,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "macOS (Extension)/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "Gallery Reader Extension Extension";
+				INFOPLIST_KEY_CFBundleDisplayName = "Gallery Reader";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1000,7 +1074,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "macOS (App)/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "Gallery Reader Extension";
+				INFOPLIST_KEY_CFBundleDisplayName = "Reader Extensions";
 				INFOPLIST_KEY_NSMainStoryboardFile = Main;
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1016,7 +1090,7 @@
 					WebKit,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.visar.galleryreader.extensiontest;
-				PRODUCT_NAME = "Gallery Reader Extension";
+				PRODUCT_NAME = "Reader Extensions";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = macosx;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -1041,7 +1115,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "macOS (App)/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "Gallery Reader Extension";
+				INFOPLIST_KEY_CFBundleDisplayName = "Reader Extensions";
 				INFOPLIST_KEY_NSMainStoryboardFile = Main;
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1057,7 +1131,7 @@
 					WebKit,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.visar.galleryreader.extensiontest;
-				PRODUCT_NAME = "Gallery Reader Extension";
+				PRODUCT_NAME = "Reader Extensions";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = macosx;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
