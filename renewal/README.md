@@ -40,6 +40,9 @@ git clone https://github.com/VisarDomi/userscript-ios-test.git
 
 The last repo is needed by the sources' local `file:../../userscript-ios-test`
 development dependency, even if you do not run its phone-injection tests.
+It is not a dependency of this packaging repo, is not shipped in the extensions,
+and does not need to be installed/enabled on the phone. Its name refers to the
+older development injection harness, not the production deployment format.
 
 Install dependencies in each reader (the packaging repo has no dependencies):
 
@@ -221,7 +224,8 @@ can reset toggles/access; reinstalling with the same ID is the normal update.
 The user currently tests with AdGuard off following a confirmed Gallery Reader
 image-URL assignment slowdown. Do not "fix" that by silently introducing custom
 image loading. Follow each source repo's native Safari validation notes. Personal
-team provisioning expires; rebuild/sign/install again as needed.
+team provisioning expires; use [daily wireless renewal](REFRESH.md) for automatic
+full signing/install with retries while the phone is unavailable or locked.
 
 ## Repository provenance and migration
 
