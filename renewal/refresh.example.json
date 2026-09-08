@@ -1,0 +1,29 @@
+{
+  "root": "/Users/YOUR_USER/Developer/reader-extensions",
+  "app": "build/Debug-iphoneos/Reader Extensions.app",
+  "team": "YOUR_TEAM_ID",
+  "bundleIds": [
+    "com.visar.galleryreader.extensiontest",
+    "com.visar.galleryreader.extensiontest.Extension",
+    "com.visar.galleryreader.extensiontest.KMExplorer",
+    "com.visar.galleryreader.extensiontest.MangaReader",
+    "com.visar.galleryreader.extensiontest.StreamViewer"
+  ],
+  "device": "YOUR_IPHONE_UDID",
+  "profileCache": "/Users/YOUR_USER/Library/Developer/Xcode/UserData/Provisioning Profiles",
+  "inputs": [
+    "apple",
+    "dist/gallery-reader-extension",
+    "dist/km-explorer-extension",
+    "dist/manga-reader-extension",
+    "dist/stream-viewer-extension",
+    "scripts/build-on-mac.sh"
+  ],
+  "build": [
+    "/bin/bash",
+    "scripts/build-on-mac.sh"
+  ],
+  "environment": {
+    "SIGNING_TEAM": "YOUR_TEAM_ID"
+  }
+}
