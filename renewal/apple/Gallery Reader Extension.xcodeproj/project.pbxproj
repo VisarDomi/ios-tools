@@ -26,8 +26,8 @@
 		A10000000000000000000007 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 		A10000000000000000000008 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A1000000000000000000000C, A1000000000000000000000D, ); runOnlyForDeploymentPostprocessing = 0; };
 		A10000000000000000000009 = {isa = PBXBuildFile; fileRef = 4D79121E304FA220001BD39A; };
-		A1000000000000000000000A /* KM manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = manifest.json; path = ../../dist/km-explorer-extension/manifest.json; sourceTree = SOURCE_ROOT; };
-		A1000000000000000000000B /* KM content.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = content.js; path = ../../dist/km-explorer-extension/content.js; sourceTree = SOURCE_ROOT; };
+		A1000000000000000000000A /* KM manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = manifest.json; path = ../dist/km-explorer-extension/manifest.json; sourceTree = SOURCE_ROOT; };
+		A1000000000000000000000B /* KM content.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = content.js; path = ../dist/km-explorer-extension/content.js; sourceTree = SOURCE_ROOT; };
 		A1000000000000000000000C = {isa = PBXBuildFile; fileRef = A1000000000000000000000A; };
 		A1000000000000000000000D = {isa = PBXBuildFile; fileRef = A1000000000000000000000B; };
 		A1000000000000000000000E = {isa = XCConfigurationList; buildConfigurations = (A1000000000000000000000F, A10000000000000000000010, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
@@ -95,8 +95,8 @@
 		A20000000000000000000007 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 		A20000000000000000000008 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A2000000000000000000000C, A2000000000000000000000D, ); runOnlyForDeploymentPostprocessing = 0; };
 		A20000000000000000000009 = {isa = PBXBuildFile; fileRef = 4D79121E304FA220001BD39A; };
-		A2000000000000000000000A /* Stream manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = manifest.json; path = ../../dist/stream-viewer-extension/manifest.json; sourceTree = SOURCE_ROOT; };
-		A2000000000000000000000B /* Stream content.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = content.js; path = ../../dist/stream-viewer-extension/content.js; sourceTree = SOURCE_ROOT; };
+		A2000000000000000000000A /* Stream manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = manifest.json; path = ../dist/stream-viewer-extension/manifest.json; sourceTree = SOURCE_ROOT; };
+		A2000000000000000000000B /* Stream content.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = content.js; path = ../dist/stream-viewer-extension/content.js; sourceTree = SOURCE_ROOT; };
 		A2000000000000000000000C = {isa = PBXBuildFile; fileRef = A2000000000000000000000A; };
 		A2000000000000000000000D = {isa = PBXBuildFile; fileRef = A2000000000000000000000B; };
 		A2000000000000000000000E = {isa = XCConfigurationList; buildConfigurations = (A2000000000000000000000F, A20000000000000000000010, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
@@ -164,8 +164,8 @@
 		A30000000000000000000007 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 		A30000000000000000000008 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A3000000000000000000000C, A3000000000000000000000D, ); runOnlyForDeploymentPostprocessing = 0; };
 		A30000000000000000000009 = {isa = PBXBuildFile; fileRef = 4D79121E304FA220001BD39A; };
-		A3000000000000000000000A /* Manga manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = manifest.json; path = ../../dist/manga-reader-extension/manifest.json; sourceTree = SOURCE_ROOT; };
-		A3000000000000000000000B /* Manga content.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = content.js; path = ../../dist/manga-reader-extension/content.js; sourceTree = SOURCE_ROOT; };
+		A3000000000000000000000A /* Manga manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = manifest.json; path = ../dist/manga-reader-extension/manifest.json; sourceTree = SOURCE_ROOT; };
+		A3000000000000000000000B /* Manga content.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = content.js; path = ../dist/manga-reader-extension/content.js; sourceTree = SOURCE_ROOT; };
 		A3000000000000000000000C = {isa = PBXBuildFile; fileRef = A3000000000000000000000A; };
 		A3000000000000000000000D = {isa = PBXBuildFile; fileRef = A3000000000000000000000B; };
 		A3000000000000000000000E = {isa = XCConfigurationList; buildConfigurations = (A3000000000000000000000F, A30000000000000000000010, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
@@ -236,11 +236,9 @@
 		4D79125C304FA220001BD39A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 4D79121C304FA220001BD39A /* Assets.xcassets */; };
 		4D79125D304FA220001BD39A /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D79121E304FA220001BD39A /* SafariWebExtensionHandler.swift */; };
 		4D79125E304FA220001BD39A /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D79121E304FA220001BD39A /* SafariWebExtensionHandler.swift */; };
-		4D791274304FA221001BD39A /* _metadata in Resources */ = {isa = PBXBuildFile; fileRef = 4D791270304FA221001BD39A /* _metadata */; };
 		4D791275304FA221001BD39A /* rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 4D791271304FA221001BD39A /* rules.json */; };
 		4D791276304FA221001BD39A /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = 4D791272304FA221001BD39A /* manifest.json */; };
 		4D791277304FA221001BD39A /* content.js in Resources */ = {isa = PBXBuildFile; fileRef = 4D791273304FA221001BD39A /* content.js */; };
-		4D791278304FA221001BD39A /* _metadata in Resources */ = {isa = PBXBuildFile; fileRef = 4D791270304FA221001BD39A /* _metadata */; };
 		4D791279304FA221001BD39A /* rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 4D791271304FA221001BD39A /* rules.json */; };
 		4D79127A304FA221001BD39A /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = 4D791272304FA221001BD39A /* manifest.json */; };
 		4D79127B304FA221001BD39A /* content.js in Resources */ = {isa = PBXBuildFile; fileRef = 4D791273304FA221001BD39A /* content.js */; };
@@ -313,10 +311,9 @@
 		4D791246304FA220001BD39A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		4D79124B304FA220001BD39A /* Gallery Reader Extension Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Gallery Reader Extension Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		4D791250304FA220001BD39A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		4D791270304FA221001BD39A /* _metadata */ = {isa = PBXFileReference; lastKnownFileType = folder; name = _metadata; path = ../../../web/_metadata; sourceTree = "<group>"; };
-		4D791271304FA221001BD39A /* rules.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = rules.json; path = ../../dist/extension/rules.json; sourceTree = SOURCE_ROOT; };
-		4D791272304FA221001BD39A /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = manifest.json; path = ../../dist/extension/manifest.json; sourceTree = SOURCE_ROOT; };
-		4D791273304FA221001BD39A /* content.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = content.js; path = ../../dist/extension/content.js; sourceTree = SOURCE_ROOT; };
+		4D791271304FA221001BD39A /* rules.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = rules.json; path = ../dist/gallery-reader-extension/rules.json; sourceTree = SOURCE_ROOT; };
+		4D791272304FA221001BD39A /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = manifest.json; path = ../dist/gallery-reader-extension/manifest.json; sourceTree = SOURCE_ROOT; };
+		4D791273304FA221001BD39A /* content.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = content.js; path = ../dist/gallery-reader-extension/content.js; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -452,7 +449,6 @@
 		4D79126F304FA221001BD39A /* Resources */ = {
 			isa = PBXGroup;
 			children = (
-				4D791270304FA221001BD39A /* _metadata */,
 				4D791271304FA221001BD39A /* rules.json */,
 				4D791272304FA221001BD39A /* manifest.json */,
 				4D791273304FA221001BD39A /* content.js */,

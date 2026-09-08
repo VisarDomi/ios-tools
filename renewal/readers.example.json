@@ -1,0 +1,6 @@
+{
+  "gallery-reader": "../manga/gallery-reader",
+  "manga-reader": "../manga/manga-reader",
+  "km-explorer": "../video/km-explorer",
+  "stream-viewer": "../video/stream-viewer"
+}

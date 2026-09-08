@@ -1,0 +1,15 @@
+dist/
+build/
+node_modules/
+*.local.json
+*.log
+*.mobileprovision
+*.provisionprofile
+*.p12
+*.p8
+*.key
+.env*
+**/xcuserdata/
+**/*.xcuserstate
+.DS_Store
+.idea/

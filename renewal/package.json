@@ -1,0 +1,14 @@
+{
+  "name": "reader-extensions",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Apple containing app and packaging tools for four independent Safari extensions",
+  "scripts": {
+    "build": "node scripts/suite.mjs build",
+    "stage": "node scripts/suite.mjs stage",
+    "verify": "node scripts/suite.mjs verify",
+    "mac": "node scripts/mac.mjs",
+    "test": "node --test tests/*.test.mjs"
+  }
+}

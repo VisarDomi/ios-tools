@@ -1,0 +1,8 @@
+{
+  "host": "visar@192.168.1.46",
+  "knownHosts": "/absolute/path/to/verified/macos-known-hosts",
+  "remoteRoot": "/Users/visar/Developer/reader-extensions",
+  "guiUid": 501,
+  "signingTeam": "YOUR_APPLE_TEAM_ID",
+  "device": "YOUR_IPHONE_UDID"
+}
