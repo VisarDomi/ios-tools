@@ -107,7 +107,7 @@ npm test
 `build` invokes each reader's existing extension builder, without incrementing
 its version, then copies its complete bundle into `dist/<name>-extension/`.
 Gallery's three files (`content.js`, `manifest.json`, `rules.json`) must travel
-together because the build nonce must match. Other readers have two files.
+together so the takeover code and response policy stay aligned. Other readers have two files.
 The Xcode project uses these paths directly; no converter regeneration is needed.
 
 For an individual update:
@@ -140,6 +140,9 @@ Run this from a logged-in GUI Terminal so signing can access the Keychain.
 Output is `build/Debug-iphoneos/Reader Extensions.app`. The technical project and
 target retain their historical names; the installed product is Reader Extensions.
 In Xcode, the iOS host and four extension targets must use the same signing team.
+The containing app deliberately supplies no custom app icon, splash graphic or
+in-app logo, matching the minimal native Gallery Reader app. iOS owns the fallback
+Home Screen/App Library appearance; this does not hide or uninstall the host.
 
 Existing owner's IDs are intentionally unchanged:
 

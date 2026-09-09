@@ -224,8 +224,6 @@
 		4D79124C304FA220001BD39A /* Gallery Reader Extension Extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 4D79124B304FA220001BD39A /* Gallery Reader Extension Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		4D791251304FA220001BD39A /* Main.html in Resources */ = {isa = PBXBuildFile; fileRef = 4D791216304FA21C001BD39A /* Main.html */; };
 		4D791252304FA220001BD39A /* Main.html in Resources */ = {isa = PBXBuildFile; fileRef = 4D791216304FA21C001BD39A /* Main.html */; };
-		4D791253304FA220001BD39A /* Icon.png in Resources */ = {isa = PBXBuildFile; fileRef = 4D791218304FA21C001BD39A /* Icon.png */; };
-		4D791254304FA220001BD39A /* Icon.png in Resources */ = {isa = PBXBuildFile; fileRef = 4D791218304FA21C001BD39A /* Icon.png */; };
 		4D791255304FA220001BD39A /* Style.css in Resources */ = {isa = PBXBuildFile; fileRef = 4D791219304FA21C001BD39A /* Style.css */; };
 		4D791256304FA220001BD39A /* Style.css in Resources */ = {isa = PBXBuildFile; fileRef = 4D791219304FA21C001BD39A /* Style.css */; };
 		4D791257304FA220001BD39A /* Script.js in Resources */ = {isa = PBXBuildFile; fileRef = 4D79121A304FA21C001BD39A /* Script.js */; };
@@ -291,7 +289,6 @@
 
 /* Begin PBXFileReference section */
 		4D791217304FA21C001BD39A /* Base */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = Base; path = Base.lproj/Main.html; sourceTree = "<group>"; };
-		4D791218304FA21C001BD39A /* Icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Icon.png; sourceTree = "<group>"; };
 		4D791219304FA21C001BD39A /* Style.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = Style.css; sourceTree = "<group>"; };
 		4D79121A304FA21C001BD39A /* Script.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = Script.js; sourceTree = "<group>"; };
 		4D79121B304FA21C001BD39A /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
@@ -378,7 +375,6 @@
 			isa = PBXGroup;
 			children = (
 				4D791216304FA21C001BD39A /* Main.html */,
-				4D791218304FA21C001BD39A /* Icon.png */,
 				4D791219304FA21C001BD39A /* Style.css */,
 				4D79121A304FA21C001BD39A /* Script.js */,
 			);
@@ -597,7 +593,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				4D791253304FA220001BD39A /* Icon.png in Resources */,
 				4D791251304FA220001BD39A /* Main.html in Resources */,
 				4D791257304FA220001BD39A /* Script.js in Resources */,
 				4D79125B304FA220001BD39A /* Assets.xcassets in Resources */,
@@ -609,7 +604,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				4D791254304FA220001BD39A /* Icon.png in Resources */,
 				4D791256304FA220001BD39A /* Style.css in Resources */,
 				4D79123B304FA220001BD39A /* Main.storyboard in Resources */,
 				4D791258304FA220001BD39A /* Script.js in Resources */,
@@ -911,7 +905,6 @@
 		4D791266304FA220001BD39A /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -950,7 +943,6 @@
 		4D791267304FA220001BD39A /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -1060,7 +1052,6 @@
 		4D79126D304FA220001BD39A /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -1101,7 +1092,6 @@
 		4D79126E304FA220001BD39A /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
