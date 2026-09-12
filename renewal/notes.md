@@ -1,4 +1,8 @@
 ## agent notes
+
+Current paid-account installation: see [PAID-SIGNING.md](PAID-SIGNING.md).
+Reader Extensions is installed and launches as `com.visar.readerextensions.paid`;
+older personal-team instructions below describe the previous deployment.
 This repository owns only the Apple containing app, bundle staging and deployment.
 Provider/runtime/manifest/behavior changes belong in the four source repositories.
 Read README.md for setup, signing identity and deployment procedures.
@@ -242,3 +246,114 @@ signed through the new GUI-session launcher, with all four embedded bundles
 matching their pre-move contents. No runtime, provider state, Apple bundle ID or
 phone permission change was required. This validates the existing Mac setup,
 not a claim that another machine's signing account is already provisioned.
+
+## Paid-team native packaging (September 12, in progress)
+
+`deploy.local.json` now accepts optional `hostBundleId`. The Xcode project derives
+all four extension IDs from `READER_HOST_BUNDLE_ID`; the default remains the
+original host identity. The host's Safari preference link derives its extension
+ID from its actual bundle ID. Runtime bundles are preserved byte-for-byte.
+
+For the paid account test, the local configuration selects team `65U58U86DD`
+and host `com.visar.readerextensions.paid`. This is a separate installation;
+the personal-team host and Safari extension storage remain intact. Do not remove
+the original host or assume its Safari enablement/site permissions transfer to
+new extension IDs. Use the normal sync/build/check/install/finish commands.
+New native installation is not yet verified. Packaging and renewal tests passed.
+
+Paid provisioning preflight now checks every embedded profile for the selected
+team, app identity, expiry and this phone's UDID, in addition to the existing
+signature/resource hashes. The first paid build is correctly rejected before
+installation because its profile excludes this phone. Do not bypass that check.
+
+Remote builds now pass `SIGNING_DEVICE` and select the iOS host scheme with that
+physical destination. The old target-only path remains available when invoking
+`build-on-mac.sh` without this variable, for already-enrolled-device workflows.
+On this Hackintosh, scheme discovery reports missing iOS platform support even
+though target/SDK compilation succeeds. `xcodebuild -downloadPlatform iOS
+-buildVersion 26.2` found no downloadable runtime; the unversioned command
+resolved Apple's compatible iOS 26.3.1 Universal Simulator (10.47 GB). Installation
+and subsequent physical device registration are still being verified.
+
+### Registration fallback after the failed component repair
+
+The first-launch recheck reported `Install Succeeded`, but physical scheme
+selection still rejected the phone with `iOS 26.2 is not installed`. The runtime
+download and one cache-resuming retry stalled at 99.5%; both were stopped. No
+simulator runtime was installed. No paid Reader Extensions app was installed.
+The signed paid host and all four extension products are ready in the Mac build
+folder, but the profile preflight correctly blocks installation for this UDID.
+
+The account owner can use **their own browser**, without logging into this Mac:
+Apple Developer account → Certificates, Identifiers & Profiles → Devices → +.
+Select iOS, name `Visar iPhone 12 Pro Max`, UDID
+`00008101-000639912881401E`, then Continue → Register. This is a team-level device
+registration, not a separate task for each app. Xcode already has working access
+to the paid account and generated its signing certificate.
+
+Once registered, the existing generic target/SDK build can be used. Leave
+`registerDevice` absent/false in local deploy config (the default); set it true
+only when deliberately exercising Xcode's physical scheme registration path.
+The launcher passes `SIGNING_DEVICE` only for that option. Run sync/build, wait
+for success, check, install, finish. If Xcode reuses the old wildcard profile,
+refresh only the paid team's relevant cached profile with a private recovery
+copy; do not revoke certificates or remove other teams' profiles. The preflight
+must confirm all five embedded profiles include the phone before installation.
+
+App removal is owned by the user. No apps were uninstalled by the agent, and no
+library copy should resume. The Gallery/Reader Extensions/LC renewal labels were
+disabled during the cancelled all-app reset; they remain paused. The Mac's old
+Gallery sources remain unchanged, while Reader Extensions' source mirror is now
+the paid candidate. Do not re-enable its old renewal baseline accidentally.
+
+### Interrupted-copy cleanup and fan audit, September 12
+
+Killing `devicectl device copy from` did **not** cancel its work inside the Mac's
+CoreDeviceService. After the CLI exited, CoreDeviceService still held an open
+file in `paid-native-data/GalleryReader`, and that directory grew by 446 files /
+28 MB in five seconds. Deleting it while that worker was live failed with
+`Directory not empty` as it recreated files. Stop the owning CoreDeviceService
+with SIGTERM only when no wanted device operations are active, then rediscover
+its replacement process and verify destination counts/bytes remain unchanged.
+This cancels pending operations without deleting the phone's pairing record.
+Here it stopped growth at 8,171 files / 753,723,506 bytes across five seconds.
+Do not equate a dead CLI process with a cancelled CoreDevice transfer again.
+
+The user's GUI Xcode runtime download is now the active installation route;
+leave it alone. CPU samples showed STExtractionService inside AppleArchive
+checksumming/decryption/pwrite, with an open simulator cryptex image under
+`/System/Library/AssetsV2/downloadDir/`. This is actual runtime extraction work.
+The cancelled phone copy also contributed CoreDevice/remotepairing activity.
+Audio processes were 0% CPU; AppleALC was absent, but AppleHDAController was
+loaded despite older Hackintosh notes describing a block. No audio/EFI change
+was made and no causal audio diagnosis follows from driver presence. The user
+postponed the broader fan/idle audit until setup work and downloads finish.
+
+Fresh screenshots from SSH may return only a black desktop/menu bar. A screenshot
+saved by the user with Shift–Command–3 captured the full Xcode UI correctly;
+read the newest Desktop PNG. The observed old LC Provisioning window had
+`iOS 26.2 is not installed` and a Get button. Do not change that project's team
+when the active deployment target is the separate Reader Extensions project.
+
+### GUI runtime installation resolved device selection
+
+The user's Xcode Get-button download completed. `simctl runtime list -j` first
+reported the iOS 26.3.1 universal cryptex as `Verifying`, then `xcodebuild
+-showdestinations` listed the real iPhone as an **available** iOS destination
+(previously ineligible with the missing-iOS-26.2 message). The paid account
+build is now using the physical scheme with `registerDevice: true`. Thus this
+Mac's missing-component/device-selection failure was repaired by the runtime
+installation; do not treat the portal fallback as already necessary. Actual
+profile enrollment and installation are verified in the next checkpoint.
+
+### Paid-team phone registration succeeded automatically
+
+The physical scheme build registered this iPhone using the existing Xcode
+account session. The regenerated wildcard profile `383e7aee-99ce-4be1-8789-e39be28d4894`
+(created 2026-09-12 16:21:11 UTC) includes `00008101-000639912881401E` and team
+`65U58U86DD`. No portal visit, new login, or account-owner action was required.
+The first build referenced a now-missing intermediate wildcard profile during
+Stream Viewer packaging. The completed job was unloaded and the build retried
+against the final profile; no manual cache deletion or certificate revocation.
+The earlier portal instructions remain a fallback, not a step the owner needs
+for this now-registered phone. Confirm final install below before claiming delivery.

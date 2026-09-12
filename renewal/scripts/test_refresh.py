@@ -166,6 +166,45 @@ class RenewalTests(unittest.TestCase):
             refresh.run(self.config, 'refresh')
         self.assertEqual(cached.read_bytes(), b'unrelated')
 
+    def test_paid_monthly_advances_profile_and_skips_until_next_month(self):
+        self.config['interval'] = 'monthly'
+        self.before = {key: dict(value, expires=10000000) for key, value in self.before.items()}
+        self.after = {key: dict(value, expires=20000000) for key, value in self.before.items()}
+        refresh.save(self.state_path, dict(inputHash=refresh.fingerprint(self.root, ['source']),
+                                          installedProfiles=self.before, lastSuccess=0))
+        cached = self.root / 'cache/paid.mobileprovision'
+        cached.write_bytes(b'keep the valid wildcard profile')
+        refresh.run(self.config, 'refresh')
+        self.assertFalse(cached.exists())
+        self.assertEqual(self.state()['lastSuccess'], 100000)
+        self.device_calls.clear()
+        with patch.object(refresh.time, 'time', return_value=186400):
+            refresh.run(self.config, 'refresh')
+        self.assertEqual(self.device_calls, [])
+
+    def test_monthly_reuses_shared_profile_already_renewed_in_this_batch(self):
+        self.config['interval'] = 'monthly'
+        self.after = {key: dict(value, expires=10000000) for key, value in self.after.items()}
+        cached = self.root / 'cache/shared.mobileprovision'
+        cached.write_bytes(b'new shared wildcard')
+        with patch.object(refresh, 'profile', return_value=dict(id='TEAM.*', expires=10000000, created=100000)):
+            refresh.run(self.config, 'refresh')
+        self.assertEqual(cached.read_bytes(), b'new shared wildcard')
+        self.assertEqual(self.state()['lastSuccess'], 100000)
+
+    def test_monthly_unchanged_deadlines_are_not_a_renewal(self):
+        self.config['interval'] = 'monthly'
+        self.after = self.before
+        with self.assertRaisesRegex(RuntimeError, 'later deadlines'):
+            refresh.run(self.config, 'refresh')
+        self.assertFalse(any(call[0] == 'install' for call in self.device_calls))
+
+    def test_calendar_month_clamps_at_month_end(self):
+        import datetime as dt
+        start = dt.datetime(2026, 1, 31, tzinfo=dt.timezone.utc).timestamp()
+        expected = dt.datetime(2026, 2, 28, tzinfo=dt.timezone.utc).timestamp()
+        self.assertEqual(refresh.next_due({'interval': 'monthly'}, start), expected)
+
     def test_empty_profile_set_is_not_a_renewal(self):
         self.assertFalse(refresh.advanced({}, {}, 0))
 

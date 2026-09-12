@@ -16,7 +16,7 @@ import SafariServices
 typealias PlatformViewController = NSViewController
 #endif
 
-let extensionBundleIdentifier = "com.visar.galleryreader.extensiontest.Extension"
+let extensionBundleIdentifier = (Bundle.main.bundleIdentifier ?? "com.visar.galleryreader.extensiontest") + ".Extension"
 
 class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMessageHandler {
 

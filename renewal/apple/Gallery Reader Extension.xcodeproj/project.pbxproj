@@ -43,7 +43,8 @@
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks", );
 				MARKETING_VERSION = 1.0;
 				OTHER_LDFLAGS = ("-framework", SafariServices, );
-				PRODUCT_BUNDLE_IDENTIFIER = com.visar.galleryreader.extensiontest.KMExplorer;
+				READER_HOST_BUNDLE_ID = com.visar.galleryreader.extensiontest;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(READER_HOST_BUNDLE_ID).KMExplorer";
 				PRODUCT_NAME = "KM Explorer";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
@@ -64,7 +65,8 @@
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks", );
 				MARKETING_VERSION = 1.0;
 				OTHER_LDFLAGS = ("-framework", SafariServices, );
-				PRODUCT_BUNDLE_IDENTIFIER = com.visar.galleryreader.extensiontest.KMExplorer;
+				READER_HOST_BUNDLE_ID = com.visar.galleryreader.extensiontest;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(READER_HOST_BUNDLE_ID).KMExplorer";
 				PRODUCT_NAME = "KM Explorer";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
@@ -112,7 +114,8 @@
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks", );
 				MARKETING_VERSION = 1.0;
 				OTHER_LDFLAGS = ("-framework", SafariServices, );
-				PRODUCT_BUNDLE_IDENTIFIER = com.visar.galleryreader.extensiontest.StreamViewer;
+				READER_HOST_BUNDLE_ID = com.visar.galleryreader.extensiontest;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(READER_HOST_BUNDLE_ID).StreamViewer";
 				PRODUCT_NAME = "Stream Viewer";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
@@ -133,7 +136,8 @@
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks", );
 				MARKETING_VERSION = 1.0;
 				OTHER_LDFLAGS = ("-framework", SafariServices, );
-				PRODUCT_BUNDLE_IDENTIFIER = com.visar.galleryreader.extensiontest.StreamViewer;
+				READER_HOST_BUNDLE_ID = com.visar.galleryreader.extensiontest;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(READER_HOST_BUNDLE_ID).StreamViewer";
 				PRODUCT_NAME = "Stream Viewer";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
@@ -181,7 +185,8 @@
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks", );
 				MARKETING_VERSION = 1.0;
 				OTHER_LDFLAGS = ("-framework", SafariServices, );
-				PRODUCT_BUNDLE_IDENTIFIER = com.visar.galleryreader.extensiontest.MangaReader;
+				READER_HOST_BUNDLE_ID = com.visar.galleryreader.extensiontest;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(READER_HOST_BUNDLE_ID).MangaReader";
 				PRODUCT_NAME = "Manga Reader";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
@@ -202,7 +207,8 @@
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks", );
 				MARKETING_VERSION = 1.0;
 				OTHER_LDFLAGS = ("-framework", SafariServices, );
-				PRODUCT_BUNDLE_IDENTIFIER = com.visar.galleryreader.extensiontest.MangaReader;
+				READER_HOST_BUNDLE_ID = com.visar.galleryreader.extensiontest;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(READER_HOST_BUNDLE_ID).MangaReader";
 				PRODUCT_NAME = "Manga Reader";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
@@ -855,7 +861,8 @@
 					"-framework",
 					SafariServices,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.visar.galleryreader.extensiontest.Extension;
+				READER_HOST_BUNDLE_ID = com.visar.galleryreader.extensiontest;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(READER_HOST_BUNDLE_ID).Extension";
 				PRODUCT_NAME = "Gallery Reader Extension Extension";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
@@ -888,7 +895,8 @@
 					"-framework",
 					SafariServices,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.visar.galleryreader.extensiontest.Extension;
+				READER_HOST_BUNDLE_ID = com.visar.galleryreader.extensiontest;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(READER_HOST_BUNDLE_ID).Extension";
 				PRODUCT_NAME = "Gallery Reader Extension Extension";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
@@ -927,7 +935,8 @@
 					"-framework",
 					WebKit,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.visar.galleryreader.extensiontest;
+				READER_HOST_BUNDLE_ID = com.visar.galleryreader.extensiontest;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(READER_HOST_BUNDLE_ID)";
 				PRODUCT_NAME = "Reader Extensions";
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -965,7 +974,8 @@
 					"-framework",
 					WebKit,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.visar.galleryreader.extensiontest;
+				READER_HOST_BUNDLE_ID = com.visar.galleryreader.extensiontest;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(READER_HOST_BUNDLE_ID)";
 				PRODUCT_NAME = "Reader Extensions";
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -1002,7 +1012,8 @@
 					"-framework",
 					SafariServices,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.visar.galleryreader.extensiontest.Extension;
+				READER_HOST_BUNDLE_ID = com.visar.galleryreader.extensiontest;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(READER_HOST_BUNDLE_ID).Extension";
 				PRODUCT_NAME = "Gallery Reader Extension Extension";
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
@@ -1037,7 +1048,8 @@
 					"-framework",
 					SafariServices,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.visar.galleryreader.extensiontest.Extension;
+				READER_HOST_BUNDLE_ID = com.visar.galleryreader.extensiontest;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(READER_HOST_BUNDLE_ID).Extension";
 				PRODUCT_NAME = "Gallery Reader Extension Extension";
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
@@ -1076,7 +1088,8 @@
 					"-framework",
 					WebKit,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.visar.galleryreader.extensiontest;
+				READER_HOST_BUNDLE_ID = com.visar.galleryreader.extensiontest;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(READER_HOST_BUNDLE_ID)";
 				PRODUCT_NAME = "Reader Extensions";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = macosx;
@@ -1116,7 +1129,8 @@
 					"-framework",
 					WebKit,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.visar.galleryreader.extensiontest;
+				READER_HOST_BUNDLE_ID = com.visar.galleryreader.extensiontest;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(READER_HOST_BUNDLE_ID)";
 				PRODUCT_NAME = "Reader Extensions";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = macosx;

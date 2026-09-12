@@ -1,5 +1,9 @@
 # Daily wireless renewal — Reader Extensions
 
+Current schedule: [installed-app renewal](PAID-REFRESH.md) now dispatches free
+apps daily and paid apps monthly. The individual LaunchAgents described below
+are the historical daily setup; do not enable duplicates.
+
 This is a **macOS user LaunchAgent**, not a Linux systemd service. It runs entirely
 on the signing Mac, without the Linux PC, a phone debugger, AltStore or SideStore.
 The independent app repos carry the same small stdlib runner and behavior tests;

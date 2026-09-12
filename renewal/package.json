@@ -9,6 +9,6 @@
     "stage": "node scripts/suite.mjs stage",
     "verify": "node scripts/suite.mjs verify",
     "mac": "node scripts/mac.mjs",
-    "test": "node --test tests/*.test.mjs && python3 -B scripts/test_refresh.py"
+    "test": "node --test tests/*.test.mjs && python3 -B scripts/test_refresh.py && python3 -B scripts/test_installed_refresh.py"
   }
 }
