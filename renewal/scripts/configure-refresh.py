@@ -10,6 +10,7 @@ parser.add_argument('--manga-root', required=True, type=Path)
 parser.add_argument('--gallery-root', required=True, type=Path)
 parser.add_argument('--gallery-reader-root', type=Path, help='Optional shared Hitomi/Imhen native app root')
 parser.add_argument('--ytb-root', type=Path, help='Optional single-source Ytb native app root')
+parser.add_argument('--stream-root', type=Path, help='Optional shared Stream Viewer native app root')
 parser.add_argument('--team', required=True, help='Team already used for the native readers')
 parser.add_argument('--device', required=True)
 args = parser.parse_args()
@@ -60,6 +61,17 @@ if args.ytb_root:
                              'build/Web', 'scripts/build.sh', 'scripts/build-native.py'],
                      build=['/bin/bash', 'scripts/build.sh'],
                      environment={'DEVELOPMENT_TEAM':args.team, 'SIGNING_DEVICE':args.device}))
+if args.stream_root:
+    stream = args.stream_root.resolve()
+    for provider, product in json.loads((stream / 'build/providers.json').read_text()).items():
+        apps.append(dict(name=provider, root=str(stream),
+                         app='build/' + provider + '/native/Release-iphoneos/' + product['name'] + '.app',
+                         bundleIds=[product['bundleId']]+[product['bundleId']+'.'+suffix for suffix in product['extensions']],
+                         inputs=['App', 'Shared', 'Login', 'Xvid', 'Resources', 'build/providers.json',
+                                 'build/' + provider + '/Web', 'build/' + provider + '/Xvid', 'scripts/project.py', 'scripts/build-native.py'],
+                         build=['/usr/bin/python3', 'scripts/build-native.py', provider],
+                         environment={'DEVELOPMENT_TEAM':args.team, 'SIGNING_DEVICE':args.device}))
+
 entries = []
 for app in apps:
     app.update(team=args.team, device=args.device, interval='monthly',

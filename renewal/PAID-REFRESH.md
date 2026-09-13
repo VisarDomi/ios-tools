@@ -149,3 +149,33 @@ running `scripts/configure-refresh.py`. Its single-source builder is
 `/bin/bash scripts/build.sh`; no provider parameter. The initial September 12
 renewal passed with USB connected and retained the user-imported favorites.
 See `../video/km-explorer/apps/ios/PORT.md` and the environment recovery copy.
+
+
+## Tango
+
+Tango is the twelfth paid entry: host `com.visar.Tango.paid` and embedded helper
+`com.visar.Tango.paid.Login`. Include
+`--stream-root /Users/visar/Developer/stream-viewer/apps/ios` alongside the existing
+manga, gallery, gallery-reader and Ytb roots in `configure-refresh.py`.
+The shared provider registry supplies its product/identity and the prepared Web
+bundle; `scripts/build-native.py tango` builds both targets under the inherited
+suite lock. No separate renewal scheduler is added. Keep the app's Keychain group
+unchanged when updating. See `../video/stream-viewer/apps/ios/PORT.md` and its
+verification.json for this delivery's tests.
+
+
+Tango build 7 also hosts the temporary **Xvid** Safari extension
+(`com.visar.Tango.paid.Xvid`). Its provider registry now lists both embedded
+extension suffixes; renewal signs/checks all three identities. Xvid uses the
+existing delivered Stream Viewer content.js with XVideos-only manifest scope.
+`package-xvid.mjs` stages that payload into Tango's prepared resources. Reader
+Extensions itself may be deleted from the phone after Safari's new Xvid entry
+is enabled; installed-app enumeration then skips the old host's registered build.
+
+Verified after user enablement: physical Safari clean reload had one startup,
+ready=true, no startup error and 187 viewer rows. No new video playback test was
+performed for this packaging-only move. The renewal check updated all three
+profiles to September 12, 2027; next Tango renewal is October 12, 2026. The normal
+monthly scheduler was resumed successfully and enumerated eleven installed paid
+apps, including Tango; Reader Extensions was absent and skipped. Recovery
+configuration/scripts/evidence are copied into environment/mac-renewal.
