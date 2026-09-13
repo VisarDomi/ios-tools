@@ -168,7 +168,8 @@ Tango build 7 also hosts the temporary **Xvid** Safari extension
 (`com.visar.Tango.paid.Xvid`). Its provider registry now lists both embedded
 extension suffixes; renewal signs/checks all three identities. Xvid uses the
 existing delivered Stream Viewer content.js with XVideos-only manifest scope.
-`package-xvid.mjs` stages that payload into Tango's prepared resources. Reader
+Stream Viewer's own native builder now builds/packages Xvid from its shared
+source, with no dependency on this repository's helper or staged bundle. Reader
 Extensions itself may be deleted from the phone after Safari's new Xvid entry
 is enabled; installed-app enumeration then skips the old host's registered build.
 
