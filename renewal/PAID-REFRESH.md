@@ -6,87 +6,94 @@ uses the signing profile's team and `LocalProvision` flag to distinguish free
 from paid signing. It skips apps that have been deleted and reports installed
 apps that do not yet have a registered builder.
 
-All ten current apps are paid: Gallery Reader, Reader Extensions, Asura,
-Scythe, Yaksha, QiScans, Lua, EzScans, Hitomi and Imhen. Each renews one calendar month after
-its last successful update. The user deleted free Gallery and LiveContainer;
-their daily renewal configs/jobs are retired. No free app is scheduled.
+All sixteen apps are paid (team `65U58U86DD`) and renew one calendar month after
+their last successful update. No free app is scheduled.
+
+| Config | Apps | Builder root on the Mac |
+| --- | --- | --- |
+| `asura`, `scythe`, `yaksha`, `qiscans`, `lua`, `ezmanga` | Asura, Scythe, Yaksha, QiScans, Lua, EzScans | `asura-reader` (manga-reader `apps/ios`) |
+| `gallery` | Gallery Reader | `gallery-downloader` |
+| `hitomi`, `imhentai` | Hitomi, Imhen | `gallery-reader/apps/ios` |
+| `ytb` | Ytb | `ytb/apps/ios` (km-explorer) |
+| `tango-local`, `fc2-local`, `sc-local`, `xvideos`, `porntrex`, `tango-live` | Tango local, FC2 local, SC local, Xvid, Ptrex, Tango | `video-platform/apps/ios` |
 
 One LaunchAgent checks every ten minutes and at login, so offline/locked phones
-can be retried. It builds only due apps, sequentially, retaining reading data by
+can be retried. It builds only due apps, sequentially, retaining app data by
 installing over the existing bundle ID. It does not depend on Linux or Codex.
 The Mac must be awake and logged in, with the paired phone reachable/unlocked.
 The LaunchAgent runs Python directly. The Mac's idle system sleep is disabled
 with `pmset -a sleep 0`; display sleep remains independent.
 
-## Existing builders, one scheduler
+## How a renewal works
 
 `scripts/refresh-installed.py` handles enumeration and scheduling.
-`scripts/refresh.py` is the existing Reader Extensions renewal runner with an
-optional `interval: monthly` and per-app state directory. Each successful renewal
-must extend every installed provisioning-profile deadline; merely reinstalling
-unchanged profiles does not count. Single-target apps run first and obtain a fresh
-profile. Later paid apps reuse that profile if it has newer deadlines and was
-created after their previous successful renewal. This avoids repeatedly replacing
-a shared wildcard while Xcode prepares an extension host's multiple targets.
-Failed attempts restore staged profiles and retry later.
+`scripts/refresh.py` is the per-app runner (`interval: monthly`, per-app state
+directory). Each successful renewal must extend every installed provisioning-profile
+deadline; merely reinstalling unchanged profiles does not count. Single-target
+apps run first and obtain a fresh profile. Later apps reuse that profile if it has
+newer deadlines and was created after their previous successful renewal. This
+avoids repeatedly replacing a shared wildcard while Xcode prepares a multi-target
+app (Tango has four identities). Failed attempts restore staged profiles and stay
+due without repeating successful apps. A known Xcode provisioning-cache race can
+fail one attempt; an unchanged retry succeeds.
 
-The purpose is to maximize the usable time away from the Mac. Free provisioning
-still lasts seven days, so daily renewal cannot protect a free-signed app during
-a longer trip. Current paid profiles last until September 2027, but signing
-certificates also expire and can be revoked. The current paid development
-certificate expires September 12, 2027 at 15:23:01 UTC. Profile renewal does not
-renew that certificate or the Apple membership; do not promise indefinite use.
-See [Apple's free provisioning limits](https://developer.apple.com/help/account/basics/about-your-developer-account)
+Source approval, signature/identity checks and the shared signing lock
+(`~/Library/Caches/ios-app-refresh/signing.lock`, inherited by every builder)
+apply to every run. Each config's `inputs` are fingerprinted at approval; a
+changed input blocks unattended builds until the new baseline is deployed and
+approved. There is no Git pull, automatic source migration, app-data copy,
+certificate revocation, or uninstall in this workflow.
+
+The purpose is to maximize the usable time away from the Mac. Profile renewal
+does not renew the signing certificate or the Apple membership. The current paid
+development certificate expires September 12, 2027 at 15:23:01 UTC; do not
+promise indefinite use. See
+[Apple's free provisioning limits](https://developer.apple.com/help/account/basics/about-your-developer-account)
 and [profile validity](https://developer.apple.com/documentation/technotes/tn3125-inside-code-signing-provisioning-profiles).
-
-Gallery now uses this same shared monthly runner, signed as
-`com.visar.GalleryReader.paid` with team `65U58U86DD`. Its builder sets
-`GALLERY_BUNDLE_ID` and selects the physical phone with `SIGNING_DEVICE` so its
-explicit profile includes the device. The Gallery polling runtime is unchanged;
-APNs/background work remains paused. Old free Gallery/LC runner adapters are no
-longer referenced or included in the recovery copy. Manga provider identities
-come from `build/providers.json`; no provider-specific renewal implementations
-exist.
-
-Existing source approval, signature/identity checks and the shared signing lock
-remain. Changing source deliberately requires deploying/reviewing that baseline,
-then approving it for unattended builds. There is no Git pull, automatic source
-migration, app-data copy, certificate revocation, or uninstall in this workflow.
-Xcode login, signing certificates and paid membership must remain valid; running
-this job does not renew the Apple membership or guarantee perpetual certificates.
 
 ## Paths and setup
 
-Start with [shared Mac access](/home/visar/Documents/environment/mac-access.md). Ethernet is now
-`192.168.1.198`; USB wireless remains DHCP.
-
-Mac entry point: `/Users/visar/Developer/reader-extensions`.
-Index: `refresh-apps.local.json`. Generate it using the existing project mirrors:
+Start with [shared Mac access](/home/visar/Documents/environment/mac-access.md).
+Mac entry point: `/Users/visar/Developer/ios-app-renewal`, mirrored from this
+repository (build output and `*.local.json` are Mac-only). Generate the index
+`refresh-apps.local.json` and the per-app configs under
+`build/installed-refresh/config` from the existing project mirrors:
 
 ```sh
 /usr/bin/python3 scripts/configure-refresh.py \
   --manga-root /Users/visar/Developer/asura-reader \
   --gallery-root /Users/visar/Developer/gallery-downloader \
   --gallery-reader-root /Users/visar/Developer/gallery-reader/apps/ios \
+  --ytb-root /Users/visar/Developer/ytb/apps/ios \
+  --video-root /Users/visar/Developer/video-platform/apps/ios \
   --team 65U58U86DD --device 00008101-000639912881401E
 ```
 
-This writes the ten paid per-app configs under `build/installed-refresh/config`. The configuration step does not
-build, install, or reset a successful-refresh timestamp. Run it again after
-adding a provider to the shared registry and deploying its native app.
+App identities come from each project's provider registry, so a new manga,
+gallery or Video Platform provider needs no change here: deploy its app, then
+rerun the command. It reproduces the deployed configs exactly (verified October 3)
+and does not build, install, or reset a successful-refresh timestamp.
 
-For each newly registered or deliberately changed app, use its configured
+For each newly registered or deliberately changed app, run its configured
 runner's `approve --config <app-config>` after delivering the intended baseline.
-Then run the scheduler's initial `refresh --force --wireless --config
-<absolute-index>` in a temporary GUI LaunchAgent, with USB disconnected. The GUI
-session provides Keychain access. Verify successful states and exit 0 before:
+Then run an attached wireless renewal in the GUI session, which provides Keychain
+access without a temporary LaunchAgent:
+
+```sh
+sudo -n launchctl asuser 501 sudo -n -H -u visar /usr/bin/python3 \
+  /Users/visar/Developer/ios-app-renewal/scripts/refresh-installed.py \
+  refresh --force --wireless --scheduled --config \
+  /Users/visar/Developer/ios-app-renewal/refresh-apps.local.json
+```
+
+Require exit 0 and successful states, then enable the scheduler:
 
 ```sh
 /usr/bin/python3 scripts/refresh-installed.py install --config refresh-apps.local.json
 ```
 
-The installer refuses to replace a loaded scheduler. There is no separate paid scheduler. The account interval selects when the
-existing renewal operation runs; profile checks verify that it actually renewed.
+The installer writes the LaunchAgent with this checkout's paths and refuses to
+replace a loaded scheduler.
 
 ## Inspect and maintain
 
@@ -99,127 +106,22 @@ launchctl bootout gui/501/com.visar.installed-apps-refresh
 launchctl bootstrap gui/501 "$HOME/Library/LaunchAgents/com.visar.installed-apps-refresh.plist"
 ```
 
-The scheduler's bounded log is `build/installed-refresh/last-check.log`.
-Paid per-app state/build logs are under `build/installed-refresh/<name>`.
-All ten current apps use this shared state location; old Gallery/LC daily state
-is historical only. Success is
-recorded only after installation; a failed app remains due without repeating
-successful apps. The scheduler's periodic attempt log captures offline errors.
+The scheduler's bounded log is `build/installed-refresh/last-check.log`; per-app
+state and build logs are under `build/installed-refresh/<config>`. Success is
+recorded only after installation. The recovery copy of the scripts, configs and
+LaunchAgent is `/home/visar/Documents/environment/mac-renewal`; refresh it
+whenever renewal scripts or configuration change.
 
-## Verification
+## Paid signing lessons
 
-September 12, 2026: all seven paid apps already passed physical wireless renewal
-and installation. Their success timestamps were migrated into the unified
-scheduler after verifying source hashes and profile UUIDs; no success was
-invented during migration. The earlier multi-target wildcard problem came from replacing the same profile
-for every app. The shared-profile reuse rule avoids that repeated regeneration.
-
-Historical verification before Gallery migration: the nine-app wireless renewal finished at
-17:17 UTC with exit 0. All nine successful states recorded `localNetwork`, later
-profile deadlines and no error. The scheduler was enabled at 17:17 UTC; its
-immediate check enumerated the nine apps and skipped their builds because all
-were current. That earlier configuration scheduled daily renewals for September
-13; those daily entries have since been retired. Current monthly renewals are
-due October 12. The obsolete individual labels remain disabled, and temporary test
-jobs were unloaded. The superseded paid-only prototype was removed.
-
-Evidence on the Mac: `build/installed-refresh/wireless-verification.json` plus
-per-app states/build logs. Current profile expiry: free apps September 19, 2026;
-paid apps September 12, 2027. Tests passed: 17 renewal behavior checks, two
-installed-app scheduler checks, three packaging checks, and four shared-provider
-builder/lock checks.
-
-## Paid Gallery migration, September 12
-
-Gallery's paid install, launch and wireless monthly renewal passed. Its profile
-advanced from 2027-09-12 17:25:34 UTC to 17:27:50 UTC. Phone inventory confirmed
-the old free Gallery and LC were gone. The active index now contains eight paid
-apps, and the environment recovery copy includes paid Gallery instead of the
-two free adapters. Historical nine-app test evidence above predates this change.
-
-Hitomi/Imhen use the shared gallery-reader `apps/ios/providers.json` registry and
-`build-provider.py` builder. Prepared per-provider Web bundles are renewal inputs;
-the shared Resources/Web staging directory is an output, never an approved input.
-The builder shares the existing inherited signing lock.
-
-## Ytb
-
-The standalone Ytb app (`com.visar.Ytb.paid`) is the eleventh paid entry. Add
-`--ytb-root /Users/visar/Developer/ytb/apps/ios` alongside the other roots when
-running `scripts/configure-refresh.py`. Its single-source builder is
-`/bin/bash scripts/build.sh`; no provider parameter. The initial September 12
-renewal passed with USB connected and retained the user-imported favorites.
-See `../video/km-explorer/apps/ios/PORT.md` and the environment recovery copy.
-
-
-## Tango
-
-Tango is the twelfth paid entry: host `com.visar.Tango.paid` and embedded helper
-`com.visar.Tango.paid.Login`. Include
-`--stream-root /Users/visar/Developer/stream-viewer/apps/ios` alongside the existing
-manga, gallery, gallery-reader and Ytb roots in `configure-refresh.py`.
-The shared provider registry supplies its product/identity and the prepared Web
-bundle; `scripts/build-native.py tango` builds both targets under the inherited
-suite lock. No separate renewal scheduler is added. Keep the app's Keychain group
-unchanged when updating. See `../video/stream-viewer/apps/ios/PORT.md` and its
-verification.json for this delivery's tests.
-
-
-Tango build 7 also hosts the temporary **Xvid** Safari extension
-(`com.visar.Tango.paid.Xvid`). Its provider registry now lists both embedded
-extension suffixes; renewal signs/checks all three identities. Xvid uses the
-existing delivered Stream Viewer content.js with XVideos-only manifest scope.
-Stream Viewer's own native builder now builds/packages Xvid from its shared
-source, with no dependency on this repository's helper or staged bundle. Reader
-Extensions itself may be deleted from the phone after Safari's new Xvid entry
-is enabled; installed-app enumeration then skips the old host's registered build.
-
-Verified after user enablement: physical Safari clean reload had one startup,
-ready=true, no startup error and 187 viewer rows. No new video playback test was
-performed for this packaging-only move. The renewal check updated all three
-profiles to September 12, 2027; next Tango renewal is October 12, 2026. The normal
-monthly scheduler was resumed successfully and enumerated eleven installed paid
-apps, including Tango; Reader Extensions was absent and skipped. Recovery
-configuration/scripts/evidence are copied into environment/mac-renewal.
-
-Tango build 14 adds a second online extension, **Ptrex**
-(`com.visar.Tango.paid.Ptrex`). `configure-refresh.py` now derives the Tango
-entry's inputs from the registry's extensions (each extension's source folder,
-plus `build/<provider>/<Name>` for every non-Login extension), so a future
-extension needs no change here. Renewal signs/checks all four identities; the
-October 2 check renewed them to October 2, 2027 after one unchanged retry of the
-known provisioning-cache race.
-
-Tango build 15 (October 2) removed the Xvid and Ptrex extensions again: they are
-standalone apps now (below). Tango's entry is back to the host and Login identities.
-
-## Tango moved into Video Platform (October 2)
-
-Stream Viewer was merged into video-platform, and **Tango** (`com.visar.Tango.paid`,
-with `.Login`, `.FC2Live` and `.SCLive`) now builds from the shared host as its
-`tango-live` entry (below). The `--stream-root` entry (`tango.json`) is retired: it was
-removed from the Mac's index and kept in that day's config backup. Do not pass
-`--stream-root` again.
-
-## Video Platform provider apps
-
-**Tango local**, **FC2 local**, **SC local**, **Xvid**, **Ptrex** and **Tango**
-(`com.visar.TangoLocal.paid`, `com.visar.FC2Local.paid`, `com.visar.SCLocal.paid`,
-`com.visar.Xvid.paid`, `com.visar.Ptrex.paid`, `com.visar.Tango.paid`) come from one shared host in
-`video-platform/apps/ios`, registered with `--video-root
-/Users/visar/Developer/video-platform/apps/ios`. Local entries are named
-`tango-local`, `fc2-local` and `sc-local` so they never collide with the live Tango
-entry; the online entries are `xvideos`, `porntrex` and `tango-live` and also depend on
-their staged `build/<provider>/content.js`, so the Mac needs no Node. Every entry depends
-on `Shared` (the Keychain login code is compiled into each app); `tango-live` also on
-`Login`, `Extension` and the staged `build/tango-live/FC2Live` and `SCLive` extensions,
-and it lists all four Tango identities. Each builds with
-`scripts/build-provider.py <provider>` under the inherited suite lock.
-
-On October 2 only these configs were written into the Mac's existing index.
-A full `configure-refresh.py` rerun was tried and rolled back: it reproduced the
-reader, gallery, Ytb and stream configs but changed the manga apps' inputs
-(the deployed configs list `Resources/Info.plist`, `Resources/Native` and
-`build/<name>/Web` instead of `Resources`, and omit `Package.resolved`) and
-Tango's. The deployed configs remain authoritative; reconcile the generator
-before relying on a full rerun.
+- Installation failing with `0xe8008012` means the phone is missing from the
+  profile (device not registered), not the free three-app cap. Build for the
+  physical phone (builders pass `SIGNING_DEVICE`/`DEVELOPMENT_DEVICE`) so
+  automatic provisioning registers it with the existing Xcode login.
+- A physical destination rejected with `iOS <version> is not installed` needs the
+  matching iOS platform support from Xcode's toolbar **Get**; afterwards
+  `xcodebuild -showdestinations` lists the phone.
+- A regenerated profile can go stale during packaging; rebuild. Never delete
+  profiles or revoke certificates as a shortcut.
+- New Safari extension identities must be enabled (and their sites allowed) in
+  iOS Settings after the first install.

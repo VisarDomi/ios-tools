@@ -10,7 +10,6 @@ parser.add_argument('--manga-root', required=True, type=Path)
 parser.add_argument('--gallery-root', required=True, type=Path)
 parser.add_argument('--gallery-reader-root', type=Path, help='Optional shared Hitomi/Imhen native app root')
 parser.add_argument('--ytb-root', type=Path, help='Optional single-source Ytb native app root')
-parser.add_argument('--stream-root', type=Path, help='Retired: Tango now builds from --video-root (tango-live)')
 parser.add_argument('--video-root', type=Path, help='Optional Video Platform provider apps root')
 parser.add_argument('--team', required=True, help='Team already used for the native readers')
 parser.add_argument('--device', required=True)
@@ -18,19 +17,14 @@ args = parser.parse_args()
 root = Path(__file__).resolve().parents[1]
 manga = args.manga_root.resolve()
 registry = json.loads((manga / 'build/providers.json').read_text())
-host = 'com.visar.readerextensions.paid'
-apps = [dict(name='reader-extensions', root=str(root), app='build/Debug-iphoneos/Reader Extensions.app',
-             bundleIds=[host + suffix for suffix in ['', '.Extension', '.KMExplorer', '.MangaReader', '.StreamViewer']],
-             inputs=['apple', 'dist/gallery-reader-extension', 'dist/km-explorer-extension',
-                     'dist/manga-reader-extension', 'dist/stream-viewer-extension', 'scripts/build-on-mac.sh'],
-             build=['/bin/bash', 'scripts/build-on-mac.sh'],
-             environment={'SIGNING_TEAM': args.team, 'READER_HOST_BUNDLE_ID': host})]
+apps = []
 for key, provider in registry.items():
     apps.append(dict(name=key, root=str(manga),
                      app='build/' + key + '.paid/Release-iphoneos/' + provider['productName'] + '.app',
                      bundleIds=[provider['bundleIdentifier'] + '.paid'],
-                     inputs=['AsuraReader', 'AsuraReader.xcodeproj', 'Resources', 'build/providers.json',
-                             'Package.swift', 'Package.resolved', 'scripts/build-guest.py'],
+                     # Fingerprint the provider's own Web bundle, never the shared Resources staging folder.
+                     inputs=['AsuraReader', 'AsuraReader.xcodeproj', 'Resources/Info.plist', 'Resources/Native',
+                             'build/' + key + '/Web', 'build/providers.json', 'Package.swift', 'scripts/build-guest.py'],
                      build=['/usr/bin/python3', 'scripts/build-guest.py', key],
                      environment={'DEVELOPMENT_TEAM': args.team, 'DEVELOPMENT_DEVICE': args.device,
                                   'READER_BUNDLE_SUFFIX': '.paid'}))
@@ -62,18 +56,6 @@ if args.ytb_root:
                              'build/Web', 'scripts/build.sh', 'scripts/build-native.py'],
                      build=['/bin/bash', 'scripts/build.sh'],
                      environment={'DEVELOPMENT_TEAM':args.team, 'SIGNING_DEVICE':args.device}))
-if args.stream_root:
-    stream = args.stream_root.resolve()
-    for provider, product in json.loads((stream / 'build/providers.json').read_text()).items():
-        apps.append(dict(name=provider, root=str(stream),
-                         app='build/' + provider + '/native/Release-iphoneos/' + product['name'] + '.app',
-                         bundleIds=[product['bundleId']]+[product['bundleId']+'.'+suffix for suffix in product['extensions']],
-                         # Each extension has a source folder; online ones (Xvid, Ptrex) also a prepared payload.
-                         inputs=['App', 'Shared', *product['extensions'], 'Resources', 'build/providers.json', 'build/' + provider + '/Web',
-                                 *['build/' + provider + '/' + suffix for suffix in product['extensions'] if suffix != 'Login'],
-                                 'scripts/project.py', 'scripts/build-native.py'],
-                         build=['/usr/bin/python3', 'scripts/build-native.py', provider],
-                         environment={'DEVELOPMENT_TEAM':args.team, 'SIGNING_DEVICE':args.device}))
 if args.video_root:
     video = args.video_root.resolve()
     # Tango/FC2/SC local, Xvid, Ptrex and Tango (tango-live) share one host. Local entries are named

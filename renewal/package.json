@@ -1,14 +1,9 @@
 {
-  "name": "reader-extensions",
+  "name": "ios-app-renewal",
   "version": "1.0.0",
   "private": true,
-  "type": "module",
-  "description": "Apple containing app and packaging tools for four independent Safari extensions",
+  "description": "Monthly Mac scheduler that renews the paid-signed iPhone apps with their existing builders",
   "scripts": {
-    "build": "node scripts/suite.mjs build",
-    "stage": "node scripts/suite.mjs stage",
-    "verify": "node scripts/suite.mjs verify",
-    "mac": "node scripts/mac.mjs",
-    "test": "node --test tests/*.test.mjs && python3 -B scripts/test_refresh.py && python3 -B scripts/test_installed_refresh.py"
+    "test": "python3 -B scripts/test_refresh.py && python3 -B scripts/test_installed_refresh.py"
   }
 }
