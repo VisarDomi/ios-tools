@@ -6,16 +6,19 @@ uses the signing profile's team and `LocalProvision` flag to distinguish free
 from paid signing. It skips apps that have been deleted and reports installed
 apps that do not yet have a registered builder.
 
-All sixteen apps are paid (team `65U58U86DD`) and renew one calendar month after
-their last successful update. No free app is scheduled.
+All apps are paid (team `65U58U86DD`) and renew one calendar month after their
+last successful update. No free app is scheduled. This repository holds only the
+scheduler, the per-app runner and the config generator. Each app repository lists
+its own apps (name, bundle IDs, build inputs, builder command) in
+`apps/ios/scripts/renewal.py`, which runs on its Mac mirror:
 
-| Config | Apps | Builder root on the Mac |
-| --- | --- | --- |
-| `asura`, `scythe`, `yaksha`, `qiscans`, `lua`, `ezmanga` | Asura, Scythe, Yaksha, QiScans, Lua, EzScans | `asura-reader` (manga-reader `apps/ios`) |
-| `gallery` | Gallery Reader | `gallery-downloader` |
-| `hitomi`, `imhentai` | Hitomi, Imhen | `gallery-reader/apps/ios` |
-| `ytb` | Ytb | `ytb/apps/ios` (km-explorer) |
-| `tango-local`, `fc2-local`, `sc-local`, `xvideos`, `porntrex`, `tango-live` | Tango local, FC2 local, SC local, Xvid, Ptrex, Tango | `video-platform/apps/ios` |
+| Repository | Mac mirror (`/Users/visar/Developer/…`) |
+| --- | --- |
+| manga-reader | `asura-reader` |
+| gallery-downloader | `gallery-downloader/apps/ios` |
+| gallery-reader | `gallery-reader/apps/ios` |
+| km-explorer | `ytb/apps/ios` |
+| video-platform | `video-platform/apps/ios` |
 
 One LaunchAgent checks every ten minutes and at login, so offline/locked phones
 can be retried. It builds only due apps, sequentially, retaining app data by
@@ -33,7 +36,7 @@ deadline; merely reinstalling unchanged profiles does not count. Single-target
 apps run first and obtain a fresh profile. Later apps reuse that profile if it has
 newer deadlines and was created after their previous successful renewal. This
 avoids repeatedly replacing a shared wildcard while Xcode prepares a multi-target
-app (Tango has four identities). Failed attempts restore staged profiles and stay
+app (an app with embedded extensions). Failed attempts restore staged profiles and stay
 due without repeating successful apps. A known Xcode provisioning-cache race can
 fail one attempt; an unchanged retry succeeds.
 
@@ -57,22 +60,22 @@ Start with [shared Mac access](/home/visar/Documents/environment/mac-access.md).
 Mac entry point: `/Users/visar/Developer/ios-app-renewal`, mirrored from this
 repository (build output and `*.local.json` are Mac-only). Generate the index
 `refresh-apps.local.json` and the per-app configs under
-`build/installed-refresh/config` from the existing project mirrors:
+`build/installed-refresh/config` from the repositories' mirrors, in this order:
 
 ```sh
+D=/Users/visar/Developer
 /usr/bin/python3 scripts/configure-refresh.py \
-  --manga-root /Users/visar/Developer/asura-reader \
-  --gallery-root /Users/visar/Developer/gallery-downloader \
-  --gallery-reader-root /Users/visar/Developer/gallery-reader/apps/ios \
-  --ytb-root /Users/visar/Developer/ytb/apps/ios \
-  --video-root /Users/visar/Developer/video-platform/apps/ios \
+  $D/asura-reader $D/gallery-downloader/apps/ios $D/gallery-reader/apps/ios \
+  $D/ytb/apps/ios $D/video-platform/apps/ios \
   --team 65U58U86DD --device 00008101-000639912881401E
 ```
 
-App identities come from each project's provider registry, so a new manga,
-gallery or Video Platform provider needs no change here: deploy its app, then
-rerun the command. It reproduces the deployed configs exactly (verified October 3)
-and does not build, install, or reset a successful-refresh timestamp.
+Each mirror's `scripts/renewal.py` prints that repository's entries; the generator
+adds the team, device, monthly interval and state paths, and rejects duplicate
+names. A new provider or app changes only its own repository: deploy it, then
+rerun the command. A new repository adds its mirror here. The command reproduced
+the deployed configs byte for byte (verified October 3) and does not build,
+install, or reset a successful-refresh timestamp.
 
 For each newly registered or deliberately changed app, run its configured
 runner's `approve --config <app-config>` after delivering the intended baseline.
