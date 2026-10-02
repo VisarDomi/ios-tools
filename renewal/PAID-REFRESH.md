@@ -189,3 +189,21 @@ plus `build/<provider>/<Name>` for every non-Login extension), so a future
 extension needs no change here. Renewal signs/checks all four identities; the
 October 2 check renewed them to October 2, 2027 after one unchanged retry of the
 known provisioning-cache race.
+
+## Video Platform local apps
+
+**Tango local**, **FC2 local** and **SC local** (`com.visar.TangoLocal.paid`,
+`com.visar.FC2Local.paid`, `com.visar.SCLocal.paid`) come from one shared host in
+`video-platform/apps/ios`, registered with `--video-root
+/Users/visar/Developer/video-platform/apps/ios`. Their entries are named
+`tango-local`, `fc2-local` and `sc-local` so they never collide with the live
+Tango entry. Each builds with `scripts/build-provider.py <provider>` under the
+inherited suite lock.
+
+On October 2 only those three configs were added to the Mac's existing index.
+A full `configure-refresh.py` rerun was tried and rolled back: it reproduced the
+reader, gallery, Ytb and stream configs but changed the manga apps' inputs
+(the deployed configs list `Resources/Info.plist`, `Resources/Native` and
+`build/<name>/Web` instead of `Resources`, and omit `Package.resolved`) and
+Tango's. The deployed configs remain authoritative; reconcile the generator
+before relying on a full rerun.

@@ -11,6 +11,7 @@ parser.add_argument('--gallery-root', required=True, type=Path)
 parser.add_argument('--gallery-reader-root', type=Path, help='Optional shared Hitomi/Imhen native app root')
 parser.add_argument('--ytb-root', type=Path, help='Optional single-source Ytb native app root')
 parser.add_argument('--stream-root', type=Path, help='Optional shared Stream Viewer native app root')
+parser.add_argument('--video-root', type=Path, help='Optional Video Platform local-provider apps root')
 parser.add_argument('--team', required=True, help='Team already used for the native readers')
 parser.add_argument('--device', required=True)
 args = parser.parse_args()
@@ -73,6 +74,16 @@ if args.stream_root:
                                  'scripts/project.py', 'scripts/build-native.py'],
                          build=['/usr/bin/python3', 'scripts/build-native.py', provider],
                          environment={'DEVELOPMENT_TEAM':args.team, 'SIGNING_DEVICE':args.device}))
+if args.video_root:
+    video = args.video_root.resolve()
+    # Tango local, FC2 local and SC local share one host; names avoid the live Tango entry.
+    for provider, product in json.loads((video / 'providers.json').read_text()).items():
+        apps.append(dict(name=provider + '-local', root=str(video),
+                         app='build/' + provider + '/native/Release-iphoneos/' + product['product'] + '.app',
+                         bundleIds=[product['bundleId']],
+                         inputs=['LocalVideos', 'providers.json', 'scripts/project.py', 'scripts/build-provider.py'],
+                         build=['/usr/bin/python3', 'scripts/build-provider.py', provider],
+                         environment={'DEVELOPMENT_TEAM': args.team, 'SIGNING_DEVICE': args.device}))
 
 entries = []
 for app in apps:
