@@ -13,7 +13,7 @@ import {
     runCaseMatrix,
     runSession,
     sleep,
-} from "userscript-ios-test/controller";
+} from "ios-tools/controller";
 ```
 
 ## `createController(options)`

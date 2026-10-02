@@ -18,7 +18,7 @@ const configIndex = args.indexOf("--config");
 const configPath = configIndex === -1 ? "tests/ios/config.json" : args[configIndex + 1];
 
 if (!["server", "setup"].includes(action)) {
-    console.error("Usage: userscript-ios-test <server|setup> [--config path]");
+    console.error("Usage: ios-tools <server|setup> [--config path]");
     process.exit(1);
 }
 if (!configPath) {

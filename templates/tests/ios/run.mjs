@@ -8,7 +8,7 @@ import {
     parseSelection,
     phaseBannerScript,
     runBuildSteps,
-} from "userscript-ios-test/controller";
+} from "ios-tools/controller";
 
 const root = resolve(import.meta.dirname, "../..");
 const config = JSON.parse(

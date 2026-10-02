@@ -46,7 +46,7 @@ add this development dependency:
 ```json
 {
   "devDependencies": {
-    "userscript-ios-test": "file:../../userscript-ios-test"
+    "ios-tools": "file:../../ios-tools"
   }
 }
 ```
@@ -225,7 +225,7 @@ Run:
 4. manual universal-debugger round trip on foreground `example.com`:
 
    ```bash
-   cd /home/visar/Documents/work/userscript-ios-test
+   cd /home/visar/Documents/work/ios-tools
    npm run manual:probe
    ```
 

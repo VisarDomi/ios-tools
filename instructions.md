@@ -16,7 +16,7 @@ Read these files before implementing a new suite:
 
 ## Ownership boundary
 
-Keep these concerns in `userscript-ios-test`:
+Keep these concerns in `ios-tools`:
 
 - HTTPS bridge and certificate handling;
 - universal phone debugger;

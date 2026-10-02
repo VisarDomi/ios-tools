@@ -1,7 +1,7 @@
 {
-  "name": "userscript-ios-test",
+  "name": "ios-tools",
   "version": "6",
-  "description": "Shared iOS Safari test transport and controller for userscripts",
+  "description": "Shared iOS tools: Safari userscript test transport and controller, app inspector and per-repo app renewal",
   "type": "module",
   "scripts": {
     "build": "node increase.js && node scripts/build-debugger.mjs",
@@ -12,7 +12,7 @@
     "./controller": "./src/controller.mjs"
   },
   "bin": {
-    "userscript-ios-test": "./bin/cli.mjs"
+    "ios-tools": "./bin/cli.mjs"
   },
   "engines": {
     "node": ">=22"

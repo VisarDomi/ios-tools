@@ -53,7 +53,7 @@ The phone and computer must be on the same LAN.
    `tests/ios/config.json`:
 
    ```bash
-   npx userscript-ios-test setup
+   npx ios-tools setup
    ```
 
    The command prints the CA profile URL and debugger URL for the current LAN
@@ -202,7 +202,7 @@ import { resolve } from "node:path";
 import {
     createController,
     createSession,
-} from "userscript-ios-test/controller";
+} from "ios-tools/controller";
 
 const root = process.cwd();
 const controller = createController({
