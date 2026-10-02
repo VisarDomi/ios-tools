@@ -15,7 +15,8 @@ One LaunchAgent checks every ten minutes and at login, so offline/locked phones
 can be retried. It builds only due apps, sequentially, retaining reading data by
 installing over the existing bundle ID. It does not depend on Linux or Codex.
 The Mac must be awake and logged in, with the paired phone reachable/unlocked.
-`caffeinate` holds the Mac awake only during an attempt.
+The LaunchAgent runs Python directly. The Mac's idle system sleep is disabled
+with `pmset -a sleep 0`; display sleep remains independent.
 
 ## Existing builders, one scheduler
 
