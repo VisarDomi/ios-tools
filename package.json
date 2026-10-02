@@ -6,7 +6,8 @@
   "scripts": {
     "build": "node increase.js && node scripts/build-debugger.mjs",
     "manual:probe": "node scripts/manual-foreground-probe.mjs",
-    "test": "node --test"
+    "test": "node --test && npm run test:renewal",
+    "test:renewal": "cd renewal && python3 -B scripts/test_refresh.py && python3 -B scripts/test_installed_refresh.py && python3 -B scripts/test_configure_refresh.py"
   },
   "exports": {
     "./controller": "./src/controller.mjs"

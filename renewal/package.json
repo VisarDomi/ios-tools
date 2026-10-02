@@ -1,9 +1,0 @@
-{
-  "name": "ios-app-renewal",
-  "version": "1.0.0",
-  "private": true,
-  "description": "Monthly Mac scheduler that renews the paid-signed iPhone apps with their existing builders",
-  "scripts": {
-    "test": "python3 -B scripts/test_refresh.py && python3 -B scripts/test_installed_refresh.py && python3 -B scripts/test_configure_refresh.py"
-  }
-}

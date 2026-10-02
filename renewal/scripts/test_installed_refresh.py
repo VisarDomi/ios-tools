@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 spec=importlib.util.spec_from_file_location('installed',Path(__file__).with_name('refresh-installed.py'))
 m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+m.STORE=Path('/nonexistent/ios-tools-test-store')  # never read this Mac's real registrations
 
 class InstalledTests(unittest.TestCase):
     def test_installed_free_due_paid_not_due_deleted_skipped(self):
@@ -23,6 +24,20 @@ class InstalledTests(unittest.TestCase):
             m.refresh(dict(apps=items))
             self.assertEqual(run.call_count,1)
             self.assertEqual(run.call_args.args[0][1],'free-builder')
+
+    def test_reports_installed_apps_no_repository_renews(self):
+        import json, tempfile
+        store=Path(tempfile.mkdtemp())
+        other=store/'other'; other.mkdir()
+        (other/'mine.json').write_text(json.dumps(dict(bundleIds=['other.app'])))
+        (other/'apps.json').write_text(json.dumps(dict(apps=[dict(config=str(other/'mine.json'))])))
+        inventory={'apps':[dict(bundleIdentifier=key,name=key,builtByDeveloper=True) for key in ['other.app','orphan.app']]}
+        with patch.object(m,'STORE',store), patch.object(m,'device_json',return_value=inventory), \
+             patch('builtins.print') as output:
+            m.refresh(dict(apps=[]))
+        printed=[call.args[0] for call in output.call_args_list]
+        self.assertIn('No repository renews installed app: orphan.app',printed)
+        self.assertNotIn('No repository renews installed app: other.app',printed)
 
     def test_changed_signing_account_is_not_silently_deployed(self):
         app=dict(root='/app',app='app',bundleIds=['app'],team='EXPECTED',interval='monthly')
