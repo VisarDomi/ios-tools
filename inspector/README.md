@@ -6,11 +6,14 @@ screenshot, cookie flags (never values) and evaluation results. Each app
 repository keeps its own snapshot expression in
 `apps/ios/scripts/inspector-snapshot.js`.
 
-Set up the Mac's inspector Python once, in this folder (it is not committed):
+Set up the Mac's inspector Python once, in this folder (it is not committed).
+`requirements.txt` pins the tested versions; the Mac's Python 3.9 needs the
+prebuilt `cryptography` wheel:
 
 ```sh
 /usr/bin/python3 -m venv ~/Developer/ios-tools/inspector/.venv
-~/Developer/ios-tools/inspector/.venv/bin/pip install pymobiledevice3==11.9.2
+~/Developer/ios-tools/inspector/.venv/bin/pip install --prefer-binary \
+  --only-binary=cryptography -r ~/Developer/ios-tools/inspector/requirements.txt
 ```
 
 The phone's UDID comes from `ios-tools.local.json` at the repository root
