@@ -6,7 +6,7 @@ uses the signing profile's team and `LocalProvision` flag to distinguish free
 from paid signing. It skips apps that have been deleted and reports installed
 apps that do not yet have a registered builder.
 
-All apps are paid (team `65U58U86DD`) and renew one calendar month after their
+All apps are signed with one paid team and renew one calendar month after their
 last successful update. No free app is scheduled. This repository holds only the
 scheduler, the per-app runner and the config generator. Each app repository lists
 its own apps (name, bundle IDs, build inputs, builder command) in
@@ -58,23 +58,23 @@ and [profile validity](https://developer.apple.com/documentation/technotes/tn312
 
 Start with [shared Mac access](/home/visar/Documents/environment/mac-access.md).
 Mac entry point: `/Users/visar/Developer/ios-app-renewal`, mirrored from this
-repository (build output and `*.local.json` are Mac-only). Generate the index
-`refresh-apps.local.json` and the per-app configs under
-`build/installed-refresh/config` from the repositories' mirrors, in this order:
+repository. Build output and `*.local.json` files are Mac-only and never committed.
+
+On a fresh clone, copy `renewal.example.json` to `renewal.local.json` and fill in
+the signing team ID (Xcode → Settings → Accounts), the phone's UDID (shown in
+parentheses by `xcrun xctrace list devices`; not the CoreDevice identifier) and the
+Mac mirrors, in the order they should be listed. Then generate the index `refresh-apps.local.json` and the per-app configs
+under `build/installed-refresh/config`:
 
 ```sh
-D=/Users/visar/Developer
-/usr/bin/python3 scripts/configure-refresh.py \
-  $D/asura-reader $D/gallery-downloader/apps/ios $D/gallery-reader/apps/ios \
-  $D/ytb/apps/ios $D/video-platform/apps/ios \
-  --team 65U58U86DD --device 00008101-000639912881401E
+/usr/bin/python3 scripts/configure-refresh.py
 ```
 
 Each mirror's `scripts/renewal.py` prints that repository's entries; the generator
 adds the team, device, monthly interval and state paths, and rejects duplicate
 names. A new provider or app changes only its own repository: deploy it, then
-rerun the command. A new repository adds its mirror here. The command reproduced
-the deployed configs byte for byte (verified October 3) and does not build,
+rerun the command. A new repository adds its mirror to `sources` in
+`renewal.local.json`. The command reproduced the deployed configs byte for byte (verified October 3) and does not build,
 install, or reset a successful-refresh timestamp.
 
 For each newly registered or deliberately changed app, run its configured

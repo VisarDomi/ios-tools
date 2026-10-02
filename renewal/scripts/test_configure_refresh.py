@@ -33,8 +33,13 @@ class ConfigureRefreshTest(unittest.TestCase):
         return str(self.home / name)
 
     def configure(self, *sources):
-        return subprocess.run([sys.executable, str(self.home / 'renewal/scripts/configure-refresh.py'), *sources,
-                               '--team', 'TEAM', '--device', 'DEVICE'], capture_output=True, text=True)
+        (self.home / 'renewal/renewal.local.json').write_text(
+            json.dumps(dict(team='TEAM', device='DEVICE', sources=list(sources))))
+        return self.run_generator()
+
+    def run_generator(self):
+        return subprocess.run([sys.executable, str(self.home / 'renewal/scripts/configure-refresh.py')],
+                              capture_output=True, text=True)
 
     def test_writes_each_listed_app_in_source_order(self):
         result = self.configure(self.source('a', [app('one'), app('two')]), self.source('b', [app('three')]))
@@ -52,6 +57,14 @@ class ConfigureRefreshTest(unittest.TestCase):
         extra = self.configure(self.source('c', [app('two', team='OTHER')]))
         self.assertIn('without exactly these fields', extra.stderr)
         self.assertFalse((self.home / 'renewal/refresh-apps.local.json').exists())
+
+    def test_explains_missing_local_config(self):
+        result = self.run_generator()
+        self.assertIn('copy renewal.example.json', result.stderr)
+
+    def test_example_config_has_every_setting(self):
+        example = json.loads((SCRIPTS.parent / 'renewal.example.json').read_text())
+        self.assertEqual(sorted(example), ['device', 'sources', 'team'])
 
 
 if __name__ == '__main__':
