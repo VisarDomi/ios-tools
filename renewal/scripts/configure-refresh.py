@@ -10,7 +10,7 @@ parser.add_argument('--manga-root', required=True, type=Path)
 parser.add_argument('--gallery-root', required=True, type=Path)
 parser.add_argument('--gallery-reader-root', type=Path, help='Optional shared gallery-a/gallery-b native app root')
 parser.add_argument('--ytb-root', type=Path, help='Optional single-source Ytb native app root')
-parser.add_argument('--stream-root', type=Path, help='Optional shared Stream Viewer native app root')
+parser.add_argument('--stream-root', type=Path, help='Retired: TsLive now builds from --video-root (tslive-live)')
 parser.add_argument('--video-root', type=Path, help='Optional Video Platform provider apps root')
 parser.add_argument('--team', required=True, help='Team already used for the native readers')
 parser.add_argument('--device', required=True)
@@ -76,16 +76,20 @@ if args.stream_root:
                          environment={'DEVELOPMENT_TEAM':args.team, 'SIGNING_DEVICE':args.device}))
 if args.video_root:
     video = args.video_root.resolve()
-    # TsLive/LADDER/FMP4 local and the Xvid/VHost apps share one host. Local entries are named
-    # <provider>-local so they never collide with the live TsLive entry; online apps also
-    # depend on their staged Safari-extension content script.
+    # TsLive/LADDER/FMP4 local, Xvid, VHost and TsLive (tslive-live) share one host. Local entries are named
+    # <provider>-local so they never collide with TsLive; online apps also depend on their staged content
+    # script, and TsLive on its Login helper and staged LADDER live/FMP4 live web extensions.
     for provider, product in json.loads((video / 'providers.json').read_text()).items():
         online = bool(product.get('hosts'))
+        extensions = product.get('extensions', [])
+        web = product.get('webExtensions', {})
         apps.append(dict(name=provider if online else provider + '-local', root=str(video),
                          app='build/' + provider + '/native/Release-iphoneos/' + product['product'] + '.app',
-                         bundleIds=[product['bundleId']],
-                         inputs=['VideoApp', 'providers.json', 'scripts/project.py', 'scripts/build-provider.py']
-                                + (['build/' + provider + '/content.js'] if online else []),
+                         bundleIds=[product['bundleId']] + [product['bundleId'] + '.' + suffix for suffix in extensions],
+                         inputs=['VideoApp', 'Shared', 'providers.json', 'scripts/project.py', 'scripts/build-provider.py']
+                                + (['build/' + provider + '/content.js'] if online else [])
+                                + (['Login'] if 'Login' in extensions else []) + (['Extension'] if web else [])
+                                + ['build/' + provider + '/' + suffix for suffix in web],
                          build=['/usr/bin/python3', 'scripts/build-provider.py', provider],
                          environment={'DEVELOPMENT_TEAM': args.team, 'SIGNING_DEVICE': args.device}))
 
