@@ -34,7 +34,7 @@ async def main():
     parser.add_argument('--bundle', action='append', required=True, help='App bundle ID (repeatable)')
     parser.add_argument('--url-prefix', default='', help="Only pages whose URL starts with this, e.g. ytb://app/")
     parser.add_argument('--snapshot-file', help="The repository's page snapshot expression (JSON.stringify(...))")
-    parser.add_argument('--evaluate-file', help='Extra JavaScript to evaluate once, printed as EVALUATE')
+    parser.add_argument('--evaluate-file', help='Extra JavaScript to evaluate once; its value is printed as RESULT')
     parser.add_argument('--after', type=float, help='Seconds to wait (max 30) before a second AFTER snapshot')
     parser.add_argument('--console', action='store_true', help='Print console messages while connected')
     parser.add_argument('--screenshot', help='Save a viewport screenshot to this path')
@@ -66,9 +66,7 @@ async def main():
             print('COOKIES', json.dumps([{k: c.get(k) for k in ('name', 'domain', 'path', 'expires', 'session', 'httpOnly', 'secure', 'sameSite')}
                                          for c in find_cookies(response) or [] if c.get('name') in args.cookies]), flush=True)
         if args.evaluate_file:
-            result = await asyncio.wait_for(session.send_command('Runtime.evaluate', expression=Path(args.evaluate_file).read_text(),
-                                                                 returnByValue=True, userGesture=False), 20)
-            print('EVALUATE', json.dumps(result), flush=True)
+            print('RESULT', await asyncio.wait_for(session.runtime_evaluate(Path(args.evaluate_file).read_text()), 20), flush=True)
         if args.after is not None:
             await asyncio.sleep(min(30, max(0, args.after)))
             print('AFTER', await asyncio.wait_for(session.runtime_evaluate(snapshot), 15), flush=True)
