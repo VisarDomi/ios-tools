@@ -181,3 +181,11 @@ profiles to September 12, 2027; next Tango renewal is October 12, 2026. The norm
 monthly scheduler was resumed successfully and enumerated eleven installed paid
 apps, including Tango; Reader Extensions was absent and skipped. Recovery
 configuration/scripts/evidence are copied into environment/mac-renewal.
+
+Tango build 14 adds a second online extension, **Ptrex**
+(`com.visar.Tango.paid.Ptrex`). `configure-refresh.py` now derives the Tango
+entry's inputs from the registry's extensions (each extension's source folder,
+plus `build/<provider>/<Name>` for every non-Login extension), so a future
+extension needs no change here. Renewal signs/checks all four identities; the
+October 2 check renewed them to October 2, 2027 after one unchanged retry of the
+known provisioning-cache race.

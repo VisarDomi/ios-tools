@@ -67,8 +67,10 @@ if args.stream_root:
         apps.append(dict(name=provider, root=str(stream),
                          app='build/' + provider + '/native/Release-iphoneos/' + product['name'] + '.app',
                          bundleIds=[product['bundleId']]+[product['bundleId']+'.'+suffix for suffix in product['extensions']],
-                         inputs=['App', 'Shared', 'Login', 'Xvid', 'Resources', 'build/providers.json',
-                                 'build/' + provider + '/Web', 'build/' + provider + '/Xvid', 'scripts/project.py', 'scripts/build-native.py'],
+                         # Each extension has a source folder; online ones (Xvid, Ptrex) also a prepared payload.
+                         inputs=['App', 'Shared', *product['extensions'], 'Resources', 'build/providers.json', 'build/' + provider + '/Web',
+                                 *['build/' + provider + '/' + suffix for suffix in product['extensions'] if suffix != 'Login'],
+                                 'scripts/project.py', 'scripts/build-native.py'],
                          build=['/usr/bin/python3', 'scripts/build-native.py', provider],
                          environment={'DEVELOPMENT_TEAM':args.team, 'SIGNING_DEVICE':args.device}))
 
