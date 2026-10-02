@@ -193,16 +193,27 @@ known provisioning-cache race.
 Tango build 15 (October 2) removed the Xvid and Ptrex extensions again: they are
 standalone apps now (below). Tango's entry is back to the host and Login identities.
 
+## Tango moved into Video Platform (October 2)
+
+Stream Viewer was merged into video-platform, and **Tango** (`com.visar.Tango.paid`,
+with `.Login`, `.FC2Live` and `.SCLive`) now builds from the shared host as its
+`tango-live` entry (below). The `--stream-root` entry (`tango.json`) is retired: it was
+removed from the Mac's index and kept in that day's config backup. Do not pass
+`--stream-root` again.
+
 ## Video Platform provider apps
 
-**Tango local**, **FC2 local**, **SC local**, **Xvid** and **Ptrex**
+**Tango local**, **FC2 local**, **SC local**, **Xvid**, **Ptrex** and **Tango**
 (`com.visar.TangoLocal.paid`, `com.visar.FC2Local.paid`, `com.visar.SCLocal.paid`,
-`com.visar.Xvid.paid`, `com.visar.Ptrex.paid`) come from one shared host in
+`com.visar.Xvid.paid`, `com.visar.Ptrex.paid`, `com.visar.Tango.paid`) come from one shared host in
 `video-platform/apps/ios`, registered with `--video-root
 /Users/visar/Developer/video-platform/apps/ios`. Local entries are named
 `tango-local`, `fc2-local` and `sc-local` so they never collide with the live Tango
-entry; the online entries are `xvideos` and `porntrex` and also depend on their
-staged `build/<provider>/content.js`, so the Mac needs no Node. Each builds with
+entry; the online entries are `xvideos`, `porntrex` and `tango-live` and also depend on
+their staged `build/<provider>/content.js`, so the Mac needs no Node. Every entry depends
+on `Shared` (the Keychain login code is compiled into each app); `tango-live` also on
+`Login`, `Extension` and the staged `build/tango-live/FC2Live` and `SCLive` extensions,
+and it lists all four Tango identities. Each builds with
 `scripts/build-provider.py <provider>` under the inherited suite lock.
 
 On October 2 only these configs were written into the Mac's existing index.
