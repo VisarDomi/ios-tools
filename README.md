@@ -1,7 +1,8 @@
-# userscript-ios-test
+# ios-tools
 
-Shared iOS Safari transport and test-controller infrastructure for local
-userscript repositories.
+Shared iOS tooling for the app repositories (formerly userscript-ios-test):
+the Safari transport and test-controller infrastructure for local userscript
+repositories, plus the shared app tools.
 
 ## Documentation
 
@@ -115,6 +116,6 @@ Consumer script:
 ```
 
 The repository-specific runner imports `createController` from
-`userscript-ios-test/controller`. Connecting a session starts the shared bridge
+`ios-tools/controller`. Connecting a session starts the shared bridge
 and creates its shared HTTPS certificate when needed; certificate and bridge
 state never live in the consumer repository.
