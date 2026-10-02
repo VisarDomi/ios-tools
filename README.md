@@ -1,8 +1,8 @@
 # ios-tools
 
-Shared iOS tooling for the app repositories (formerly userscript-ios-test):
-the Safari transport and test-controller infrastructure for local userscript
-repositories, plus the shared app tools.
+Shared iOS tooling for the app repositories: the Safari transport and
+test-controller infrastructure for local userscript repositories, plus the shared
+app tools.
 
 ## Documentation
 
