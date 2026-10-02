@@ -3,3 +3,5 @@ __pycache__/
 .idea/
 .ios-debug/
 dist/
+*.local.json
+.venv/

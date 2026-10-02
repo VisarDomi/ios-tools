@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Enumerate installed apps, then run their existing refresh builders when due."""
+"""Run one repository's scheduler: renew its installed apps with their own builders when due."""
 import argparse
 import datetime as dt
 import json
@@ -11,6 +11,8 @@ import os
 import time
 
 from refresh import device_json, next_due
+
+STORE = Path.home() / 'Library/Application Support/ios-tools/renewal'
 
 
 def state_for(item):
@@ -51,16 +53,20 @@ def refresh(config, force=False, wireless=False):
         result = subprocess.run(command)
         if result.returncode:
             errors.append(bundle + ': refresh failed; see its last-check.log')
+    # Each repository registers its own apps; report installed apps that no repository renews.
+    for index in STORE.glob('*/apps.json'):
+        for item in json.loads(index.read_text())['apps']:
+            known.update(json.loads(Path(item['config']).read_text())['bundleIds'])
     for bundle, app in installed.items():
         if app.get('builtByDeveloper') and bundle not in known:
-            print('No registered builder for installed app: ' + bundle, flush=True)
+            print('No repository renews installed app: ' + bundle, flush=True)
     if errors:
         raise RuntimeError('; '.join(errors))
     print('Installed-app check complete.', flush=True)
 
 
 def install(config, path):
-    label = 'com.visar.installed-apps-refresh'
+    label = 'com.visar.renewal.' + config['repo']
     domain = 'gui/' + str(os.getuid())
     if subprocess.run(['/bin/launchctl', 'print', domain + '/' + label],
                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
@@ -76,17 +82,20 @@ def install(config, path):
     target.chmod(0o600)
     subprocess.run(['/bin/launchctl', 'enable', domain + '/' + label], check=True)
     subprocess.run(['/bin/launchctl', 'bootstrap', domain, str(target)], check=True)
-    print('Enabled: installed free apps daily; installed paid apps monthly.')
+    print('Enabled ' + label + ': installed free apps daily; installed paid apps monthly.')
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=['refresh', 'status', 'install'])
-    parser.add_argument('--config', required=True, type=Path)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument('--config', type=Path, help="A repository's apps.json")
+    source.add_argument('--repo', help='Repository name, for its apps.json in ' + str(STORE))
     parser.add_argument('--force', action='store_true')
     parser.add_argument('--wireless', action='store_true')
     parser.add_argument('--scheduled', action='store_true')
     args = parser.parse_args()
+    if args.repo: args.config = STORE / args.repo / 'apps.json'
     config = json.loads(args.config.read_text())
     if args.scheduled:
         logs = Path(config['logDir'])
