@@ -190,6 +190,9 @@ extension needs no change here. Renewal signs/checks all four identities; the
 October 2 check renewed them to October 2, 2027 after one unchanged retry of the
 known provisioning-cache race.
 
+Tango build 15 (October 2) removed the Xvid and Ptrex extensions again: they are
+standalone apps now (below). Tango's entry is back to the host and Login identities.
+
 ## Video Platform provider apps
 
 **Tango local**, **FC2 local**, **SC local**, **Xvid** and **Ptrex**
