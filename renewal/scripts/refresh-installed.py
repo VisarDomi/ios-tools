@@ -70,7 +70,7 @@ def install(config, path):
     target = Path.home() / 'Library/LaunchAgents' / (label + '.plist')
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(plistlib.dumps(dict(Label=label, RunAtLoad=True, StartInterval=600,
-        LimitLoadToSessionType='Aqua', ProgramArguments=['/usr/bin/caffeinate', '-i', '/usr/bin/python3',
+        LimitLoadToSessionType='Aqua', ProgramArguments=['/usr/bin/python3',
         str(Path(__file__).resolve()), 'refresh', '--config', str(path), '--scheduled'],
         StandardOutPath=str(logs / 'last-check.log'), StandardErrorPath=str(logs / 'last-check.log'))))
     target.chmod(0o600)
