@@ -1,8 +1,0 @@
-{
-  "scripts": {
-    "tests": "node tests/ios/run.mjs"
-  },
-  "devDependencies": {
-    "ios-tools": "file:../../ios-tools"
-  }
-}

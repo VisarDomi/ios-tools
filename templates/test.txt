@@ -1,1 +1,0 @@
-https://provider.example/supported-route
