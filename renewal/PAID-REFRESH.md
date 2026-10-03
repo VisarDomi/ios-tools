@@ -8,10 +8,10 @@ renew one calendar month after their last successful update.
 
 | Repository | Mac mirror (`~/Developer/…`) |
 | --- | --- |
-| manga-reader | `asura-reader` |
+| manga-reader | `manga-reader/apps/ios` |
 | gallery-downloader | `gallery-downloader/apps/ios` |
 | gallery-reader | `gallery-reader/apps/ios` |
-| km-explorer | `ytb/apps/ios` |
+| km-explorer | `km-explorer/apps/ios` |
 | video-platform | `video-platform/apps/ios` |
 
 Each scheduler checks every ten minutes and at login, so offline or locked phones
