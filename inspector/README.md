@@ -22,7 +22,7 @@ The phone's UDID comes from `ios-tools.local.json` at the repository root
 ```sh
 ~/Developer/ios-tools/inspector/.venv/bin/python ~/Developer/ios-tools/inspector/app-inspector.py \
   --bundle com.visar.Ytb.paid --url-prefix ytb://app/ \
-  --snapshot-file ~/Developer/ytb/apps/ios/scripts/inspector-snapshot.js --console --after 1
+  --snapshot-file ~/Developer/km-explorer/apps/ios/scripts/inspector-snapshot.js --console --after 1
 ```
 
 USB (usbmux) is the default; `--rsd` uses the RemoteXPC tunnel.
