@@ -199,6 +199,19 @@ class RenewalTests(unittest.TestCase):
             refresh.run(self.config, 'refresh')
         self.assertFalse(any(call[0] == 'install' for call in self.device_calls))
 
+    def test_approve_keeps_schedule_only_when_asked_and_profiles_do_not_regress(self):
+        self.config['interval'] = 'monthly'
+        refresh.save(self.state_path, dict(inputHash='old', installedProfiles=self.before, lastSuccess=90000))
+        refresh.run(self.config, 'approve', keep_schedule=True)
+        self.assertEqual(self.state()['lastSuccess'], 90000)
+        self.assertEqual(self.state()['installedProfiles'], self.after)
+        refresh.run(self.config, 'approve')
+        self.assertEqual(self.state()['lastSuccess'], 0)
+        refresh.save(self.state_path, dict(inputHash='old', installedProfiles=self.after, lastSuccess=90000))
+        self.after = self.before
+        refresh.run(self.config, 'approve', keep_schedule=True)
+        self.assertEqual(self.state()['lastSuccess'], 0)
+
     def test_calendar_month_clamps_at_month_end(self):
         import datetime as dt
         start = dt.datetime(2026, 1, 31, tzinfo=dt.timezone.utc).timestamp()

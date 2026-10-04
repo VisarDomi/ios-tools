@@ -83,6 +83,21 @@ def next_due(config, last_success):
                          day=min(value.day, calendar.monthrange(year, month)[1])).timestamp()
 
 
+def approve(config, state_path, state, app, expected, input_hash, keep_schedule=False):
+    """Make the delivered app the renewal baseline. Keeping the schedule leaves the next renewal
+    one interval after the last success, unless a delivered profile expires before the renewed one."""
+    subprocess.run(['/usr/bin/codesign', '--verify', '--deep', '--strict', str(app)], check=True)
+    profiles = app_profiles(app, expected)
+    renewed = state.get('installedProfiles') or {}
+    keep = (keep_schedule and bool(state.get('lastSuccess')) and set(renewed) == set(profiles)
+            and all(profiles[key]['expires'] >= renewed[key]['expires'] for key in profiles))
+    approved = {'inputHash': input_hash, 'installedProfiles': profiles, 'lastSuccess': state['lastSuccess'] if keep else 0}
+    if keep:
+        approved['nextDue'] = next_due(config, state['lastSuccess'])
+    save(state_path, approved)
+    return keep
+
+
 def advanced(before, after, now):
     return bool(before) and set(before) == set(after) and all(
         after[key]['expires'] > before[key]['expires'] and after[key]['expires'] > now + 6 * 86400
@@ -114,7 +129,7 @@ def restore_cache(stash, cache):
             os.replace(backup, destination)
 
 
-def run(config, action, force=False, wireless=False):
+def run(config, action, force=False, wireless=False, keep_schedule=False):
     root = Path(config['root']).resolve()
     state_dir = root / config.get('stateDir', 'build/refresh')
     state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -127,10 +142,9 @@ def run(config, action, force=False, wireless=False):
         return
     current_hash = fingerprint(root, config['inputs'])
     if action == 'approve':
-        subprocess.run(['/usr/bin/codesign', '--verify', '--deep', '--strict', str(app)], check=True)
-        state = {'inputHash': current_hash, 'installedProfiles': app_profiles(app, expected), 'lastSuccess': 0}
-        save(state_path, state)
-        print('Approved current delivered inputs and app IDs. No renewal claimed.')
+        kept = approve(config, state_path, state, app, expected, current_hash, keep_schedule)
+        print('Approved current delivered inputs and app IDs. '
+              + ('Renewal schedule kept.' if kept else 'No renewal claimed; renewal is due now.'))
         return
     if state.get('inputHash') != current_hash:
         raise RuntimeError('Inputs changed or not approved. Install/review deliberately, then run approve.')
@@ -218,6 +232,8 @@ if __name__ == '__main__':
     parser.add_argument('--config', required=True)
     parser.add_argument('--force', action='store_true')
     parser.add_argument('--wireless', action='store_true')
+    parser.add_argument('--keep-schedule', action='store_true',
+                        help='approve: keep the next renewal date unless a delivered profile expires earlier')
     parser.add_argument('--scheduled', action='store_true', help='Keep only the latest check log')
     args = parser.parse_args()
     settings = json.loads(Path(args.config).read_text())
@@ -231,7 +247,7 @@ if __name__ == '__main__':
         os.close(log_fd)
         print(dt.datetime.now(dt.timezone.utc).isoformat(), flush=True)
     try:
-        run(settings, args.action, args.force, args.wireless)
+        run(settings, args.action, args.force, args.wireless, args.keep_schedule)
     except Exception as error:
         state_path = Path(settings['root']) / settings.get('stateDir', 'build/refresh') / 'state.json'
         state = json.loads(state_path.read_text()) if state_path.exists() else {}
