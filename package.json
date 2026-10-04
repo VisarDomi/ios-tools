@@ -3,6 +3,6 @@
   "private": true,
   "description": "Shared iOS tools: per-repository app renewal and the app inspector",
   "scripts": {
-    "test": "cd renewal && python3 -B scripts/test_refresh.py && python3 -B scripts/test_installed_refresh.py && python3 -B scripts/test_configure_refresh.py"
+    "test": "cd renewal && python3 -B scripts/test_refresh.py && python3 -B scripts/test_deliver.py && python3 -B scripts/test_installed_refresh.py && python3 -B scripts/test_configure_refresh.py"
   }
 }

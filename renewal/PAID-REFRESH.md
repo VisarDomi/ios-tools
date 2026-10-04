@@ -40,12 +40,27 @@ check. Failed attempts restore staged profiles and stay due. A known Xcode
 provisioning-cache race can fail one attempt; an unchanged retry succeeds.
 
 Each app's `inputs` are fingerprinted at approval; a changed input blocks
-unattended builds until the new baseline is deployed and approved. There is no
+unattended builds until the new baseline is deployed and approved, so a renewal
+never installs anything that was not deliberately installed first. There is no
 Git pull, source migration, app-data copy, certificate revocation or uninstall.
 Profile renewal does not renew the signing certificate or the Apple membership.
 The current paid development certificate expires September 12, 2027 at 15:23:01
 UTC. See [Apple's free provisioning limits](https://developer.apple.com/help/account/basics/about-your-developer-account)
 and [profile validity](https://developer.apple.com/documentation/technotes/tn3125-inside-code-signing-provisioning-profiles).
+
+## Approval at deployment
+
+Each repository's `deploy.py` runs `scripts/deliver.py` around its build and
+install (gallery-downloader's manual steps do the same): `begin` before the build
+and `built` after it record the inputs and the built app if the inputs did not
+change during the build; `installed`, right after a successful install, approves
+that app as its renewal baseline. Approval keeps the renewal date unless a
+delivered profile expires before the renewed one, so no rebuild follows the
+deployment, and it waits for the signing lock. It is skipped, with the reason
+printed, if the inputs or the app changed since the build (for example another
+sync to the shared mirror), if the deploy built a different bundle ID (an
+unsuffixed manga build) or if the app is not registered. A skipped app stays
+blocked until a later deploy or a manual approval below.
 
 ## Setup
 
@@ -65,9 +80,11 @@ already renews, and never builds, installs or resets a success timestamp:
 /usr/bin/python3 ~/Developer/ios-tools/renewal/scripts/configure-refresh.py ~/Developer/<mirror>
 ```
 
-Rerun it after the repository adds or removes an app. For each new or deliberately
-changed app, approve the delivered baseline, then run one attached renewal in the
-GUI session (it provides Keychain access without a temporary LaunchAgent):
+Rerun it after the repository adds or removes an app. A new app's first deploy
+approves it and makes it due. To approve by hand (a skipped deploy, or a recovery),
+approve the delivered baseline, then run one attached renewal in the GUI session
+(it provides Keychain access without a temporary LaunchAgent). `approve` makes the
+app due; `--keep-schedule` keeps its renewal date as deploys do:
 
 ```sh
 R="$HOME/Library/Application Support/ios-tools/renewal/<repo>"
@@ -88,9 +105,9 @@ loaded one):
 ```sh
 /usr/bin/python3 ~/Developer/ios-tools/renewal/scripts/refresh-installed.py status --repo <repo>
 launchctl print gui/501/com.visar.renewal.<repo>
-# Pause only when idle, before changing a delivered baseline.
+# Pause only when idle. Deploys do not need a pause.
 launchctl bootout gui/501/com.visar.renewal.<repo>
-# Resume after deliberate deployment and approval.
+# Resume.
 launchctl bootstrap gui/501 "$HOME/Library/LaunchAgents/com.visar.renewal.<repo>.plist"
 ```
 
