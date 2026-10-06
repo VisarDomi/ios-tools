@@ -65,7 +65,8 @@ blocked until a later deploy or a manual approval below.
 
 ## Setup
 
-Start with [shared Mac access](/home/visar/Documents/environment/mac-access.md).
+Start with [shared Mac access](/home/visar/Documents/environment/mac-access.md);
+SSH falls back to the Mac's Wi-Fi automatically when Ethernet is down (`mac-connect --check`).
 The Mac mirror of this repository is `~/Developer/ios-tools`. On a fresh clone,
 copy `ios-tools.example.json` to `ios-tools.local.json` at the repository root
 (Mac-only, never committed; the inspector reads it too) and fill in the signing team ID (Xcode → Settings → Accounts) and the phone's
