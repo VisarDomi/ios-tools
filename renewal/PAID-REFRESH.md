@@ -13,6 +13,7 @@ renew one calendar month after their last successful update.
 | gallery-reader | `gallery-reader/apps/ios` |
 | km-explorer | `km-explorer/apps/ios` |
 | video-platform | `video-platform/apps/ios` |
+| maid-heroes | `maid-heroes/apps/ios` |
 | environment | `environment/twitter` |
 
 Each scheduler checks every ten minutes and at login, so offline or locked phones
