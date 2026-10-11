@@ -5,8 +5,8 @@ next, note anything half-finished with where it stands. [PLAN.md](PLAN.md) has t
 
 ## Now
 
-- Step 2 (Gallery Reader) built and simulator-tested; waiting only for the phone checks at
-  the end. Next: step 3 (Tango local, FC2 local, SC local).
+- Steps 2 (Gallery Reader) and 3 (local video apps) built and simulator-tested; they wait
+  only for the phone checks at the end. Next: step 4 (Hitomi, Imhen), then manga.
 
 ## Working rules
 
@@ -18,6 +18,12 @@ next, note anything half-finished with where it stands. [PLAN.md](PLAN.md) has t
   `lib_TestingInterop.dylib`); KitTestHooks replaces them for simulator builds.
 - Simulator builds of Gallery Reader save only what is viewed unless launched with
   `-downloads`.
+- The Mac has 8 GB and two cores: a booted iOS 26 simulator swaps it into the hundreds of
+  load (SSH stalls). Boot it for one batch of checks, never leave video playing (a local
+  video app restores its viewer at launch: delete viewer-checkpoint.json in the container
+  first), and `xcrun simctl shutdown all` right after. Only one app may run at a time
+  (KitTestHooks' port 8765). The simulator trusts the PC's mkcert CA (added with
+  `simctl keychain add-root-cert`).
 - Renewal inputs change with each app (Kit, no web bundle): run `configure-refresh.py` for
   the repository and approve at the final install.
 
@@ -57,10 +63,19 @@ next, note anything half-finished with where it stands. [PLAN.md](PLAN.md) has t
 - [x] Lifecycle and automatic work ported (sync, downloads, warm-up, hand-off, reclaim, idle timer)
 - [x] Simulator: relaunch restores stack and exact places (library, strips, reader), back/forward keep screens, page numbers, info, zoom
 - [x] Store tests pass; offline web UI and its test removed; docs updated
+- [x] Library is one continuous list (owner's go-ahead to fix pagination); the old page's place carries over
 - [ ] Phone (end): install over the web version (data kept: 22 GB, positions), scrolling feel with thousands of thumbnails, zoom and edge swipes, Control Center versus background, downloads while locked, offline reads
 - [ ] Animated GIF pages (WebKit animated them; rare)
 - [ ] Renewal: configure-refresh.py, approve at install
-### 3. Tango local, FC2 local, SC local (video-platform) — inventory/video-web.md, video-ios.md
+### 3. Tango local, FC2 local, SC local (video-platform, branch `native`) — inventory/video-web.md, video-ios.md
+- [x] PC server: recordings index with change feed, gzip, ETag (deployed, on main too: 0.1 s → 0.007 s, 460 KB → 59 KB)
+- [x] Native list (LocalList.swift): rows as on the website, kept on the phone, change feed long-polling, highlight, pull to reload, failure view
+- [x] Viewer behind ViewerHost (native list or page bridge); local recordings keep their playlist across edits; progress written on every change
+- [x] One-time migration of highlight and progress from the website's localStorage (KitMigration)
+- [x] Scene lifecycle, iOS 26, Kit vendored, simulator builds (`SIMULATOR=1 build-provider.py`)
+- [x] Simulator: list from the feed, cached relaunch, new recording arrived through the feed
+- [ ] Phone (end): FC2 and SC builds, playback through lock, edits, +/-, first-launch migration
+- [ ] deploy.py install checks for local apps (no StartURL page any more), configure-refresh
 ### 4. Hitomi, Imhen (gallery-reader) — inventory/gallery-reader.md
 ### 5. Manga, six apps (manga-reader) — inventory/manga-reader.md
 ### 6. Video Vault (video-platform) — inventory/video-ios.md
