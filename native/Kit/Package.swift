@@ -18,6 +18,7 @@ let package = Package(
         .library(name: "KitLists", targets: ["KitLists"]),
         .library(name: "KitReader", targets: ["KitReader"]),
         .library(name: "KitLifecycle", targets: ["KitLifecycle"]),
+        .library(name: "KitTestHooks", targets: ["KitTestHooks"]),
     ],
     targets: [
         .target(name: "KitCore"),
@@ -28,6 +29,8 @@ let package = Package(
         .target(name: "KitLists", dependencies: ["KitCore", "KitImages"]),
         .target(name: "KitReader", dependencies: ["KitCore", "KitImages"]),
         .target(name: "KitLifecycle", dependencies: ["KitCore", "KitNet"]),
+        // Simulator builds only: drives the app from the Mac (see TestHooks.swift).
+        .target(name: "KitTestHooks", dependencies: ["KitCore"]),
         .testTarget(name: "KitCoreTests", dependencies: ["KitCore"]),
         .testTarget(name: "KitNetTests", dependencies: ["KitNet"]),
         .testTarget(name: "KitHTMLTests", dependencies: ["KitHTML"]),
