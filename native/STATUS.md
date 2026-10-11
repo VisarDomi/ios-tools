@@ -5,8 +5,13 @@ next, note anything half-finished with where it stands. [PLAN.md](PLAN.md) has t
 
 ## Now
 
-- Steps 2 (Gallery Reader), 3 (local video apps) and 4 (Hitomi, Imhen) built and
-  simulator-tested; they wait only for the phone checks at the end. Next: step 5 (manga).
+- Steps 2 (Gallery Reader), 3 (local video apps), 4 (Hitomi, Imhen) and 5 (manga) built
+  and simulator-tested; they wait only for the phone checks at the end. Next: step 6
+  (Video Vault).
+- Owner, 2026-10-11: page heights must be reserved before images load in every reader, so
+  resume and kill-restore never jump. Done: gallery apps have sizes (Gallery Reader's
+  manifests, Hitomi's galleries, Imhentai's g_th); manga uses site sizes or records them
+  from the images on the phone before layout; KitReader pins a resumed page's top.
 
 ## Repositories (on this PC; Mac mirrors under ~/Developer/<name>)
 
@@ -104,7 +109,18 @@ next, note anything half-finished with where it stands. [PLAN.md](PLAN.md) has t
 - [x] Docs (README, features, notes, PORT), deploy.py mirrors native sources; web-era evidence removed
 - [ ] Phone (end): install over the web version (migration of favorites, searches, backup identity), real sites (Cloudflare on Imhentai via URLSession), swipe feel, header, suggestions with the Japanese keyboard
 - [ ] Delete the web `src/` and `tests/` after phone parity; renewal configure-refresh, approve at install
-### 5. Manga, six apps (manga-reader) — inventory/manga-reader.md
+### 5. Manga, six apps (manga-reader, branch `native`) — inventory/manga-reader.md
+- [x] Swift providers for all six (JSON APIs; Scythe and Yaksha with libxml2); fixture tests; Asura's last page without has_more; Yaksha's missing chapter = unavailable; Scythe's coin locks
+- [x] database.json kept (format, validation, v1→v3 migrations), saved chapters and lists under the web's keys, routes, image caches carry over; views.json → navigation stack once
+- [x] Home: phone's catalog at once, background walk (full when incomplete or a day old, else until a page changes nothing), pull to refresh, merge keeps the screen; cards, colours, countdowns, First chapter, status, PC Load/Save
+- [x] Reader: strip with appended newer chapters, statuses as footer, progress on settle, exact relaunch, idle timer off; resume at a page's top (pinned while sizes settle)
+- [x] Downloads: current + next per started series (previous dropped), chapter on screen first, then most recent series, then covers; pruning after readers close; background session hand-off; background app refresh for new chapters
+- [x] Page sizes before layout (site sizes, else recorded from images on the phone)
+- [x] Simulator: Asura (catalog 354, resume, window move and prune, PC Load of 31 series, colours), Scythe (catalog, sizes recorded, exact relaunch), Lua (pinned resume)
+- [x] Docs, deploy.py, renewal inputs, build-guest.py (providers.json, SIMULATOR=1)
+- [ ] Simulator sweep at the end: Yaksha, EzScans, QiScans in the app
+- [ ] Phone (end): install over the web version (progress, routes, caches kept; views.json migration), background downloads while locked, background refresh, swipe and zoom feel, PC Load/Save
+- [ ] Delete the web `src/` and `tests/` after phone parity; configure-refresh for renewal, approve at install
 ### 6. Video Vault (video-platform) — inventory/video-ios.md
 ### 7. Tango (video-platform) — inventory/video-ios.md
 ### 8. Ytb (km-explorer) — inventory/ytb.md
