@@ -36,6 +36,10 @@ def main(args):
     repositories = [Path(arg).resolve() for arg in args if arg != '--check']
     if not repositories:
         sys.exit(__doc__)
+    # Only existing app repositories (a mistyped path must not become a new directory).
+    for repository in repositories:
+        if not (repository / '.git').exists() or not (repository / 'apps' / 'ios').is_dir():
+            sys.exit(f'{repository}: not an app repository (no .git or apps/ios)')
     drift = False
     for repository in repositories:
         target = repository / 'apps' / 'ios' / 'Kit'

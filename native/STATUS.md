@@ -5,8 +5,18 @@ next, note anything half-finished with where it stands. [PLAN.md](PLAN.md) has t
 
 ## Now
 
-- Steps 2 (Gallery Reader) and 3 (local video apps) built and simulator-tested; they wait
-  only for the phone checks at the end. Next: step 4 (Hitomi, Imhen), then manga.
+- Steps 2 (Gallery Reader), 3 (local video apps) and 4 (Hitomi, Imhen) built and
+  simulator-tested; they wait only for the phone checks at the end. Next: step 5 (manga).
+
+## Repositories (on this PC; Mac mirrors under ~/Developer/<name>)
+
+| Repository | Path | Apps |
+|---|---|---|
+| gallery-downloader | /home/visar/Documents/work/manga/gallery-downloader | Gallery Reader |
+| gallery-reader | /home/visar/Documents/work/manga/gallery-reader | Hitomi, Imhen |
+| manga-reader | /home/visar/Documents/work/manga/manga-reader | six manga apps |
+| video-platform | /home/visar/Documents/work/video/video-platform | Tango (+ local), FC2 local, SC local, Video Vault |
+| km-explorer | /home/visar/Documents/work/video/km-explorer | Ytb |
 
 ## Working rules
 
@@ -80,7 +90,20 @@ next, note anything half-finished with where it stands. [PLAN.md](PLAN.md) has t
 - [x] Simulator: list from the feed, cached relaunch, new recording arrived through the feed
 - [ ] Phone (end): FC2 and SC builds, playback through lock, edits, +/-, first-launch migration
 - [ ] deploy.py install checks for local apps (no StartURL page any more), configure-refresh
-### 4. Hitomi, Imhen (gallery-reader) — inventory/gallery-reader.md
+### 4. Hitomi, Imhen (gallery-reader, branch `native`) — inventory/gallery-reader.md
+- [x] Swift providers: Hitomi (Nozomi intersection, galleries/<id>.js, gg.js, suggestions), Imhentai (HTML); fixture tests
+- [x] Phone copies: gallery details, images (one transfer per image, stopped when abandoned, 2 GB LRU), searches
+- [x] Lists: favorites and search as one continuous list each; floating search header (slides away down, back on any scroll up); saved searches; suggestions; heart and info
+- [x] Cached search first, background search, merge without moving the rows on screen (Hitomi replaces, Imhentai prepends new results); Imhentai pages as the end nears
+- [x] Reader: strip reader, exact position per gallery, opened page's top at the middle
+- [x] Details card is part of the list: open under a search started from it, back with Back and relaunch
+- [x] PC: backup setup sheet and silent backups (KitBackup), favorites sync to Gallery Downloader after enrollment
+- [x] One-time migration out of WebKit's IndexedDB (state and backup identity, KitMigration)
+- [x] Retries: failed reader pages (backoff to 30 s), thumbnails while on screen, row details every 5 s while on screen
+- [x] Simulator: backup sheet (chose Later), favorites, search, saved search, reader, relaunch stack, background merge, details through Back and relaunch
+- [x] Docs (README, features, notes, PORT), deploy.py mirrors native sources; web-era evidence removed
+- [ ] Phone (end): install over the web version (migration of favorites, searches, backup identity), real sites (Cloudflare on Imhentai via URLSession), swipe feel, header, suggestions with the Japanese keyboard
+- [ ] Delete the web `src/` and `tests/` after phone parity; renewal configure-refresh, approve at install
 ### 5. Manga, six apps (manga-reader) — inventory/manga-reader.md
 ### 6. Video Vault (video-platform) — inventory/video-ios.md
 ### 7. Tango (video-platform) — inventory/video-ios.md
