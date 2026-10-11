@@ -5,17 +5,22 @@ next, note anything half-finished with where it stands. [PLAN.md](PLAN.md) has t
 
 ## Now
 
-- Steps 2 (Gallery Reader), 3 (local video apps), 4 (Hitomi, Imhen), 5 (manga) and 6
-  (Video Vault) and 7 (Tango) built and simulator-tested; they wait only for the phone checks
-  at the end. Step 8 (Ytb) is dropped: ytboob.com and vidhost.me no longer exist (NXDOMAIN
-  from public DNS, 2026-10-11; the owner: "those are dead"). Next: step 9 (cleanup), a final
-  simulator sweep, then the report to the owner.
-- Final deploy needs `systemctl --user restart video-server` (the Tango phone-session
-  endpoint) after the native Tango is installed; `packages/auth` and `packages/server` dist
-  were rebuilt from the native branch (only additions: phoneSession.js, the endpoint).
-- The PC's `packages/pipeline/dist` was rebuilt from main's `ptrexPhone.ts` on purpose: the
-  phone still runs the web Video Vault. After installing the native Video Vault, rebuild it
-  on the native branch (`npm run build -w pipeline`) so `ptrex:connect-iphone` uses devicectl.
+- Done (2026-10-11): every app is native, merged to main in all four repositories, pushed,
+  installed on the phone over the same bundle IDs and approved as its renewal baseline:
+  Gallery Reader; Hitomi, Imhen; asura, scythe, yaksha, qiscans, lua, ezmanga; Tango local,
+  FC2 local, SC local, Video Vault, Tango. The web code that only served the old apps is
+  deleted (gallery-reader and manga-reader `src/`, video-platform's content scripts and
+  inspector scripts); it stays in Git history before October 12, 2026.
+- PC side: `packages/pipeline/dist` has the devicectl Porntrex handoff; `packages/server`
+  serves `/api/tango/phone-session` (video-server restarted; 401 without the key).
+- The owner tests the apps on the phone and comes back with issues and features. Hitomi/Imhen
+  got the first round on 2026-10-11: Favs is a nav-bar button (toggles; back to search by a
+  saved search or a forward swipe), a saved search is one line (middle truncated, three lines
+  then Show more), and the reader retries details and pages until they load (covered list
+  thumbnails pause; pages say "waiting for the network").
+- Kit drift: gallery-downloader and manga-reader still carry the Kit before `0374d06`
+  (KitNavigation going back several screens keeps them for going forward). Vendor at their
+  next deploy (`native/scripts/vendor-kit.py`); their installed builds are approved as-is.
 - Owner, 2026-10-11: page heights must be reserved before images load in every reader, so
   resume and kill-restore never jump. Done: gallery apps have sizes (Gallery Reader's
   manifests, Hitomi's galleries, Imhentai's g_th); manga uses site sizes or records them
@@ -157,21 +162,21 @@ next, note anything half-finished with where it stands. [PLAN.md](PLAN.md) has t
   installed Ytb app and its monthly renewal (`com.visar.renewal.km-explorer`) can go.
 ### 9. Cleanup
 - [x] Ytb dropped; WebController/ViewerBridge/SiteCookies/SiteWorker/DownloadList/Policy/inspector snapshots removed; renewal inputs updated in every repository; all suites green (2026-10-11)
-- [ ] After the phone checks: delete gallery-reader `src/`+`tests/`, manga-reader `src/`+`tests/`+`scripts/build-ios.mjs`, video-platform `packages/app` content builds used only by the apps (vault, tango-live)
+- [x] Deleted gallery-reader `src/`+`tests/`, manga-reader `src/`+`tests/`+`scripts/build-ios.mjs`, video-platform `packages/app` content builds used only by the apps (vault, tango-live), the website-bundle branch of video-platform's iOS scripts (2026-10-11)
 - [ ] After the phone checks (one release later): remove the one-time migration readers (WebKit IndexedDB, cookies, views.json, view-state.json)
-- [ ] Merge each `native` branch into main, `configure-refresh.py` per repository, approve renewals at install
+- [x] Merged each `native` branch into main, `configure-refresh.py` per repository, renewals approved at install (2026-10-11)
 
 ## Hand-over to the owner (2026-10-11)
 
-Deploy order when the phone is here (install over the same bundle IDs; never uninstall):
+Deployed 2026-10-11 in this order (install over the same bundle IDs; never uninstall):
 1. gallery-downloader: Gallery Reader. gallery-reader: Hitomi, Imhen. manga-reader: asura,
    scythe, yaksha, qiscans, lua, ezmanga. video-platform: tango, fc2, sc (local), vault,
    tango-live. Each: `deploy.py sync`, `build`, `install`.
-2. After Video Vault: `npm run build -w pipeline` on the native branch, then
-   `npm run ptrex:connect-iphone` (devicectl inbox) end to end.
-3. After Tango: `systemctl --user restart video-server` (phone-session endpoint), then
-   "Log in from the PC" on the phone (or the Safari handoff).
-4. Phone checks: the "Phone (end)" items of steps 2–7 above.
+2. Pipeline dist rebuilt with the devicectl handoff; `npm run ptrex:connect-iphone` run
+   after Video Vault was installed.
+3. video-server restarted for the phone-session endpoint. On the phone: "Log in from the
+   PC" in Tango (or the Safari handoff).
+4. The owner's phone checks: the "Phone (end)" items of steps 2–7 above.
 
 Decisions for the owner (defaults applied until answered):
 - Continuous lists instead of page numbers in Gallery Reader, Hitomi, Imhen (positions are
