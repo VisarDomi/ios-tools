@@ -7,7 +7,9 @@ next, note anything half-finished with where it stands. [PLAN.md](PLAN.md) has t
 
 - Steps 2 (Gallery Reader), 3 (local video apps), 4 (Hitomi, Imhen), 5 (manga) and 6
   (Video Vault) and 7 (Tango) built and simulator-tested; they wait only for the phone checks
-  at the end. Next: step 8 (Ytb).
+  at the end. Step 8 (Ytb) is dropped: ytboob.com and vidhost.me no longer exist (NXDOMAIN
+  from public DNS, 2026-10-11; the owner: "those are dead"). Next: step 9 (cleanup), a final
+  simulator sweep, then the report to the owner.
 - Final deploy needs `systemctl --user restart video-server` (the Tango phone-session
   endpoint) after the native Tango is installed; `packages/auth` and `packages/server` dist
   were rebuilt from the native branch (only additions: phoneSession.js, the endpoint).
@@ -145,11 +147,14 @@ next, note anything half-finished with where it stands. [PLAN.md](PLAN.md) has t
 - [x] One-time move of the newest session out of WebKit
 - [x] WebController, ViewerBridge, SiteCookies, Policy, inspector snapshot removed; RegistryTests; every app is native
 - [x] Simulator: login screen; a PC-minted session → 135 live streams from the gateway; a stream played
+- [ ] Phone (end): install over the web version (session moves out of WebKit), list, playback through lock, Follow/Block/co-streamers, +/-, Safari handoff, "Log in from the PC" (after restarting video-server), FC2/SC live extensions still present
 - Owner, 2026-10-11: keep the Safari login extension with all its steps (Tango must work
   away from home). Add a shortcut: when the app finds a PC set up for Tango login, the PC
   logs in with a new throwaway browser profile, hands the phone the new session and drops
   the profile, so each device holds its own single refresh token (never the PC's own).
-### 8. Ytb (km-explorer) — inventory/ytb.md
+### 8. Ytb (km-explorer) — dropped
+- The site and its video host are gone (NXDOMAIN). Nothing to port. For the owner: the
+  installed Ytb app and its monthly renewal (`com.visar.renewal.km-explorer`) can go.
 ### 9. Cleanup
 
 Each app step expands into its own checklist when it starts: screens, data migration,

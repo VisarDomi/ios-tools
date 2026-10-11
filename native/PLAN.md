@@ -93,8 +93,7 @@ for renewal, and its parity checklist verified on the phone.
    session delivered without the inspector, cookie migration.
 7. **Tango.** Gateway client (session, tokens, lists, follow, block, co-streamers), single
    owner of session refresh, Keychain handoff kept, cookie migration.
-8. **Ytb.** Typesense and WordPress clients, favorites grid, native player sharing
-   `KitVideo`, PC backup, IndexedDB migration.
+8. **Ytb.** Dropped 2026-10-11: ytboob.com and vidhost.me no longer exist.
 9. **Cleanup.** Remove migration readers, web UIs that only served the apps, dead bridges,
    stale docs and checks; update renewal inputs and verification records.
 
