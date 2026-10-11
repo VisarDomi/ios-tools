@@ -135,7 +135,9 @@ Taken by the agent (recorded so they are not reopened):
 - Pagination: the gallery apps' page numbers existed to keep WebKit's documents small. Natively
   the lists are continuous (virtualized rows, nothing to page through), positions are
   anchors, and long lists jump with the system's draggable scroll indicator. Reported to the
-  owner for a veto.
+  owner for a veto. The pages were also a soft bookmark keeping search at hand: wherever a
+  list has a search box and saved searches (Hitomi, Imhen, Ytb), that header floats on top,
+  slides away while scrolling down and returns with any scroll up (the owner's request).
 - Swipe forward is kept: WebKit gave it to every app, and the owner's flows use it.
 - The manga docs' rule "do not copy these into Swift or a second app UI" and the
   gallery-reader rule "no reconstructed navigation stack" are superseded by this rewrite.

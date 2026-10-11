@@ -26,6 +26,10 @@ next, note anything half-finished with where it stands. [PLAN.md](PLAN.md) has t
   `simctl keychain add-root-cert`).
 - Renewal inputs change with each app (Kit, no web bundle): run `configure-refresh.py` for
   the repository and approve at the final install.
+- Bot checks: sites behind Cloudflare (Imhentai) challenge curl from this PC but accept
+  Apple's network stack, so fixtures come from a small URLSession program on the Mac (what
+  the apps use). When that is blocked too, use the agent Chromium profile
+  (/home/visar/Documents/environment/browser/chromium-agent.md; close it afterwards).
 
 ## 2026-10-11
 
