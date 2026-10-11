@@ -6,8 +6,11 @@ next, note anything half-finished with where it stands. [PLAN.md](PLAN.md) has t
 ## Now
 
 - Steps 2 (Gallery Reader), 3 (local video apps), 4 (Hitomi, Imhen), 5 (manga) and 6
-  (Video Vault) built and simulator-tested; they wait only for the phone checks at the end.
-  Next: step 7 (Tango).
+  (Video Vault) and 7 (Tango) built and simulator-tested; they wait only for the phone checks
+  at the end. Next: step 8 (Ytb).
+- Final deploy needs `systemctl --user restart video-server` (the Tango phone-session
+  endpoint) after the native Tango is installed; `packages/auth` and `packages/server` dist
+  were rebuilt from the native branch (only additions: phoneSession.js, the endpoint).
 - The PC's `packages/pipeline/dist` was rebuilt from main's `ptrexPhone.ts` on purpose: the
   phone still runs the web Video Vault. After installing the native Video Vault, rebuild it
   on the native branch (`npm run build -w pipeline`) so `ptrex:connect-iphone` uses devicectl.
@@ -134,7 +137,14 @@ next, note anything half-finished with where it stands. [PLAN.md](PLAN.md) has t
 - [x] SiteWorker, DownloadList, workerURL removed; providers.json `native`, project.py, deploy.py, renewal.py (renewal name kept)
 - [x] Simulator: real sites signed out → both notices; sign-in sheet opens XVideos' page
 - [ ] Phone (end): install over the web version (cookies move, highlight, progress), list of both sites, playback of both, +/-, `ptrex:connect-iphone` end to end (then rebuild pipeline dist), XVideos sign-in
-### 7. Tango (video-platform) — inventory/video-ios.md
+### 7. Tango (video-platform, branch `native`) — inventory/video-ios.md
+- [x] Tango.swift: list (followed, recommendations, blocklist, names), Follow, two-step Block, co-streamers; TangoSession single session owner (refresh with rotation saved first, stream tokens, playlists); tests
+- [x] TangoList.swift: kept list, refresh behind it, stable order (pull or 30 min), co-streamers appended, ended/blocked removed
+- [x] Login: Safari extension handoff kept (Keychain inbox, confirm), wording kept; PC shortcut button when the PC answers
+- [x] PC: packages/auth phoneSession.ts (fresh profile login → new session), server POST/GET /api/tango/phone-session (key, one at a time) with tests; phone key staged into the build (Private/, gitignored) and checked at install
+- [x] One-time move of the newest session out of WebKit
+- [x] WebController, ViewerBridge, SiteCookies, Policy, inspector snapshot removed; RegistryTests; every app is native
+- [x] Simulator: login screen; a PC-minted session → 135 live streams from the gateway; a stream played
 - Owner, 2026-10-11: keep the Safari login extension with all its steps (Tango must work
   away from home). Add a shortcut: when the app finds a PC set up for Tango login, the PC
   logs in with a new throwaway browser profile, hands the phone the new session and drops
