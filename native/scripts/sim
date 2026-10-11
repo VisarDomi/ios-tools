@@ -1,0 +1,25 @@
+#!/bin/bash
+# The simulator loop on the Mac, from this PC (an iPhone 17 Pro Max simulator, iOS 26.3).
+#   sim shot <out.png> [scale]        screenshot, scaled (default 1/3)
+#   sim hook </path?query>            a TestHooks request (simulator builds; see KitTestHooks)
+#   sim install <app path on the Mac> install (over the existing app: data kept)
+#   sim launch <bundle> [args...]     relaunch with arguments
+#   sim terminate <bundle>
+#   sim container <bundle>            the app's data container path on the Mac
+set -euo pipefail
+SIM=${SIM:-960E5E0A-15C3-423E-B196-1206C66B28E9}
+command=${1:-}; shift || true
+case "$command" in
+  shot)
+    out=${1:?out.png}; scale=${2:-3}
+    ssh mac "xcrun simctl io $SIM screenshot /tmp/sim-shot.png >/dev/null 2>&1"
+    scp -q mac:/tmp/sim-shot.png "$out.full.png"
+    python3 -c "from PIL import Image; im=Image.open('$out.full.png'); im.resize((im.width//$scale, im.height//$scale)).save('$out')"
+    rm -f "$out.full.png" ;;
+  hook) ssh mac "curl -s 'http://127.0.0.1:8765${1:-/state}'" ;;
+  install) ssh mac "xcrun simctl boot $SIM 2>/dev/null; xcrun simctl bootstatus $SIM -b >/dev/null 2>&1; xcrun simctl install $SIM '$1'" ;;
+  launch) bundle=$1; shift; ssh mac "xcrun simctl terminate $SIM $bundle 2>/dev/null; xcrun simctl launch $SIM $bundle $*" ;;
+  terminate) ssh mac "xcrun simctl terminate $SIM $1" ;;
+  container) ssh mac "xcrun simctl get_app_container $SIM $1 data" ;;
+  *) sed -n '2,9p' "$0"; exit 1 ;;
+esac
