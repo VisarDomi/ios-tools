@@ -18,9 +18,28 @@ next, note anything half-finished with where it stands. [PLAN.md](PLAN.md) has t
   saved search or a forward swipe), a saved search is one line (middle truncated, three lines
   then Show more), and the reader retries details and pages until they load (covered list
   thumbnails pause; pages say "waiting for the network").
-- Kit drift: gallery-downloader and manga-reader still carry the Kit before `0374d06`
-  (KitNavigation going back several screens keeps them for going forward). Vendor at their
-  next deploy (`native/scripts/vendor-kit.py`); their installed builds are approved as-is.
+- Owner's second round (2026-10-11 evening), deployed to the phone over Wi-Fi and approved:
+  - Manga: opening a series took up to a minute. QiScans and EzScans allow 60 requests a
+    minute (then 429 with a wait for every request) and the launch's catalog walk plus every
+    started series' list went past that; Lua answers only queries it has seen before quickly;
+    the reader waited for the whole list, page by page. Now a per-site request budget
+    (background gets part of each minute), nothing in the background while the screen waits,
+    the first chapter in one request (EzScans/QiScans sort by number), lists after the
+    chapter, Lua racing its page of 1000 against pages of 30, list dates kept across launches,
+    and incomplete catalog entries skipped (one QiScans series without a cover stopped every
+    walk). Simulator with the phone's state: 5 to 90 s before, 1 to 4 s for most series after
+    (worst seen: a Lua series nobody had browsed deeply, about 14 s).
+  - Manga: reopening a series at its saved page returns to the exact point (positions.json),
+    as Gallery Reader does; going forward to a kept reader already did.
+  - Hitomi/Imhen: the search box is one line (middle truncated) until tapped.
+  - Videos: the list's right edge goes forward to the last viewed video (if still listed); a
+    forward-opened stream found ended slides back to the list.
+- Kit drift: gallery-downloader still carries the Kit before `0374d06` (KitNavigation going
+  back several screens keeps them for going forward). Vendor at its next deploy
+  (`native/scripts/vendor-kit.py`); its installed build is approved as-is. manga-reader was
+  vendored in the second round.
+- Simulator: never leave a video app playing in the simulator; it decodes in software here and
+  drives the Mac's load past 300 within minutes (mac-access.md).
 - Owner, 2026-10-11: page heights must be reserved before images load in every reader, so
   resume and kill-restore never jump. Done: gallery apps have sizes (Gallery Reader's
   manifests, Hitomi's galleries, Imhentai's g_th); manga uses site sizes or records them
