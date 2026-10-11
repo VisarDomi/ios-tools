@@ -156,6 +156,28 @@ next, note anything half-finished with where it stands. [PLAN.md](PLAN.md) has t
 - The site and its video host are gone (NXDOMAIN). Nothing to port. For the owner: the
   installed Ytb app and its monthly renewal (`com.visar.renewal.km-explorer`) can go.
 ### 9. Cleanup
+- [x] Ytb dropped; WebController/ViewerBridge/SiteCookies/SiteWorker/DownloadList/Policy/inspector snapshots removed; renewal inputs updated in every repository; all suites green (2026-10-11)
+- [ ] After the phone checks: delete gallery-reader `src/`+`tests/`, manga-reader `src/`+`tests/`+`scripts/build-ios.mjs`, video-platform `packages/app` content builds used only by the apps (vault, tango-live)
+- [ ] After the phone checks (one release later): remove the one-time migration readers (WebKit IndexedDB, cookies, views.json, view-state.json)
+- [ ] Merge each `native` branch into main, `configure-refresh.py` per repository, approve renewals at install
+
+## Hand-over to the owner (2026-10-11)
+
+Deploy order when the phone is here (install over the same bundle IDs; never uninstall):
+1. gallery-downloader: Gallery Reader. gallery-reader: Hitomi, Imhen. manga-reader: asura,
+   scythe, yaksha, qiscans, lua, ezmanga. video-platform: tango, fc2, sc (local), vault,
+   tango-live. Each: `deploy.py sync`, `build`, `install`.
+2. After Video Vault: `npm run build -w pipeline` on the native branch, then
+   `npm run ptrex:connect-iphone` (devicectl inbox) end to end.
+3. After Tango: `systemctl --user restart video-server` (phone-session endpoint), then
+   "Log in from the PC" on the phone (or the Safari handoff).
+4. Phone checks: the "Phone (end)" items of steps 2–7 above.
+
+Decisions for the owner (defaults applied until answered):
+- Continuous lists instead of page numbers in Gallery Reader, Hitomi, Imhen (positions are
+  anchors; the search header floats back with any scroll up).
+- Pinch zoom on list screens: off (readers and videos zoom).
+- The Ytb app and its monthly renewal can be removed (site gone).
 
 Each app step expands into its own checklist when it starts: screens, data migration,
 providers, lifecycle, parity items from the inventory, simulator tests, phone checks,
