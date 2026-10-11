@@ -107,9 +107,35 @@ for renewal, and its parity checklist verified on the phone.
 - Phone: WebDriverAgent (`phone.py`) and `devicectl` file copies of each app's debug-state
   dump, only while the owner is present. Uninstall the WebDriverAgent runner afterwards.
 
+## What the apps are for (the owner, 2026-10-11)
+
+The theme of every app: instant, offline where possible, and kill-robust (as the PC
+pipelines are): a power-off, a kill or iOS ending the app in the background loses nothing.
+Every change of state (position, progress, navigation, downloads, settings) is written
+durably and atomically when it happens, not only when the app leaves the screen, and a
+relaunch returns to exactly where the app was. Much of the current behaviour
+was shaped by what a userscript in Safari could do; natively, fix it to serve the intent:
+
+- **Manga (six apps)**: a new chapter downloads as soon as it appears. Only the current and
+  the next chapter download (no longer the previous one). What is on screen comes first,
+  for images and for chapters: tapping a cover to resume should open the chapter as fast as
+  possible, instantly when it is already saved.
+- **Gallery Reader**: the phone end of the download pipeline: images and thumbnails saved
+  on the phone so everything is offline and instant.
+- **Hitomi, Imhen**: browsing, searching and favoriting, built for fast navigation (saved
+  searches, cached results, quick paging). New: every search is cached on the phone; a
+  search shows the cached results at once, searches again in the background and merges the
+  new results without moving what is on screen. This is app code shared by both providers,
+  not provider code.
+- **Videos**: the owner will describe later; until then their behaviour stays.
+
 ## Decisions
 
 Taken by the agent (recorded so they are not reopened):
+- Pagination: the gallery apps' page numbers existed to keep WebKit's documents small. Natively
+  the lists are continuous (virtualized rows, nothing to page through), positions are
+  anchors, and long lists jump with the system's draggable scroll indicator. Reported to the
+  owner for a veto.
 - Swipe forward is kept: WebKit gave it to every app, and the owner's flows use it.
 - The manga docs' rule "do not copy these into Swift or a second app UI" and the
   gallery-reader rule "no reconstructed navigation stack" are superseded by this rewrite.
