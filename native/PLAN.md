@@ -142,6 +142,11 @@ Taken by the agent (recorded so they are not reopened):
 - The manga docs' rule "do not copy these into Swift or a second app UI" and the
   gallery-reader rule "no reconstructed navigation stack" are superseded by this rewrite.
 
+- Tango login (the owner, 2026-10-11): no Apple API gives an app the cookies a site sets
+  in Safari or a system login sheet, and Google refuses sign-in inside embedded web views;
+  Tailscale and X avoid this only because they are the sign-in's relying party. So the
+  Safari extension handoff stays, plus a PC shortcut that mints a separate phone session.
+
 Open for the owner (the default applies until answered):
 - Pinch zoom on list screens (gallery strips, card grids, video lists). WebKit allowed
   zooming every page. Default: readers and videos zoom; lists do not.

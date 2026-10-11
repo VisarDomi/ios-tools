@@ -5,9 +5,12 @@ next, note anything half-finished with where it stands. [PLAN.md](PLAN.md) has t
 
 ## Now
 
-- Steps 2 (Gallery Reader), 3 (local video apps), 4 (Hitomi, Imhen) and 5 (manga) built
-  and simulator-tested; they wait only for the phone checks at the end. Next: step 6
-  (Video Vault).
+- Steps 2 (Gallery Reader), 3 (local video apps), 4 (Hitomi, Imhen), 5 (manga) and 6
+  (Video Vault) built and simulator-tested; they wait only for the phone checks at the end.
+  Next: step 7 (Tango).
+- The PC's `packages/pipeline/dist` was rebuilt from main's `ptrexPhone.ts` on purpose: the
+  phone still runs the web Video Vault. After installing the native Video Vault, rebuild it
+  on the native branch (`npm run build -w pipeline`) so `ptrex:connect-iphone` uses devicectl.
 - Owner, 2026-10-11: page heights must be reserved before images load in every reader, so
   resume and kill-restore never jump. Done: gallery apps have sizes (Gallery Reader's
   manifests, Hitomi's galleries, Imhentai's g_th); manga uses site sizes or records them
@@ -121,8 +124,21 @@ next, note anything half-finished with where it stands. [PLAN.md](PLAN.md) has t
 - [ ] Simulator sweep at the end: Yaksha, EzScans, QiScans in the app
 - [ ] Phone (end): install over the web version (progress, routes, caches kept; views.json migration), background downloads while locked, background refresh, swipe and zoom feel, PC Load/Save
 - [ ] Delete the web `src/` and `tests/` after phone parity; configure-refresh for renewal, approve at install
-### 6. Video Vault (video-platform) — inventory/video-ios.md
+### 6. Video Vault (video-platform, branch `native`) — inventory/video-ios.md
+- [x] Vault.swift: XVideos and Porntrex uploads pages, sources (full-quality HLS master, highest MP4), labels, order, marks, two-site paging with signed-out notices; tests (scripts/test.sh) with the web suite's page shapes and a stub network
+- [x] VaultList.swift: kept complete list at launch, reload behind it, notices, +/- on all three lists, viewer sources with Referer, Safari UA and the jar's cookies
+- [x] Cookie jar (KitNet) instead of WebKit's store; one-time move of WebKit cookies and the login-cookie backup
+- [x] XVideos sign-in sheet (WKWebView only here); cookies move into the jar once the uploads page answers
+- [x] Porntrex session via devicectl inbox and result file (pipeline ptrexPhone.ts and tests); no inspector
+- [x] Shared VideoList base for local apps and Vault; exact list place after a kill (Tango local checked)
+- [x] SiteWorker, DownloadList, workerURL removed; providers.json `native`, project.py, deploy.py, renewal.py (renewal name kept)
+- [x] Simulator: real sites signed out → both notices; sign-in sheet opens XVideos' page
+- [ ] Phone (end): install over the web version (cookies move, highlight, progress), list of both sites, playback of both, +/-, `ptrex:connect-iphone` end to end (then rebuild pipeline dist), XVideos sign-in
 ### 7. Tango (video-platform) — inventory/video-ios.md
+- Owner, 2026-10-11: keep the Safari login extension with all its steps (Tango must work
+  away from home). Add a shortcut: when the app finds a PC set up for Tango login, the PC
+  logs in with a new throwaway browser profile, hands the phone the new session and drops
+  the profile, so each device holds its own single refresh token (never the PC's own).
 ### 8. Ytb (km-explorer) — inventory/ytb.md
 ### 9. Cleanup
 
