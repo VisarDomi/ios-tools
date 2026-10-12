@@ -34,10 +34,28 @@ next, note anything half-finished with where it stands. [PLAN.md](PLAN.md) has t
   - Hitomi/Imhen: the search box is one line (middle truncated) until tapped.
   - Videos: the list's right edge goes forward to the last viewed video (if still listed); a
     forward-opened stream found ended slides back to the list.
-- Kit drift: gallery-downloader still carries the Kit before `0374d06` (KitNavigation going
-  back several screens keeps them for going forward). Vendor at its next deploy
-  (`native/scripts/vendor-kit.py`); its installed build is approved as-is. manga-reader was
-  vendored in the second round.
+- Owner's third round (2026-10-12/13), committed and simulator-tested, NOT YET ON THE PHONE
+  (the owner needed it; deploy and check it next):
+  - Relaunch to the exact screen, first frame included, in every app: images already on the
+    phone decode before the first frame (ImagePipeline.beginRestore), lists go straight to
+    their anchor (ScrollAnchoring.restore needs no layout), saved data is read at once (manga
+    reader's chapter, Hitomi's kept results and details, Gallery Reader's catalog and
+    manifests), and the screens below the top are built while it shows. Reader fixes this
+    showed: a place asked for before the first layout survives it; size changes keep the
+    centre page's top to the point; a size within 0.3% of the known one is the same page.
+    Tango's sign-in screen comes back in the first frame; a restored viewer shows its last
+    picture until the player draws (the poster needs the phone: no video in the simulator).
+  - Manga covers: all kept; a cover shown and unchecked for six hours is asked about with a
+    conditional request (304 when unchanged); new bytes replace it in place.
+  - Tests: `native/scripts/restore-check` (fast, coded: /layout before a kill against the
+    app's own /timeline of its first frames; `--warm` for background and back) and
+    `restore-video.sh` + `restore-frames.py` (slow, visual: video of the relaunch, frames
+    scaled for iOS's launch fade, the first frame with content reported). Exact at the first
+    frame in the simulator: QiScans and Lua Home and reader, Home under a restored reader,
+    Hitomi search list and reader and the list under it, Gallery Reader library and reader and
+    the library under it, Tango local list, Vault (signed out), Tango's sign-in screen; warm
+    returns exact for QiScans, Hitomi, Gallery Reader, Tango local.
+- Kit: every repository carries the same Kit (vendored in the third round).
 - Simulator: never leave a video app playing in the simulator; it decodes in software here and
   drives the Mac's load past 300 within minutes (mac-access.md).
 - Owner, 2026-10-11: page heights must be reserved before images load in every reader, so
