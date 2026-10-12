@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+"""Whether a simulator app comes back exactly as it was left (the coded restore test).
+
+  restore-check <bundle id> [--wait 12] [--keep-dynamic]
+
+The app must be a simulator build running in the state to check (NativeKit's test hooks on
+127.0.0.1:8765). It records what is on screen (/layout: every visible label, image and video
+with its frame), sends the app to the background (so it saves, as before iOS ends it), kills
+it, relaunches it, and compares the layouts the app recorded at its first frames after launch
+(/timeline) with the one it had. A restore is exact when the first sample matches: the same
+labels with the same text at the same frames, and every image that was shown shown again.
+Relative times ("8h ago", "3m") are ignored unless --keep-dynamic. Fast (seconds); the slow
+visual test is coldrec.sh plus frames.py (video of the relaunch, frame by frame).
+"""
+import argparse, json, re, subprocess, sys, time
+
+SIM = '960E5E0A-15C3-423E-B196-1206C66B28E9'
+DYNAMIC = re.compile(r'^(\d+[smhdw] ago|\d+ (second|minute|hour|day|week)s? ago|just now|last week|\d+ weeks ago|\d+h \d+m|\d+m|LIVE)$', re.I)
+
+
+def mac(command, check=True):
+    return subprocess.run(['ssh', 'mac', command], capture_output=True, text=True, check=check).stdout
+
+
+def hook(path):
+    out = mac(f"curl -s --max-time 10 'http://127.0.0.1:8765{path}'", check=False)
+    return json.loads(out) if out.strip() else {}
+
+
+def key(item, keep_dynamic):
+    text = item.get('text')
+    if text is not None and not keep_dynamic and DYNAMIC.match(text.strip()):
+        text = '<time>'
+    return (item['kind'], tuple(item['frame']), text, item.get('shown'))
+
+
+def describe(item):
+    what = repr(item['text'][:40]) if 'text' in item else ('shown' if item.get('shown') else 'empty')
+    return f"{item['kind']} {what} at {item['frame']}"
+
+
+def compare(before, after, keep_dynamic):
+    want = [key(i, keep_dynamic) for i in before]
+    have = [key(i, keep_dynamic) for i in after]
+    missing = [i for i, k in zip(before, want) if k not in have]
+    extra = [i for i, k in zip(after, have) if k not in want]
+    return missing, extra
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('bundle')
+    parser.add_argument('--wait', type=float, default=12)
+    parser.add_argument('--keep-dynamic', action='store_true')
+    args = parser.parse_args()
+    before = hook('/layout').get('layout')
+    if not before:
+        sys.exit('No layout: is a simulator build of the app running?')
+    mac(f'xcrun simctl launch {SIM} com.apple.Preferences >/dev/null; sleep 2; xcrun simctl terminate {SIM} {args.bundle}; sleep 1')
+    mac(f'xcrun simctl launch {SIM} {args.bundle} >/dev/null')
+    time.sleep(args.wait)
+    timeline = hook('/timeline').get('timeline', [])
+    if not timeline:
+        sys.exit('No timeline after relaunch (the app did not show a screen?)')
+    print(f'{len(before)} items on screen before the kill')
+    exact_from = None
+    for sample in timeline:
+        missing, extra = compare(before, sample['layout'], args.keep_dynamic)
+        status = 'exact' if not missing and not extra else f'{len(missing)} missing, {len(extra)} different'
+        print(f"  {sample['sinceFirstFrame']:>5} ms after first frame ({sample['sinceLaunch']} ms after launch): {status}")
+        for item in missing[:6]:
+            print(f'      was: {describe(item)}')
+        for item in extra[:6]:
+            print(f'      now: {describe(item)}')
+        if status == 'exact' and exact_from is None:
+            exact_from = sample['sinceFirstFrame']
+    if exact_from == 0:
+        print('RESTORE EXACT at the first frame')
+    elif exact_from is not None:
+        print(f'RESTORE EXACT after {exact_from} ms (not at the first frame)')
+    else:
+        print('RESTORE NOT EXACT within the samples')
+        sys.exit(1)
+
+
+if __name__ == '__main__':
+    main()
