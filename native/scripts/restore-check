@@ -11,7 +11,7 @@ it, relaunches it, and compares the layouts the app recorded at its first frames
 (/timeline) with the one it had. A restore is exact when the first sample matches: the same
 labels with the same text at the same frames, and every image that was shown shown again.
 Relative times ("8h ago", "3m") are ignored unless --keep-dynamic. Fast (seconds); the slow
-visual test is coldrec.sh plus frames.py (video of the relaunch, frame by frame).
+visual test is restore-video.sh plus restore-frames.py (video of the relaunch, frame by frame).
 """
 import argparse, json, re, subprocess, sys, time
 
