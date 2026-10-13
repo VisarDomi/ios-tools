@@ -68,7 +68,7 @@ next, note anything half-finished with where it stands. [PLAN.md](PLAN.md) has t
   - Gallery apps: disk reads only while relaunching, merges off the main thread, list updates
     held while moving; Hitomi/Imhen prefetch details and thumbnails outwards from the screen and
     whole strips nearby, a swiped strip first (Prefetch.swift); Imhen pages 100 rows ahead.
-  - Next: the video apps' pass (lists other than Vault, the viewer).
+  - Owner: gallery apps polished (online and offline). Next: the video apps' pass.
 - Kit: every repository carries the same Kit.
 - Simulator: never leave a video app playing in the simulator; it decodes in software here and
   drives the Mac's load past 300 within minutes (mac-access.md).
