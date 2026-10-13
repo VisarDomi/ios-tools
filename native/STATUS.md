@@ -55,7 +55,21 @@ next, note anything half-finished with where it stands. [PLAN.md](PLAN.md) has t
     Hitomi search list and reader and the list under it, Gallery Reader library and reader and
     the library under it, Tango local list, Vault (signed out), Tango's sign-in screen; warm
     returns exact for QiScans, Hitomi, Gallery Reader, Tango local.
-- Kit: every repository carries the same Kit (vendored in the third round).
+- Owner's fourth round (2026-10-13), on the phone: the main thread only shows. Measured on the
+  phone with NativeKit's FrameMonitor (dropped frames with the spans of our code that ran in
+  them, read from debug-state.json via devicectl; Instruments cannot record this phone).
+  - Manga (all six): catalog merges, the download plan and Home's comparisons off the main
+    thread; file-name hashes and site dates computed once; Home quiet under a reader and its
+    catalog updates held while it moves; tall pages in display-ready slices; on-screen images
+    decoded first and at high priority, those ahead at low priority two at a time. Owner: all
+    six smooth (Asura 1263 frames with none over 25 ms; EzScans, QiScans, Scythe likewise).
+  - Video Vault: patterns compiled once and each page's merge off the main thread (owner:
+    smooth).
+  - Gallery apps: disk reads only while relaunching, merges off the main thread, list updates
+    held while moving; Hitomi/Imhen prefetch details and thumbnails outwards from the screen and
+    whole strips nearby, a swiped strip first (Prefetch.swift); Imhen pages 100 rows ahead.
+  - Next: the video apps' pass (lists other than Vault, the viewer).
+- Kit: every repository carries the same Kit.
 - Simulator: never leave a video app playing in the simulator; it decodes in software here and
   drives the Mac's load past 300 within minutes (mac-access.md).
 - Owner, 2026-10-11: page heights must be reserved before images load in every reader, so
