@@ -1,0 +1,115 @@
+#!/bin/bash
+# Installs a signed app on the phone, wherever the phone is. Runs on the Mac.
+#
+#   phone-install [--ota] [--device <UDID>] <App.app>
+#
+# When the Mac reaches the phone (same network, the phone's Tailscale off), it installs
+# with devicectl over the same bundle ID, as before. Otherwise (the phone is away from the
+# Mac, or Tailscale hides it from devicectl), it publishes the app for an over-the-air
+# install on the tailnet and prints the link: on the phone, with Tailscale on, open it and
+# tap Install. --ota publishes without trying devicectl. Exit status: 0 installed,
+# 10 published (installed once the phone's owner taps Install), anything else an error.
+#
+# The app must be signed with a profile that lists the phone (the team's development
+# profile does). The phone is --device, or "device" in ios-tools.local.json. Published apps live
+# in ~/Library/Application Support/phone-install, served by Tailscale Serve on port 8443
+# of the Mac's tailnet name, to tailnet devices only.
+set -euo pipefail
+
+ota=no
+device=
+while [ $# -gt 1 ]; do
+    case $1 in
+        --ota) ota=yes; shift ;;
+        --device) device=$2; shift 2 ;;
+        *) break ;;
+    esac
+done
+app=${1:?usage: phone-install [--ota] [--device <UDID>] <App.app>}
+app=$(cd "$app" && pwd)
+if [ -z "$device" ]; then
+    config="$(cd "$(dirname "$0")/../.." && pwd)/ios-tools.local.json"
+    device=$(/usr/bin/python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["device"])' "$config")
+fi
+plist() { /usr/libexec/PlistBuddy -c "Print :$1" "$app/Info.plist"; }
+bundle=$(plist CFBundleIdentifier)
+
+if [ "$ota" = no ] &&
+   xcrun devicectl device info details --device "$device" --timeout 45 --quiet >/dev/null 2>&1; then
+    xcrun devicectl device install app --device "$device" "$app"
+    echo "Installed $bundle on the phone."
+    exit 0
+fi
+
+# Over the air. The phone has to be in the app's provisioning profile.
+profile=$(security cms -D -i "$app/embedded.mobileprovision" 2>/dev/null)
+printf '%s' "$profile" | grep -q "<string>$device</string>" ||
+    { echo "The app's provisioning profile does not list the phone ($device)." >&2; exit 1; }
+
+tailscale=$(command -v tailscale || echo /usr/local/bin/tailscale)
+host=$("$tailscale" status --json | /usr/bin/python3 -c 'import json, sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))')
+root="$HOME/Library/Application Support/phone-install"
+base="https://$host:8443"
+stamp=$(date +%s)
+name=$(plist CFBundleDisplayName 2>/dev/null || plist CFBundleName)
+version=$(plist CFBundleShortVersionString 2>/dev/null || echo 1.0)
+
+# An .ipa is the app in a Payload folder, zipped.
+mkdir -p "$root/$bundle"
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+mkdir "$work/Payload"
+ditto "$app" "$work/Payload/$(basename "$app")"
+(cd "$work" && ditto -c -k --norsrc --keepParent Payload app.ipa)
+mv "$work/app.ipa" "$root/$bundle/app.ipa"
+
+# ?v= keeps the phone from installing a cached copy of an earlier build.
+cat > "$root/$bundle/manifest.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>items</key>
+  <array>
+    <dict>
+      <key>assets</key>
+      <array><dict>
+        <key>kind</key><string>software-package</string>
+        <key>url</key><string>$base/$bundle/app.ipa?v=$stamp</string>
+      </dict></array>
+      <key>metadata</key>
+      <dict>
+        <key>bundle-identifier</key><string>$bundle</string>
+        <key>bundle-version</key><string>$version</string>
+        <key>kind</key><string>software</string>
+        <key>title</key><string>$name</string>
+      </dict>
+    </dict>
+  </array>
+</dict>
+</plist>
+EOF
+printf '%s\t%s\t%s\n' "$name" "$stamp" "$(date '+%Y-%m-%d %H:%M')" > "$root/$bundle/info.tsv"
+
+# One page listing every published app, newest first, each with its install link.
+{
+    echo '<!doctype html><meta name="viewport" content="width=device-width">'
+    echo '<title>Install on the phone</title><body style="font:18px -apple-system;margin:24px">'
+    for info in "$root"/*/info.tsv; do
+        [ -f "$info" ] || continue
+        b=$(basename "$(dirname "$info")")
+        IFS=$'\t' read -r n s when < "$info"
+        printf '%s\t<p><a href="itms-services://?action=download-manifest&amp;url=%s">Install %s</a><br><small>%s · %s</small></p>\n' \
+            "$s" "$base/$b/manifest.plist%3Fv%3D$s" "$n" "$b" "$when"
+    done | sort -rn | cut -f2-
+} > "$root/index.html"
+
+# Serving a folder takes root (sudo -n: no prompt). Tailscale keeps the mapping across
+# restarts, so this runs once.
+"$tailscale" serve status --json 2>/dev/null | grep -q "\"Path\": *\"$root\"" ||
+    sudo -n "$tailscale" serve --bg --yes --https=8443 "$root" >/dev/null ||
+    { echo "Could not publish on port 8443: run once on the Mac: sudo $tailscale serve --bg --https=8443 \"$root\"" >&2; exit 1; }
+
+echo "The Mac cannot reach the phone; published $name ($bundle) for an over-the-air install."
+echo "On the phone, with Tailscale on, open $base/ and tap \"Install $name\"."
+exit 10

@@ -1,0 +1,14 @@
+#!/bin/sh
+# Mirrors this repository to the Mac (~/Developer/ios-tools), where the deploy scripts,
+# phone-install and the renewal runner use it, so nothing there is copied by hand.
+# Excluded paths are neither sent nor deleted on the Mac: its own settings
+# (ios-tools.local.json) and generated files stay. Listed here rather than read from
+# .gitignore, which would protect nothing while the Mac's copy lacks it. The PC's
+# ios-tools-mac-sync.timer runs this every 5 minutes (a Mac that is asleep or away is
+# tried again); run it by hand to sync at once.
+set -eu
+cd "$(dirname "$0")"
+rsync -a --delete \
+    --exclude='*.local.json' --exclude=.git/ --exclude=node_modules/ --exclude=.venv/ \
+    --exclude=__pycache__/ --exclude='*.pyc' --exclude=.idea/ \
+    -e 'ssh -o BatchMode=yes -o ConnectTimeout=10' ./ mac:Developer/ios-tools/
