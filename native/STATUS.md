@@ -72,10 +72,11 @@ next, note anything half-finished with where it stands. [PLAN.md](PLAN.md) has t
   - Video apps (all five): the local lists apply the PC's changes and describe their rows in
     the background, Vault's page merge is wholly in the background, rows compare by what they
     show, list updates wait while the viewer is swiped, a swipe redraws only the on-screen
-    highlight; the viewer is measured too (video-platform PORT.md). Owner's test: 380-780
-    frames per app, one to three over 25 ms, our code at most 10 ms in a frame (the
-    once-per-swipe switch). Owner: smooth; watching in normal use. `viewer.open` and
-    `audio.session` spans were added to measure the viewer's opening if a hitch shows there.
+    highlight; the viewer is measured too (video-platform PORT.md). The audio session is
+    switched on its own queue: closing the viewer deactivated it on the main thread (a
+    blocking call), and a fling right after going back to the list stuck. Owner: "so smooth
+    now"; video apps done. Possible later: closing waits 10-14 ms for the progress file
+    (`progress.flush()` in `close`), which it need not.
 - Kit: every repository carries the same Kit.
 - Simulator: never leave a video app playing in the simulator; it decodes in software here and
   drives the Mac's load past 300 within minutes (mac-access.md).
