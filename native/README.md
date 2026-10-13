@@ -7,7 +7,7 @@ that and this file before changing an app.
 
 | Repository (this PC; Mac mirror `~/Developer/<name>`) | Apps | App doc |
 |---|---|---|
-| `/home/visar/Documents/work/manga/manga-reader` | Asura, Scythe, Yaksha, QiScans, Lua, EzScans | `apps/ios/README.md` |
+| `/home/visar/Documents/work/manga/manga-reader` | Asura, Scythe, Yaksha, QiScans, Lua, EzScans, Violet | `apps/ios/README.md` |
 | `/home/visar/Documents/work/manga/gallery-reader` | Hitomi, Imhen | `apps/ios/README.md` |
 | `/home/visar/Documents/work/manga/gallery-downloader` | Gallery Reader (offline, from the PC) | `apps/ios/README.md` |
 | `/home/visar/Documents/work/video/video-platform` | Tango local, FC2 local, SC local, Video Vault, Tango | `apps/ios/README.md` |
