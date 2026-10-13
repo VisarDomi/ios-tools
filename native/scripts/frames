@@ -1,0 +1,42 @@
+#!/usr/bin/env python3
+"""An app's frame report from the phone (NativeKit's FrameMonitor), summarized.
+
+  frames <bundle id> <data folder> [--json]
+
+The data folder is where the app writes debug-state.json, relative to its data container:
+  manga apps      'Library/Application Support/<Product>/shared'  (AsuraReader, ScytheReader, ...)
+  Hitomi, Imhen,  'Library/Application Support/GalleryReader'
+  Gallery Reader
+  video apps      'Library/Application Support/LocalVideos'
+The apps write it when they leave the screen, so use the app, leave it, then run this. It
+prints the frames watched (while something scrolled), those over 25 and 50 ms, the worst,
+each span of our code (count, total, longest) and the recent long frames with the spans that
+ran in them. A long frame without spans is the system's (Core Animation's commit, a large
+image's upload, a player layer's setup).
+"""
+import json, subprocess, sys
+
+PHONE = '00008101-000639912881401E'
+
+args = [a for a in sys.argv[1:] if a != '--json']
+if len(args) != 2:
+    sys.exit(__doc__)
+bundle, folder = args
+remote = (f"rm -f /tmp/frames-ds.json; xcrun devicectl device copy from --device {PHONE} --domain-type appDataContainer "
+          f"--domain-identifier {bundle} --source '{folder}/debug-state.json' --destination /tmp/frames-ds.json >/dev/null 2>&1; "
+          f"cat /tmp/frames-ds.json; rm -f /tmp/frames-ds.json")
+out = subprocess.run(['ssh', 'mac', remote], capture_output=True, text=True).stdout
+try:
+    state = json.loads(out)
+except json.JSONDecodeError:
+    sys.exit(f'No report from {bundle} (is the phone reachable, and has the app left the screen since it was installed?)')
+if '--json' in sys.argv:
+    print(json.dumps(state, indent=2))
+    sys.exit()
+frames = state.get('frames', {})
+print(f"written {state.get('time')} | frames {frames.get('frames')} | over 25 ms {frames.get('hitches')} | "
+      f"over 50 ms {frames.get('over50ms')} | worst {frames.get('worstMs')} ms")
+for label, span in sorted(frames.get('spans', {}).items(), key=lambda item: -item[1]['totalMs']):
+    print(f"  {label:20} count {span['count']:6}  total {span['totalMs']:9} ms  longest {span['maxMs']:7} ms")
+for hitch in frames.get('recent', [])[-25:]:
+    print(f"  long frame {hitch['frameMs']} ms at {hitch['atS']} s: {hitch['spans'] or 'no spans of ours'} {hitch['notes'] or ''}")

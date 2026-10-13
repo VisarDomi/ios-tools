@@ -1,4 +1,4 @@
-# Installed-app renewal: paid monthly
+# renewal: the paid apps, monthly
 
 Every app repository renews its own apps. Its `apps/ios/scripts/renewal.py` names
 the repository and lists its apps (name, bundle IDs, build inputs, builder
@@ -54,7 +54,7 @@ and [profile validity](https://developer.apple.com/documentation/technotes/tn312
 ## Approval at deployment
 
 Each repository's `deploy.py` runs `scripts/deliver.py` around its build and
-install (gallery-downloader's manual steps do the same): `begin` before the build
+install (gallery-downloader's `deploy.sh` does the same): `begin` before the build
 and `built` after it record the inputs and the built app if the inputs did not
 change during the build; `installed`, right after a successful install, approves
 that app as its renewal baseline. Approval keeps the renewal date unless a

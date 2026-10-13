@@ -1,6 +1,7 @@
 # inspector
 
-`app-inspector.py` attaches to one installed app's WebKit page on the paired
+For the apps that still run in WebKit (Maid Heroes; the native apps measure themselves, see
+[native](../native/README.md)). `app-inspector.py` attaches to one installed app's WebKit page on the paired
 iPhone (from the Mac) and prints a page snapshot, optional console output,
 screenshot, cookie flags (never values) and evaluation results. Each app
 repository keeps its own snapshot expression in
@@ -21,8 +22,8 @@ The phone's UDID comes from `ios-tools.local.json` at the repository root
 
 ```sh
 ~/Developer/ios-tools/inspector/.venv/bin/python ~/Developer/ios-tools/inspector/app-inspector.py \
-  --bundle com.visar.Ytb.paid --url-prefix ytb://app/ \
-  --snapshot-file ~/Developer/km-explorer/apps/ios/scripts/inspector-snapshot.js --console --after 1
+  --bundle com.visar.MaidHeroes --url-prefix maidheroes://game/ \
+  --snapshot-file ~/Developer/maid-heroes/apps/ios/scripts/inspector-snapshot.js --console --after 1
 ```
 
 USB (usbmux) is the default; `--rsd` uses the RemoteXPC tunnel.
