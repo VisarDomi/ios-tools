@@ -134,7 +134,13 @@ From the app's repository on this PC, three steps (sync, build, install):
 | gallery-downloader | `apps/ios/scripts/deploy.sh [<step>]` (all three by default) |
 
 It syncs to the Mac, builds signed there, installs over the same bundle ID on the phone
-(paired with the Mac over Wi-Fi) and approves the build as its renewal baseline. Each app
+and approves the build as its renewal baseline. The install goes through
+[`scripts/phone-install`](scripts/phone-install): with `devicectl` when the Mac reaches the
+phone (the same network, the phone's Tailscale off); otherwise, as when the owner is out
+with the phone, it publishes the app on the tailnet and prints a link to pass on: on the
+phone, with Tailscale on, open `https://mac.tailf47c4e.ts.net:8443/` and tap Install (the
+deploy then skips its launch). This works wherever the PC, the Mac and the phone are,
+since every SSH to the Mac also falls back to Tailscale. Each app
 doc has its details. The owner usually tests each app as soon as it appears on the phone,
 so deploy the app the change is about first.
 

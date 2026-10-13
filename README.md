@@ -12,7 +12,9 @@ Shared iOS tooling for the app repositories, used from this PC and the Mac
 - [inspector](inspector/README.md): attach to a WebKit app's page on the phone (Maid Heroes).
 
 Mac-only settings (signing team and phone UDID) live in `ios-tools.local.json`;
-start from `ios-tools.example.json`. Mac and phone access:
+start from `ios-tools.example.json`. [`mac-sync`](mac-sync) mirrors this repository to the
+Mac, leaving that file and generated files alone; the PC's `ios-tools-mac-sync.timer`
+runs it every 5 minutes, and running it by hand syncs at once. Nothing is copied by hand. Mac and phone access:
 [mac-access.md](../../environment/mac-access.md).
 
 ```sh
