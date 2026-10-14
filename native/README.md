@@ -140,7 +140,11 @@ phone (the same network, the phone's Tailscale off); otherwise, as when the owne
 with the phone, it publishes the app on the tailnet and prints a link to pass on: on the
 phone, with Tailscale on, open `https://mac.tailf47c4e.ts.net:8443/` and tap Install (the
 deploy then skips its launch). This works wherever the PC, the Mac and the phone are,
-since every SSH to the Mac also falls back to Tailscale. Each app
+since every SSH to the Mac also falls back to Tailscale. When the Mac's pairing services
+lose a phone that is on the network (`devicectl` says `unavailable`, the phone answers
+pings), [`scripts/phone-pairing`](scripts/phone-pairing) restarts them: every 30 s from
+the Mac's LaunchAgent `com.visar.phone-pairing` (`phone-pairing --install` sets it up), and
+from `phone-install` before it falls back to over the air. Each app
 doc has its details. The owner usually tests each app as soon as it appears on the phone,
 so deploy the app the change is about first.
 
