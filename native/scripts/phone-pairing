@@ -1,0 +1,132 @@
+#!/usr/bin/python3
+"""Keeps the Mac's wireless link to the phone working. Runs on the Mac.
+
+Sometimes devicectl (and so xcodebuild and every deploy) lists the phone as "unavailable"
+although the phone is on the same network and answers pings. The Mac's pairing services
+are stuck then, and restarting them brings the phone back. This does that by itself:
+
+  phone-pairing            one check; the LaunchAgent com.visar.phone-pairing runs it every
+                           30 s and restarts the services once the phone has been unavailable
+                           but reachable for two checks in a row, at most every 10 minutes
+                           (every hour while restarting does not help)
+  phone-pairing --now      check, and restart the services right away if they are stuck
+  phone-pairing --install  write and load the LaunchAgent
+
+Restarting does not help while the phone's Tailscale is on: it hides the phone's pairing
+path from the Mac. Events go to ~/Library/Logs/phone-pairing.log.
+"""
+import json
+import os
+import plistlib
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+LABEL = 'com.visar.phone-pairing'
+ROOT = Path(__file__).resolve().parents[2]
+STATE = Path.home() / 'Library/Application Support/phone-pairing/state.json'
+LOG = Path.home() / 'Library/Logs/phone-pairing.log'
+CHECKS = 2               # unavailable checks in a row before restarting
+WAIT = 600               # seconds between restarts
+WAIT_FAILED = 3600       # ... after a restart that did not bring the phone back
+
+
+def say(text):
+    print(time.strftime('%Y-%m-%d %H:%M:%S ') + text, flush=True)
+
+
+def phone():
+    """(visible, LAN host name) for the phone in ios-tools.local.json."""
+    udid = json.loads((ROOT / 'ios-tools.local.json').read_text())['device']
+    with tempfile.TemporaryDirectory() as work:
+        out = Path(work) / 'devices.json'
+        subprocess.run(['/usr/bin/xcrun', 'devicectl', 'list', 'devices', '--quiet',
+                        '--json-output', str(out)], stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, timeout=60)
+        devices = json.loads(out.read_text())['result']['devices']
+    device = next((d for d in devices if d['hardwareProperties'].get('udid') == udid), None)
+    if device is None:
+        return True, None        # not paired with this Mac: nothing a restart can fix
+    table = subprocess.run(['/usr/bin/xcrun', 'devicectl', 'list', 'devices'], capture_output=True,
+                           text=True, timeout=60).stdout
+    row = next((line for line in table.splitlines() if device['identifier'] in line), '')
+    # "Visars-iPhone.coredevice.local" is CoreDevice's name; the phone itself answers to
+    # "Visars-iPhone.local".
+    names = device['connectionProperties'].get('potentialHostnames', [])
+    host = names[0].replace('.coredevice.local', '.local') if names else None
+    return ' unavailable ' not in row, host
+
+
+def reachable(host):
+    return host is not None and subprocess.run(
+        ['/sbin/ping', '-c', '1', '-t', '2', host], stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL).returncode == 0
+
+
+def restart():
+    # A plain killall leaves remotepairingd waiting on CoreDevice's browse request; both
+    # relaunch on demand.
+    pids = subprocess.run(['/usr/bin/pgrep', '-x', 'remotepairingd'], capture_output=True,
+                          text=True).stdout.split()
+    if pids:
+        subprocess.run(['/usr/bin/sudo', '-n', '/bin/kill', '-9'] + pids)
+    subprocess.run(['/usr/bin/pkill', '-f', 'CoreDeviceService.xpc'])
+    for _ in range(6):
+        time.sleep(5)
+        if phone()[0]:
+            return True
+    return False
+
+
+def check(now):
+    state = json.loads(STATE.read_text()) if STATE.exists() else {}
+    visible, host = phone()
+    if visible:
+        if state.get('misses'):
+            say('The phone is available again.')
+        state = {}
+    elif not reachable(host):
+        state['misses'] = 0          # away, or off the network: nothing to fix
+    else:
+        state['misses'] = state.get('misses', 0) + 1
+        wait = WAIT_FAILED if state.get('failed') else WAIT
+        if now or (state['misses'] >= CHECKS and time.time() - state.get('fixed', 0) >= wait):
+            say('The phone answers on %s but devicectl lists it as unavailable; '
+                'restarting the pairing services.' % host)
+            state['fixed'] = time.time()
+            visible = restart()
+            state['failed'] = not visible
+            if visible:
+                say('The phone is available again.')
+                state = {}
+            else:
+                say('Still unavailable. If the phone\'s Tailscale is on, turn it off.')
+    STATE.parent.mkdir(parents=True, exist_ok=True)
+    STATE.write_text(json.dumps(state))
+    return 0 if visible else 1
+
+
+def install():
+    target = Path.home() / 'Library/LaunchAgents' / (LABEL + '.plist')
+    domain = 'gui/' + str(os.getuid())
+    LOG.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(plistlib.dumps(dict(
+        Label=LABEL, RunAtLoad=True, StartInterval=30, LimitLoadToSessionType='Aqua',
+        ProgramArguments=['/usr/bin/python3', str(Path(__file__).resolve())],
+        StandardOutPath=str(LOG), StandardErrorPath=str(LOG))))
+    target.chmod(0o600)
+    subprocess.run(['/bin/launchctl', 'bootout', domain + '/' + LABEL], stderr=subprocess.DEVNULL)
+    subprocess.run(['/bin/launchctl', 'enable', domain + '/' + LABEL], check=True)
+    subprocess.run(['/bin/launchctl', 'bootstrap', domain, str(target)], check=True)
+    print('Loaded %s: checks the phone every 30 s; events in %s.' % (LABEL, LOG))
+
+
+if __name__ == '__main__':
+    if sys.argv[1:] == ['--install']:
+        install()
+    elif sys.argv[1:] in ([], ['--now']):
+        sys.exit(check(sys.argv[1:] == ['--now']))
+    else:
+        sys.exit(__doc__)

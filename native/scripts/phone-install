@@ -34,8 +34,11 @@ fi
 plist() { /usr/libexec/PlistBuddy -c "Print :$1" "$app/Info.plist"; }
 bundle=$(plist CFBundleIdentifier)
 
+# phone-pairing --now restarts the Mac's pairing services when they lose a phone that is on
+# the network.
+reaches() { xcrun devicectl device info details --device "$device" --timeout 45 --quiet >/dev/null 2>&1; }
 if [ "$ota" = no ] &&
-   xcrun devicectl device info details --device "$device" --timeout 45 --quiet >/dev/null 2>&1; then
+   { reaches || { "$(dirname "$0")/phone-pairing" --now && reaches; }; }; then
     xcrun devicectl device install app --device "$device" "$app"
     echo "Installed $bundle on the phone."
     exit 0
