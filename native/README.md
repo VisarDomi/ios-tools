@@ -144,11 +144,11 @@ since every SSH to the Mac also falls back to Tailscale. When the Mac's pairing 
 lose a phone that is on the network (`devicectl` says `unavailable`, the phone answers
 pings), [`scripts/phone-pairing`](scripts/phone-pairing) restarts them: every 30 s from
 the Mac's LaunchAgent `com.visar.phone-pairing` (`phone-pairing --install` sets it up), and
-from `phone-install` before it falls back to over the air. Keep the phone's Tailscale
-connected at home and away so T3 can reach the Mac wherever the Mac is; use the
-install link when direct installation is unavailable. Temporarily disconnecting
-Tailscale for a direct-install diagnostic is optional, not a required deployment
-step. Each app
+from `phone-install` before it falls back to over the air. The phone's policy is
+**Tailscale off at home, on at coffee**. At home use direct installation; away use
+the install link when direct installation is unavailable. The computers keep
+Tailscale available for remote access. Do not require an always-on phone VPN for
+this workflow. Each app
 doc has its details. The owner usually tests each app as soon as it appears on the phone,
 so deploy the app the change is about first.
 
