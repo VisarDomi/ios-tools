@@ -17,6 +17,15 @@ Mac, leaving that file and generated files alone; the PC's `ios-tools-mac-sync.t
 runs it every 5 minutes, and running it by hand syncs at once. Nothing is copied by hand. Mac and phone access:
 [mac-access.md](../../environment/mac-access.md).
 
+On a fresh Mac the mirror alone does not install the phone monitor. Restore
+`ios-tools.local.json` (the actual team/device settings are backed up in the environment
+repository's `mac-renewal/config/`), then run `native/scripts/phone-pairing --install` in
+the logged-in GUI session. Its generator recreates `com.visar.phone-pairing.plist` and
+the 30-second schedule. Confirm a real `devicectl device info processes` request succeeds.
+The pairing state file is a disposable cache and need not be restored. Exact commands
+and the source/configuration backup map are in
+[Mac recovery](../../environment/mac-renewal/RECOVERY.md#restore-wireless-phone-recovery-and-network-access).
+
 ```sh
-npm test   # renewal tests
+npm test   # renewal and phone-recovery tests
 ```
