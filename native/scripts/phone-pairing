@@ -7,7 +7,8 @@ are stuck then, and restarting them brings the phone back. This does that by its
 
   phone-pairing            one check; the LaunchAgent com.visar.phone-pairing runs it every
                            30 s; repair after two failed real device requests while on the
-                           LAN, or immediately after a changed LAN address. Retries back off
+                           LAN, or when a recently connected phone loses its old address.
+                           Address changes bypass prior backoff. Retries back off
                            10 minutes (an hour after failure); a network change resets this.
   phone-pairing --now      check, and restart the services right away if they are stuck
   phone-pairing --repair   repair after an installer reports a stale CoreDevice connection
@@ -17,6 +18,7 @@ Restarting does not help while the phone's Tailscale is on: it hides the phone's
 path from the Mac. Events go to ~/Library/Logs/phone-pairing.log.
 """
 import fcntl
+import datetime
 import json
 import re
 import os
@@ -33,6 +35,7 @@ STATE = Path.home() / 'Library/Application Support/phone-pairing/state.json'
 LOG = Path.home() / 'Library/Logs/phone-pairing.log'
 CHECKS = 2               # unavailable checks in a row before restarting
 WAIT = 600               # seconds between restarts
+RECENT = 1800            # rediscover a phone lost within the last 30 minutes, even without old-IP replies
 WAIT_FAILED = 3600       # ... after a restart that did not bring the phone back
 
 
@@ -44,6 +47,7 @@ def phone():
     """Probe a real request; CoreDevice's catalog can say connected after its tunnel dies."""
     udid = json.loads((ROOT / 'ios-tools.local.json').read_text())['device']
     hosts = []
+    recent = False
     try:
         with tempfile.TemporaryDirectory() as work:
             out = Path(work) / 'devices.json'
@@ -54,6 +58,13 @@ def phone():
         device = next((d for d in devices if d.get('hardwareProperties', {}).get('udid') == udid), None)
         if device:
             props = device.get('connectionProperties', {})
+            stamp = props.get('lastConnectionDate')
+            if stamp:
+                try:
+                    connected = datetime.datetime.fromisoformat(stamp.replace('Z','+00:00')).timestamp()
+                    recent = 0 <= time.time()-connected <= RECENT
+                except (ValueError,TypeError):
+                    pass
             for name in props.get('potentialHostnames', []) + props.get('localHostnames', []):
                 host = name.replace('.coredevice.local', '.local')
                 # Ignore generated UDID/UUID aliases; they are not the phone's LAN Bonjour name.
@@ -70,9 +81,9 @@ def phone():
         # not evidence of a broken wireless pairing path.
         responded = bool(re.search(r'device (?:is|must be) (?:un)?locked|developer disk image is not mounted',
                                    reason, re.IGNORECASE))
-        return result.returncode == 0 or responded, hosts, reason
+        return result.returncode == 0 or responded, hosts, reason, recent
     except (subprocess.TimeoutExpired, OSError, ValueError, KeyError) as error:
-        return False, hosts, str(error)
+        return False, hosts, str(error), recent
 
 
 def reachable(hosts):
@@ -101,14 +112,18 @@ def reachable(hosts):
     return None
 
 
-def restart():
-    # A plain killall leaves remotepairingd waiting on CoreDevice's browse request; both
-    # relaunch on demand.
-    pids = subprocess.run(['/usr/bin/pgrep', '-x', 'remotepairingd'], capture_output=True,
-                          text=True).stdout.split()
-    if pids:
-        subprocess.run(['/usr/bin/sudo', '-n', '/bin/kill', '-9'] + pids)
-    subprocess.run(['/usr/bin/pkill', '-f', 'CoreDeviceService.xpc'])
+def restart(discovery=False):
+    # Keep trust records. A dead cached address needs discovery/transport refresh,
+    # not just the two pairing processes used for a stale but reachable tunnel.
+    services = ['remotepairingd','CoreDeviceService']
+    if discovery:
+        services += ['remoted','usbmuxd']
+        subprocess.run(['/usr/bin/dscacheutil','-flushcache'],check=False)
+        subprocess.run(['/usr/bin/sudo','-n','/usr/bin/killall','-HUP','mDNSResponder'],check=False)
+    for name in services:
+        pids = subprocess.run(['/usr/bin/pgrep','-x',name],capture_output=True,text=True).stdout.split()
+        if pids:
+            subprocess.run(['/usr/bin/sudo','-n','/bin/kill','-9']+pids,check=False)
     for _ in range(6):
         time.sleep(5)
         if phone()[0]:
@@ -121,10 +136,11 @@ def check(now, force=False):
         state = json.loads(STATE.read_text()) if STATE.exists() else {}
     except (ValueError, OSError):
         state = {}
-    visible, hosts, reason = phone()
+    visible, hosts, reason, recent = phone()
     hosts = hosts or state.get('hosts', [])
     network = reachable(hosts)
     changed = bool(network and state.get('network') and network != state['network'])
+    recent = recent or time.time()-state.get('seen',0) <= RECENT
     if hosts:
         state['hosts'] = hosts
     if network:
@@ -135,7 +151,8 @@ def check(now, force=False):
         state['misses'] = 0
         state['failed'] = False
         state['status'] = 'healthy'
-    elif not network:
+        state['seen'] = time.time()
+    elif not network and not recent:
         if state.get('status') != 'unreachable':
             say('The phone request failed and Bonjour IPv4/IPv6 do not answer; awaiting the phone on the LAN.')
         state['status'] = 'unreachable'
@@ -145,14 +162,20 @@ def check(now, force=False):
         wait = WAIT_FAILED if state.get('failed') else WAIT
         due = time.time() - state.get('fixed', 0) >= wait
         if now or changed or (state['misses'] >= CHECKS and due):
-            say('The phone is on the LAN but its device request failed%s; restarting pairing. %s' %
-                (' after a network change' if changed else '', reason or 'Installer requested repair.'))
+            say('%s%s; restarting %s. %s' %
+                ('The phone is on the LAN but its device request failed' if network else
+                 'A recently connected phone disappeared and its old Bonjour address does not answer',
+                 ' after a network change' if changed else '',
+                 'pairing' if network else 'Bonjour discovery and device transports',
+                 reason or 'Installer requested repair.'))
             state['fixed'] = time.time()
-            visible = restart()
+            visible = restart(discovery=not bool(network))
             state['failed'] = not visible
             if visible:
                 say('The phone is available again (device request succeeded).')
                 state['misses'] = 0
+                state['seen'] = time.time()
+                state['status'] = 'healthy'
             else:
                 say('Still unavailable; automatic checks will continue with backoff.')
     STATE.parent.mkdir(parents=True, exist_ok=True)
