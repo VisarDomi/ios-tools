@@ -146,7 +146,9 @@ process-list request (the device catalog can falsely say connected), tries both 
 and IPv6, and restarts the services when the phone answers on the LAN. It runs every 30 s from
 the Mac's LaunchAgent `com.visar.phone-pairing` (`phone-pairing --install` sets it up), and
 from `phone-install` before it falls back to over the air. Two failed checks trigger repair;
-a changed phone address or default route bypasses an old failure backoff. If a phone connected
+a changed phone address or default route bypasses an old failure backoff and refreshes
+Bonjour plus `remoted`/`usbmuxd`, even when the new IP answers pings. A failed pairing-only
+repair escalates to that full discovery refresh before entering backoff. If a phone connected
 within the last 30 minutes disappears completely, two failed requests also refresh Bonjour,
 `remoted` and `usbmuxd`; recovery does not depend on its obsolete IP answering a ping.
 Away phones outside that window do not trigger transport resets. Checks and installers
