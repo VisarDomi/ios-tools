@@ -31,7 +31,7 @@ class PairingTests(unittest.TestCase):
             self.assertIn('processes',args)
             return subprocess.CompletedProcess(args,1,'','unable to locate a device matching ecid_123')
         with patch.object(m.subprocess,'run',side_effect=run):
-            visible,hosts,reason=m.phone()
+            visible,hosts,reason,recent=m.phone()
         self.assertFalse(visible);self.assertEqual(hosts,['Visars-iPhone.local'])
         self.assertIn('ecid_123',reason)
 
@@ -51,8 +51,8 @@ class PairingTests(unittest.TestCase):
             return subprocess.CompletedProcess(args,1,'','not found')
         with patch.object(m.subprocess,'run',side_effect=run):self.assertFalse(m.phone()[0])
 
-    def check(self,healthy=False,network='phone|192.168.1.54|wifi',now=False,force=False):
-        with patch.object(m,'phone',return_value=(healthy,['phone.local'],'stale tunnel')), \
+    def check(self,healthy=False,network='phone|192.168.1.54|wifi',now=False,force=False,recent=False):
+        with patch.object(m,'phone',return_value=(healthy,['phone.local'],'stale tunnel',recent)), \
              patch.object(m,'reachable',return_value=network),patch.object(m,'restart',return_value=True) as restart:
             result=m.check(now,force)
             return result,restart.call_count
@@ -75,6 +75,14 @@ class PairingTests(unittest.TestCase):
 
     def test_installer_can_force_repair_of_stale_identity(self):
         self.assertEqual(self.check(healthy=True,now=True,force=True),(0,1))
+
+    def test_recent_phone_disappears_without_ping_reply(self):
+        self.assertEqual(self.check(network=None,recent=True),(1,0))
+        self.assertEqual(self.check(network=None,recent=True),(0,1))
+
+    def test_recent_phone_discovery_retries_obey_failed_backoff(self):
+        self.state.write_text(json.dumps({'fixed':m.time.time(),'failed':True,'misses':2}))
+        self.assertEqual(self.check(network=None,recent=True),(1,0))
 
     def test_away_phone_never_restarts_pairing(self):
         self.assertEqual(self.check(network=None,now=True,force=True),(1,0))
