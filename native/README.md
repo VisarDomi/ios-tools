@@ -151,8 +151,10 @@ Bonjour plus `remoted`/`usbmuxd`, even when the new IP answers pings. A failed p
 repair escalates to that full discovery refresh before entering backoff. If a phone connected
 within the last 30 minutes disappears completely, two failed requests also refresh Bonjour,
 `remoted` and `usbmuxd`; recovery does not depend on its obsolete IP answering a ping.
-Away phones outside that window do not trigger transport resets. Checks and installers
-share a lock. `phone-install` also repairs and retries once when a previously reachable phone
+After that window, a previously working phone still gets discovery retries every ten
+minutes; stale Bonjour records cannot disable recovery indefinitely. Explicit installer
+checks (`--now`) and repairs (`--repair`) refresh discovery immediately even without a ping
+reply or a recent connection. Checks and installers share a lock. `phone-install` also repairs and retries once when a previously reachable phone
 fails installation with a stale-device/connection error. Package/signing errors stay errors.
 Logs: `~/Library/Logs/phone-pairing.log`; tests: `python3 native/tests/test_phone_pairing.py`.
 The phone's policy is

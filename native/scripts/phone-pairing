@@ -9,8 +9,10 @@ are stuck then, and restarting them brings the phone back. This does that by its
                            30 s; repair after two failed real device requests while on the
                            LAN, or when a recently connected phone loses its old address.
                            Address changes bypass prior backoff. Retries back off
-                           10 minutes (an hour after failure); a network change resets this.
-  phone-pairing --now      check, and restart the services right away if they are stuck
+                           10 minutes (an hour after failure with a reachable address).
+                           Known phones with broken discovery keep retrying every 10 minutes.
+                           A network change resets the backoff.
+  phone-pairing --now      check, and restart right away even if Bonjour is stale
   phone-pairing --repair   repair after an installer reports a stale CoreDevice connection
   phone-pairing --install  write and load the LaunchAgent
 
@@ -146,6 +148,11 @@ def check(now, force=False):
         state['hosts'] = hosts
     if network:
         state['network'] = network
+    # Missing Bonjour is also a symptom of stuck discovery. Keep rediscovering a
+    # previously working phone instead of permanently giving up after RECENT.
+    wait = WAIT_FAILED if network and state.get('failed') else WAIT
+    due = time.time() - state.get('fixed', 0) >= wait
+    rediscover = bool(state.get('seen')) and due
     if visible and not force:
         if state.get('misses') or state.get('status') == 'unreachable':
             say('The phone is available again (device request succeeded).')
@@ -153,19 +160,17 @@ def check(now, force=False):
         state['failed'] = False
         state['status'] = 'healthy'
         state['seen'] = time.time()
-    elif not network and not recent and not now:
+    elif not network and not recent and not now and not rediscover:
         if state.get('status') != 'unreachable':
             say('The phone request failed and Bonjour IPv4/IPv6 do not answer; awaiting the phone on the LAN.')
         state['status'] = 'unreachable'
-        state['misses'] = 0   # no reachable LAN phone: do not restart unrelated services
+        state['misses'] = 0
     else:
         state['misses'] = state.get('misses', 0) + 1
-        wait = WAIT_FAILED if state.get('failed') else WAIT
-        due = time.time() - state.get('fixed', 0) >= wait
         if now or changed or (state['misses'] >= CHECKS and due):
             say('%s%s; restarting %s. %s' %
                 ('The phone is on the LAN but its device request failed' if network else
-                 'A recently connected phone disappeared and its old Bonjour address does not answer',
+                 'The paired phone disappeared and its old Bonjour address does not answer',
                  ' after a network change' if changed else '',
                  'Bonjour discovery and device transports' if (changed or force or not network or state.get('failed')) else 'pairing',
                  reason or 'Installer requested repair.'))
