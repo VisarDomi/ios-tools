@@ -88,6 +88,22 @@ class PairingTests(unittest.TestCase):
         self.state.write_text(json.dumps({'fixed':m.time.time(),'failed':True,'misses':2}))
         self.assertEqual(self.check(network=None,recent=True),(1,0))
 
+    def test_network_change_resets_discovery_even_when_ping_works(self):
+        self.state.write_text(json.dumps({'network':'phone|192.168.1.54|wifi','failed':True,'fixed':m.time.time()}))
+        with patch.object(m,'phone',return_value=(False,['phone.local'],'stale tunnel',True)), \
+             patch.object(m,'reachable',return_value='phone|192.168.1.45|wifi'), \
+             patch.object(m,'restart',return_value=True) as restart:
+            self.assertEqual(m.check(False),0)
+            restart.assert_called_once_with(discovery=True)
+
+    def test_basic_repair_escalates_before_entering_backoff(self):
+        self.state.write_text(json.dumps({'network':'phone|192.168.1.45|wifi','misses':1}))
+        with patch.object(m,'phone',return_value=(False,['phone.local'],'stale tunnel',True)), \
+             patch.object(m,'reachable',return_value='phone|192.168.1.45|wifi'), \
+             patch.object(m,'restart',side_effect=[False,True]) as restart:
+            self.assertEqual(m.check(False),0)
+            self.assertEqual([c.kwargs for c in restart.call_args_list],[{'discovery':False},{'discovery':True}])
+
     def test_away_phone_never_restarts_pairing(self):
         self.assertEqual(self.check(network=None,now=True,force=True),(1,0))
 

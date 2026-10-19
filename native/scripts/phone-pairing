@@ -167,10 +167,14 @@ def check(now, force=False):
                 ('The phone is on the LAN but its device request failed' if network else
                  'A recently connected phone disappeared and its old Bonjour address does not answer',
                  ' after a network change' if changed else '',
-                 'pairing' if network else 'Bonjour discovery and device transports',
+                 'Bonjour discovery and device transports' if (changed or force or not network or state.get('failed')) else 'pairing',
                  reason or 'Installer requested repair.'))
             state['fixed'] = time.time()
-            visible = restart(discovery=not bool(network))
+            discovery = changed or force or not network or state.get('failed', False)
+            visible = restart(discovery=discovery)
+            if not visible and not discovery:
+                say('Pairing-only repair did not restore the device; refreshing Bonjour and device transports.')
+                visible = restart(discovery=True)
             state['failed'] = not visible
             if visible:
                 say('The phone is available again (device request succeeded).')
