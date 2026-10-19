@@ -64,6 +64,10 @@ class PairingTests(unittest.TestCase):
         self.state.write_text(json.dumps({'network':'phone|192.168.1.45|wifi','fixed':m.time.time(),'failed':True}))
         self.assertEqual(self.check(),(0,1))
 
+    def test_first_lan_reply_after_missing_phone_bypasses_backoff(self):
+        self.state.write_text(json.dumps({'fixed':m.time.time(),'failed':True,'status':'unreachable'}))
+        self.assertEqual(self.check(),(0,1))
+
     def test_same_network_retains_backoff(self):
         self.state.write_text(json.dumps({'network':'phone|192.168.1.54|wifi','fixed':m.time.time(),'failed':True,'misses':5}))
         self.assertEqual(self.check(),(1,0))
