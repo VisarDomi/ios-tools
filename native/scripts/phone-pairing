@@ -153,7 +153,7 @@ def check(now, force=False):
         state['failed'] = False
         state['status'] = 'healthy'
         state['seen'] = time.time()
-    elif not network and not recent:
+    elif not network and not recent and not now:
         if state.get('status') != 'unreachable':
             say('The phone request failed and Bonjour IPv4/IPv6 do not answer; awaiting the phone on the LAN.')
         state['status'] = 'unreachable'

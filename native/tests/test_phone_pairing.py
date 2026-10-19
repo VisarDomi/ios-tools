@@ -104,7 +104,17 @@ class PairingTests(unittest.TestCase):
             self.assertEqual(m.check(False),0)
             self.assertEqual([c.kwargs for c in restart.call_args_list],[{'discovery':False},{'discovery':True}])
 
-    def test_away_phone_never_restarts_pairing(self):
-        self.assertEqual(self.check(network=None,now=True,force=True),(1,0))
+    def test_automatic_check_does_not_restart_for_an_away_phone(self):
+        self.assertEqual(self.check(network=None),(1,0))
+
+    def test_explicit_repair_refreshes_discovery_despite_stale_bonjour(self):
+        self.state.write_text(json.dumps({'seen':1,'fixed':m.time.time(),'failed':True,'status':'unreachable'}))
+        with patch.object(m,'phone',return_value=(False,['phone.local'],'stale discovery',False)), \
+             patch.object(m,'reachable',return_value=None),patch.object(m,'restart',return_value=True) as restart:
+            self.assertEqual(m.check(True,True),0)
+            restart.assert_called_once_with(discovery=True)
+
+    def test_installer_check_repairs_without_a_ping_reply(self):
+        self.assertEqual(self.check(network=None,now=True),(0,1))
 
 if __name__=='__main__':unittest.main()
