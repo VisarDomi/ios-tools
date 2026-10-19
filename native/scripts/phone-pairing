@@ -139,7 +139,8 @@ def check(now, force=False):
     visible, hosts, reason, recent = phone()
     hosts = hosts or state.get('hosts', [])
     network = reachable(hosts)
-    changed = bool(network and state.get('network') and network != state['network'])
+    changed = bool(network and network != state.get('network') and
+                   (state.get('network') or state.get('failed') or state.get('status') == 'unreachable'))
     recent = recent or time.time()-state.get('seen',0) <= RECENT
     if hosts:
         state['hosts'] = hosts
