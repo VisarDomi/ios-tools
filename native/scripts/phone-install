@@ -39,9 +39,31 @@ bundle=$(plist CFBundleIdentifier)
 reaches() { xcrun devicectl device info details --device "$device" --timeout 45 --quiet >/dev/null 2>&1; }
 if [ "$ota" = no ] &&
    { reaches || { "$(dirname "$0")/phone-pairing" --now && reaches; }; }; then
-    xcrun devicectl device install app --device "$device" "$app"
-    echo "Installed $bundle on the phone."
-    exit 0
+    install_log=$(mktemp)
+    if xcrun devicectl device install app --device "$device" "$app" >"$install_log" 2>&1; then
+        cat "$install_log"
+        rm -f "$install_log"
+        echo "Installed $bundle on the phone."
+        exit 0
+    else
+        install_status=$?
+        cat "$install_log" >&2
+    fi
+    # Catalog/details can succeed with a stale router/tunnel address while installation
+    # fails. Repair once for connection failures; signing/package errors stay errors.
+    if grep -Eiq 'unable to locate a device|device.*(unavailable|disconnected)|connection.*(invalid|lost|closed|failed)|CoreDeviceError error (1000|1001|1011|3002)' "$install_log"; then
+        rm -f "$install_log"
+        echo "Install lost the paired phone; repairing its wireless connection and retrying once."
+        if "$(dirname "$0")/phone-pairing" --repair && reaches; then
+            xcrun devicectl device install app --device "$device" "$app"
+            echo "Installed $bundle on the phone after pairing recovery."
+            exit 0
+        fi
+    else
+        rm -f "$install_log"
+        exit "$install_status"
+    fi
+    # Still no device path: use the normal over-the-air fallback below.
 fi
 
 # Over the air. The phone has to be in the app's provisioning profile.

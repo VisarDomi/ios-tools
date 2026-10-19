@@ -141,10 +141,16 @@ with the phone, it publishes the app on the tailnet and prints a link to pass on
 phone, with Tailscale on, open `https://mac.tailf47c4e.ts.net:8443/` and tap Install (the
 deploy then skips its launch). This works wherever the PC, the Mac and the phone are,
 since every SSH to the Mac also falls back to Tailscale. When the Mac's pairing services
-lose a phone that is on the network (`devicectl` says `unavailable`, the phone answers
-pings), [`scripts/phone-pairing`](scripts/phone-pairing) restarts them: every 30 s from
+lose a phone after a Wi-Fi change, [`scripts/phone-pairing`](scripts/phone-pairing) tests a real
+process-list request (the device catalog can falsely say connected), tries both Bonjour IPv4
+and IPv6, and restarts the services when the phone answers on the LAN. It runs every 30 s from
 the Mac's LaunchAgent `com.visar.phone-pairing` (`phone-pairing --install` sets it up), and
-from `phone-install` before it falls back to over the air. The phone's policy is
+from `phone-install` before it falls back to over the air. Two failed checks trigger repair;
+a changed phone address or default route bypasses an old failure backoff. Checks and installers
+share a lock. `phone-install` also repairs and retries once when a previously reachable phone
+fails installation with a stale-device/connection error. Package/signing errors stay errors.
+Logs: `~/Library/Logs/phone-pairing.log`; tests: `python3 native/tests/test_phone_pairing.py`.
+The phone's policy is
 **Tailscale off at home, on at coffee**. At home use direct installation; away use
 the install link when direct installation is unavailable. The computers keep
 Tailscale available for remote access. Do not require an always-on phone VPN for

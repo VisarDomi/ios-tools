@@ -1,21 +1,24 @@
 #!/usr/bin/python3
 """Keeps the Mac's wireless link to the phone working. Runs on the Mac.
 
-Sometimes devicectl (and so xcodebuild and every deploy) lists the phone as "unavailable"
-although the phone is on the same network and answers pings. The Mac's pairing services
+Sometimes devicectl keeps stale connection details after a Wi-Fi change, even while
+its catalog says connected and the phone answers on the LAN. The Mac's pairing services
 are stuck then, and restarting them brings the phone back. This does that by itself:
 
   phone-pairing            one check; the LaunchAgent com.visar.phone-pairing runs it every
-                           30 s and restarts the services once the phone has been unavailable
-                           but reachable for two checks in a row, at most every 10 minutes
-                           (every hour while restarting does not help)
+                           30 s; repair after two failed real device requests while on the
+                           LAN, or immediately after a changed LAN address. Retries back off
+                           10 minutes (an hour after failure); a network change resets this.
   phone-pairing --now      check, and restart the services right away if they are stuck
+  phone-pairing --repair   repair after an installer reports a stale CoreDevice connection
   phone-pairing --install  write and load the LaunchAgent
 
 Restarting does not help while the phone's Tailscale is on: it hides the phone's pairing
 path from the Mac. Events go to ~/Library/Logs/phone-pairing.log.
 """
+import fcntl
 import json
+import re
 import os
 import plistlib
 import subprocess
@@ -38,31 +41,64 @@ def say(text):
 
 
 def phone():
-    """(visible, LAN host name) for the phone in ios-tools.local.json."""
+    """Probe a real request; CoreDevice's catalog can say connected after its tunnel dies."""
     udid = json.loads((ROOT / 'ios-tools.local.json').read_text())['device']
-    with tempfile.TemporaryDirectory() as work:
-        out = Path(work) / 'devices.json'
-        subprocess.run(['/usr/bin/xcrun', 'devicectl', 'list', 'devices', '--quiet',
-                        '--json-output', str(out)], stdout=subprocess.DEVNULL,
-                       stderr=subprocess.DEVNULL, timeout=60)
-        devices = json.loads(out.read_text())['result']['devices']
-    device = next((d for d in devices if d['hardwareProperties'].get('udid') == udid), None)
-    if device is None:
-        return True, None        # not paired with this Mac: nothing a restart can fix
-    table = subprocess.run(['/usr/bin/xcrun', 'devicectl', 'list', 'devices'], capture_output=True,
-                           text=True, timeout=60).stdout
-    row = next((line for line in table.splitlines() if device['identifier'] in line), '')
-    # "Visars-iPhone.coredevice.local" is CoreDevice's name; the phone itself answers to
-    # "Visars-iPhone.local".
-    names = device['connectionProperties'].get('potentialHostnames', [])
-    host = names[0].replace('.coredevice.local', '.local') if names else None
-    return ' unavailable ' not in row, host
+    hosts = []
+    try:
+        with tempfile.TemporaryDirectory() as work:
+            out = Path(work) / 'devices.json'
+            result = subprocess.run(['/usr/bin/xcrun', 'devicectl', 'list', 'devices', '--quiet',
+                                     '--timeout', '12', '--json-output', str(out)],
+                                    capture_output=True, text=True, timeout=15)
+            devices = json.loads(out.read_text())['result']['devices'] if out.exists() else []
+        device = next((d for d in devices if d.get('hardwareProperties', {}).get('udid') == udid), None)
+        if device:
+            props = device.get('connectionProperties', {})
+            for name in props.get('potentialHostnames', []) + props.get('localHostnames', []):
+                host = name.replace('.coredevice.local', '.local')
+                # Ignore generated UDID/UUID aliases; they are not the phone's LAN Bonjour name.
+                label = host.split('.')[0].replace('-', '')
+                if host.endswith('.local') and not re.fullmatch(r'[0-9a-fA-F]{24,40}', label):
+                    if host not in hosts:
+                        hosts.append(host)
+        # This contacts the device rather than relying on the cached catalog/details.
+        result = subprocess.run(['/usr/bin/xcrun', 'devicectl', 'device', 'info', 'processes',
+                                 '--device', udid, '--timeout', '15', '--quiet'],
+                                capture_output=True, text=True, timeout=18)
+        reason = (result.stderr or result.stdout).strip()[-500:]
+        # A locked phone / missing developer image is a response from the phone,
+        # not evidence of a broken wireless pairing path.
+        responded = bool(re.search(r'device (?:is|must be) (?:un)?locked|developer disk image is not mounted',
+                                   reason, re.IGNORECASE))
+        return result.returncode == 0 or responded, hosts, reason
+    except (subprocess.TimeoutExpired, OSError, ValueError, KeyError) as error:
+        return False, hosts, str(error)
 
 
-def reachable(host):
-    return host is not None and subprocess.run(
-        ['/sbin/ping', '-c', '1', '-t', '2', host], stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL).returncode == 0
+def reachable(hosts):
+    """Try current Bonjour IPv4 and IPv6; an old A record need not block recovery."""
+    try:
+        route = subprocess.run(['/sbin/route', '-n', 'get', 'default'],
+                               capture_output=True, text=True, timeout=4).stdout
+        interface = re.search(r'interface:\s*(\S+)', route)
+        identity = '|'.join(line.strip() for line in route.splitlines()
+                            if line.strip().startswith(('gateway:', 'interface:')))
+    except (subprocess.TimeoutExpired, OSError):
+        interface, identity = None, ''
+    for host in hosts:
+        probes = [['/sbin/ping', '-c', '1', '-t', '2', host]]
+        if interface:
+            probes.append(['/sbin/ping6', '-c', '1', '-t', '2', '-I', interface.group(1), host])
+        for args in probes:
+            try:
+                result = subprocess.run(args,capture_output=True,text=True,timeout=4)
+                if result.returncode == 0:
+                    address = re.search(r'\(([^)]+)\)', result.stdout) if args[0].endswith('/ping') else None
+                    target = address.group(1) if address else result.stdout.splitlines()[0].split('-->')[-1].strip()
+                    return host + '|' + target + '|' + identity
+            except (subprocess.TimeoutExpired, OSError, IndexError):
+                continue
+    return None
 
 
 def restart():
@@ -80,32 +116,65 @@ def restart():
     return False
 
 
-def check(now):
-    state = json.loads(STATE.read_text()) if STATE.exists() else {}
-    visible, host = phone()
-    if visible:
-        if state.get('misses'):
-            say('The phone is available again.')
+def check(now, force=False):
+    try:
+        state = json.loads(STATE.read_text()) if STATE.exists() else {}
+    except (ValueError, OSError):
         state = {}
-    elif not reachable(host):
-        state['misses'] = 0          # away, or off the network: nothing to fix
+    visible, hosts, reason = phone()
+    hosts = hosts or state.get('hosts', [])
+    network = reachable(hosts)
+    changed = bool(network and state.get('network') and network != state['network'])
+    if hosts:
+        state['hosts'] = hosts
+    if network:
+        state['network'] = network
+    if visible and not force:
+        if state.get('misses') or state.get('status') == 'unreachable':
+            say('The phone is available again (device request succeeded).')
+        state['misses'] = 0
+        state['failed'] = False
+        state['status'] = 'healthy'
+    elif not network:
+        if state.get('status') != 'unreachable':
+            say('The phone request failed and Bonjour IPv4/IPv6 do not answer; awaiting the phone on the LAN.')
+        state['status'] = 'unreachable'
+        state['misses'] = 0   # no reachable LAN phone: do not restart unrelated services
     else:
         state['misses'] = state.get('misses', 0) + 1
         wait = WAIT_FAILED if state.get('failed') else WAIT
-        if now or (state['misses'] >= CHECKS and time.time() - state.get('fixed', 0) >= wait):
-            say('The phone answers on %s but devicectl lists it as unavailable; '
-                'restarting the pairing services.' % host)
+        due = time.time() - state.get('fixed', 0) >= wait
+        if now or changed or (state['misses'] >= CHECKS and due):
+            say('The phone is on the LAN but its device request failed%s; restarting pairing. %s' %
+                (' after a network change' if changed else '', reason or 'Installer requested repair.'))
             state['fixed'] = time.time()
             visible = restart()
             state['failed'] = not visible
             if visible:
-                say('The phone is available again.')
-                state = {}
+                say('The phone is available again (device request succeeded).')
+                state['misses'] = 0
             else:
-                say('Still unavailable. If the phone\'s Tailscale is on, turn it off.')
+                say('Still unavailable; automatic checks will continue with backoff.')
     STATE.parent.mkdir(parents=True, exist_ok=True)
-    STATE.write_text(json.dumps(state))
+    temporary = STATE.with_suffix('.tmp')
+    temporary.write_text(json.dumps(state))
+    temporary.replace(STATE)
     return 0 if visible else 1
+
+
+def locked_check(now, force=False):
+    STATE.parent.mkdir(parents=True, exist_ok=True)
+    # The LaunchAgent and an installer may run together. One service restart at a time.
+    with STATE.with_suffix('.lock').open('a') as lock:
+        deadline = time.monotonic() + (90 if now else 0)
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return check(now, force)
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    return 1 if now else 0
+                time.sleep(1)
 
 
 def install():
@@ -126,7 +195,7 @@ def install():
 if __name__ == '__main__':
     if sys.argv[1:] == ['--install']:
         install()
-    elif sys.argv[1:] in ([], ['--now']):
-        sys.exit(check(sys.argv[1:] == ['--now']))
+    elif sys.argv[1:] in ([], ['--now'], ['--repair']):
+        sys.exit(locked_check(bool(sys.argv[1:]), sys.argv[1:] == ['--repair']))
     else:
         sys.exit(__doc__)
