@@ -117,4 +117,14 @@ class PairingTests(unittest.TestCase):
     def test_installer_check_repairs_without_a_ping_reply(self):
         self.assertEqual(self.check(network=None,now=True),(0,1))
 
+    def test_known_phone_is_rediscovered_after_recent_window_expires(self):
+        self.state.write_text(json.dumps({'seen':1,'fixed':m.time.time()-m.WAIT-1,'failed':True,'status':'unreachable'}))
+        self.assertEqual(self.check(network=None),(1,0))
+        self.assertEqual(self.check(network=None),(0,1))
+
+    def test_stale_discovery_retries_keep_the_ten_minute_backoff(self):
+        self.state.write_text(json.dumps({'seen':1,'fixed':m.time.time(),'failed':True,'status':'unreachable'}))
+        self.assertEqual(self.check(network=None),(1,0))
+        self.assertEqual(self.check(network=None),(1,0))
+
 if __name__=='__main__':unittest.main()
