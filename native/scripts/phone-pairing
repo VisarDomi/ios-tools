@@ -1,9 +1,9 @@
 #!/usr/bin/python3
 """Keeps the Mac's wireless link to the phone working. Runs on the Mac.
 
-Sometimes devicectl keeps stale connection details after a Wi-Fi change, even while
-its catalog says connected and the phone answers on the LAN. The Mac's pairing services
-are stuck then, and restarting them brings the phone back. This does that by itself:
+Sometimes devicectl keeps stale connection details after a Wi-Fi change. Bonjour
+multicast can also fail while the phone is reachable directly. Restore discovery
+using the existing trusted identity before restarting Mac pairing services:
 
   phone-pairing            one check; the LaunchAgent com.visar.phone-pairing runs it every
                            30 s; repair after two failed real device requests while on the
@@ -15,6 +15,7 @@ are stuck then, and restarting them brings the phone back. This does that by its
   phone-pairing --now      check, and restart right away even if Bonjour is stale
   phone-pairing --repair   repair after an installer reports a stale CoreDevice connection
   phone-pairing --install  write and load the LaunchAgent
+  phone-pairing --probe    test a real device request without repairing anything
 
 Restarting does not help while the phone's Tailscale is on: it hides the phone's pairing
 path from the Mac. Events go to ~/Library/Logs/phone-pairing.log.
@@ -115,6 +116,13 @@ def reachable(hosts):
 
 
 def restart(discovery=False):
+    # A reachable phone can be invisible to Bonjour after roaming between APs.
+    # Validate its existing identity over unicast, publish its actual current RSD
+    # endpoint, and only restart Apple services if a real request still fails.
+    if bootstrap_discovery():
+        for attempt in range(3):
+            if phone()[0]: return True
+            if attempt < 2: time.sleep(2)
     # Keep trust records. A dead cached address needs discovery/transport refresh,
     # not just the two pairing processes used for a stale but reachable tunnel.
     services = ['remotepairingd','CoreDeviceService']
@@ -130,6 +138,22 @@ def restart(discovery=False):
         time.sleep(5)
         if phone()[0]:
             return True
+    return False
+
+
+def bootstrap_discovery():
+    python = ROOT / 'inspector/.venv/bin/python'
+    helper = ROOT / 'native/scripts/phone-discovery'
+    if not python.is_file() or not helper.is_file(): return False
+    try:
+        result = subprocess.run([str(python), str(helper), '--ensure', '--wait', '30'],
+                                capture_output=True, text=True, timeout=60)
+        if result.returncode == 0:
+            endpoint = json.loads(result.stdout)
+            say('Authenticated unicast discovery: %s on %s; native Bonjour endpoint refreshed.' %
+                (endpoint.get('address'), endpoint.get('interface')))
+            return True
+    except (OSError, ValueError, subprocess.TimeoutExpired): pass
     return False
 
 
@@ -168,7 +192,7 @@ def check(now, force=False):
     else:
         state['misses'] = state.get('misses', 0) + 1
         if now or changed or (state['misses'] >= CHECKS and due):
-            say('%s%s; restarting %s. %s' %
+            say('%s%s; restoring discovery, then refreshing %s if needed. %s' %
                 ('The phone is on the LAN but its device request failed' if network else
                  'The paired phone disappeared and its old Bonjour address does not answer',
                  ' after a network change' if changed else '',
@@ -230,5 +254,7 @@ if __name__ == '__main__':
         install()
     elif sys.argv[1:] in ([], ['--now'], ['--repair']):
         sys.exit(locked_check(bool(sys.argv[1:]), sys.argv[1:] == ['--repair']))
+    elif sys.argv[1:] == ['--probe']:
+        sys.exit(0 if phone()[0] else 1)
     else:
         sys.exit(__doc__)

@@ -127,4 +127,18 @@ class PairingTests(unittest.TestCase):
         self.assertEqual(self.check(network=None),(1,0))
         self.assertEqual(self.check(network=None),(1,0))
 
+    def test_unicast_recovery_avoids_restarting_apple_services(self):
+        with patch.object(m,'bootstrap_discovery',return_value=True), \
+             patch.object(m,'phone',return_value=(True,[],'',True)), \
+             patch.object(m.subprocess,'run') as services:
+            self.assertTrue(m.restart(discovery=True))
+            services.assert_not_called()
+
+    def test_published_endpoint_alone_is_not_a_healthy_connection(self):
+        with patch.object(m,'bootstrap_discovery',return_value=True), \
+             patch.object(m,'phone',return_value=(False,[],'not found',False)), \
+             patch.object(m.time,'sleep'), patch.object(m.subprocess,'run',return_value=subprocess.CompletedProcess([],0,'')) as services:
+            self.assertFalse(m.restart(discovery=True))
+            self.assertTrue(services.called)
+
 if __name__=='__main__':unittest.main()

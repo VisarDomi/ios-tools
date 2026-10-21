@@ -142,10 +142,24 @@ phone, with Tailscale on, open `https://mac.tailf47c4e.ts.net:8443/` and tap Ins
 deploy then skips its launch). This works wherever the PC, the Mac and the phone are,
 since every SSH to the Mac also falls back to Tailscale. When the Mac's pairing services
 lose a phone after a Wi-Fi change, [`scripts/phone-pairing`](scripts/phone-pairing) tests a real
-process-list request (the device catalog can falsely say connected), tries both Bonjour IPv4
-and IPv6, and restarts the services when the phone answers on the LAN. It runs every 30 s from
+process-list request (catalog and device details can falsely say connected). When Bonjour
+multicast fails, [`scripts/phone-discovery`](scripts/phone-discovery) finds the phone on the
+current physical LAN, authenticates its UDID and pinned TLS device certificate using the
+existing system pairing record, and queries its current DNS-SD records directly over unicast.
+It maintains a scoped Bonjour proxy for that actual remote-pairing endpoint, updating its
+address, interface, service UUID and port after roaming. It never starts new pairing or
+replaces trust records. No phone IP or link-local IPv6 address is hard-coded. The helper uses
+the existing `inspector/.venv` dependencies; restore them using [inspector](../inspector/README.md)
+on a fresh Mac. It runs under the existing monitor, with no additional LaunchAgent.
+
+The monitor runs every 30 s from
 the Mac's LaunchAgent `com.visar.phone-pairing` (`phone-pairing --install` sets it up), and
-from `phone-install` before it falls back to over the air. Two failed checks trigger repair;
+from `phone-install` before it falls back to over the air. Unicast recovery runs first;
+Apple services restart only if a real device request still fails. The proxy checks every
+20 seconds, tolerates a temporary identity-query failure for at most a minute on the same
+interface, and backs off up to five minutes while away. An installer wakes discovery
+immediately. `phone-pairing --probe` performs a real device request without repairing.
+Two failed monitor checks trigger repair;
 a changed phone address or default route bypasses an old failure backoff and refreshes
 Bonjour plus `remoted`/`usbmuxd`, even when the new IP answers pings. A failed pairing-only
 repair escalates to that full discovery refresh before entering backoff. If a phone connected
@@ -156,7 +170,16 @@ minutes; stale Bonjour records cannot disable recovery indefinitely. Explicit in
 checks (`--now`) and repairs (`--repair`) refresh discovery immediately even without a ping
 reply or a recent connection. Checks and installers share a lock. `phone-install` also repairs and retries once when a previously reachable phone
 fails installation with a stale-device/connection error. Package/signing errors stay errors.
-Logs: `~/Library/Logs/phone-pairing.log`; tests: `python3 native/tests/test_phone_pairing.py`.
+Logs: `~/Library/Logs/phone-pairing.log` and `phone-discovery.log`; disposable discovery
+state: `~/Library/Application Support/phone-pairing/discovery-<UDID>.json`. It records
+endpoints and timestamps, never pairing secrets or DNS TXT values. Run `npm test` for
+pairing, unicast discovery and renewal regressions. On October 21, direct TLS and unicast
+DNS worked while no multicast phone replies reached the Mac; publishing the verified
+endpoint restored a real CoreDevice process request and a Maid Heroes installation.
+`EnableWifiDebugging` in `com.apple.mobile.wireless_lockdown` is separate from this modern
+developer connection: it was false during the successful install. Attempting to enable it
+returned `PasscodeRequired`; `PasswordProtected` was false. Do not remove trust records or
+change phone security settings to repair missing Bonjour discovery.
 The phone's policy is
 **Tailscale off at home, on at coffee**. At home use direct installation; away use
 the install link when direct installation is unavailable. The computers keep

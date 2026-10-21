@@ -34,9 +34,9 @@ fi
 plist() { /usr/libexec/PlistBuddy -c "Print :$1" "$app/Info.plist"; }
 bundle=$(plist CFBundleIdentifier)
 
-# phone-pairing --now restarts the Mac's pairing services when they lose a phone that is on
-# the network.
-reaches() { xcrun devicectl device info details --device "$device" --timeout 45 --quiet >/dev/null 2>&1; }
+# Details can come from CoreDevice's cache even while the phone is unreachable.
+# Probe the actual requested device; recovery restores unicast discovery first.
+reaches() { xcrun devicectl device info processes --device "$device" --timeout 15 --quiet >/dev/null 2>&1; }
 if [ "$ota" = no ] &&
    { reaches || { "$(dirname "$0")/phone-pairing" --now && reaches; }; }; then
     install_log=$(mktemp)
