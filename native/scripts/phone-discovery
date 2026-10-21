@@ -1,0 +1,408 @@
+#!/usr/bin/env python3
+"""Restore native CoreDevice discovery when a LAN drops multicast Bonjour.
+
+Find the configured phone using its existing lockdown identity and pinned device
+certificate. Query its current DNS-SD records directly, then maintain a scoped
+Bonjour proxy for that real endpoint. Never pair, replace trust records or change
+phone networking settings. The existing phone-pairing monitor starts this helper;
+it does not install another LaunchAgent.
+"""
+import argparse
+import asyncio
+import concurrent.futures
+import hashlib
+import hmac
+import ipaddress
+import json
+import os
+from pathlib import Path
+import re
+import signal
+import socket
+import ssl
+import struct
+import subprocess
+import sys
+import tempfile
+import time
+import fcntl
+
+ROOT = Path(__file__).resolve().parents[2]
+DIRECTORY = Path.home() / 'Library/Application Support/phone-pairing'
+SCRIPT_HASH = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+SERVICE = '_remotepairing._tcp.local.'
+
+
+def normalized(udid):
+    result = udid.replace('-', '').lower()
+    if len(result) not in (24, 40) or not re.fullmatch('[0-9a-f]+', result):
+        raise ValueError('Invalid device UDID')
+    return result
+
+
+def paths(udid):
+    base = DIRECTORY / ('discovery-' + normalized(udid))
+    return base.with_suffix('.json'), base.with_suffix('.sock'), base.with_suffix('.lock')
+
+
+def read_json(path):
+    try:
+        result = json.loads(path.read_text())
+        return result if isinstance(result, dict) else {}
+    except (ValueError, OSError): return {}
+
+
+def write_json(path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(mode='w', dir=path.parent, delete=False) as output:
+        json.dump(data, output)
+        temporary = Path(output.name)
+    temporary.replace(path)
+
+
+def interfaces(text=None):
+    if text is None:
+        text = subprocess.run(['/sbin/ifconfig', '-a'], capture_output=True, text=True, timeout=5).stdout
+    result = []
+    for block in re.split(r'(?=^\S[^\n]*: flags=)', text, flags=re.M):
+        match = re.match(r'((?:en|bridge)\d+): flags=', block)
+        if not match or 'status: active' not in block: continue
+        for address, mask in re.findall(r'\binet (\d+\.\d+\.\d+\.\d+) netmask (0x[0-9a-f]+)', block):
+            bits = bin(int(mask, 16)).count('1')
+            interface = ipaddress.ip_interface(address + '/' + str(bits))
+            if interface.ip.is_private and not interface.ip.is_loopback:
+                result.append(dict(interface=match[1], address=address, network=interface.network))
+    return result
+
+
+def on_link(address, networks, interface=None):
+    try: ip = ipaddress.IPv4Address(address)
+    except (ipaddress.AddressValueError, TypeError): return None
+    return next((n for n in networks if ip in n['network'] and address != n['address'] and
+                 (interface is None or n['interface'] == interface)), None)
+
+
+def endpoint_network(address, networks):
+    # Ethernet and Wi-Fi may share a subnet. Publish on the route that actually
+    # reached the authenticated phone, not merely the first ifconfig entry.
+    try:
+        route = subprocess.run(['/sbin/route', '-n', 'get', address], capture_output=True, text=True, timeout=2).stdout
+        match = re.search(r'interface:\s*(\S+)', route)
+        if match:
+            network = on_link(address, networks, match[1])
+            if network: return network
+    except (OSError, subprocess.TimeoutExpired): pass
+    return on_link(address, networks)
+
+
+def candidate_addresses(networks, previous):
+    candidates = [previous.get('address')]
+    # Old monitor state retains an address even when its Bonjour hostname fails.
+    candidates += read_json(DIRECTORY / 'state.json').get('network', '').split('|')
+    try:
+        arp = subprocess.run(['/usr/sbin/arp', '-an'], capture_output=True, text=True, timeout=4).stdout
+        candidates += re.findall(r'\((\d+\.\d+\.\d+\.\d+)\)', arp)
+    except (OSError, subprocess.TimeoutExpired): pass
+    return list(dict.fromkeys(a for a in candidates if a and on_link(a, networks)))
+
+
+def scan_addresses(networks):
+    addresses = []
+    for n in networks:
+        network = n['network']
+        # Never scan a large enterprise/VPN network. Limit discovery to on-link
+        # subnets up to /22, or the interface's own /24 on a larger subnet.
+        if network.num_addresses > 1024:
+            network = ipaddress.ip_network(n['address'] + '/24', strict=False)
+        addresses.extend(str(ip) for ip in network.hosts() if str(ip) != n['address'])
+    return list(dict.fromkeys(addresses))[:1024]
+
+
+def port_open(address):
+    try:
+        with socket.create_connection((address, 62078), timeout=.25): return True
+    except OSError: return False
+
+
+def pair_record(udid):
+    import plistlib
+    normalized(udid)
+    path = Path('/var/db/lockdown') / (udid + '.plist')
+    try: data = path.read_bytes()
+    except PermissionError:
+        # Keep private keys in the system store. Read only this already-paired
+        # device into an anonymous pipe; never log/copy its pairing material.
+        data = subprocess.check_output(['/usr/bin/sudo', '-n', '/bin/cat', str(path)],
+                                       stderr=subprocess.DEVNULL, timeout=5)
+    return plistlib.loads(data)
+
+
+async def verify(address, udid, record, connector=None):
+    if connector is None:
+        from pymobiledevice3.lockdown import create_using_tcp
+        connector = create_using_tcp
+    client = None
+    try:
+        client = await connector(address, identifier=udid, autopair=False, pair_record=record)
+        if not client.paired or normalized(client.udid or '') != normalized(udid): return False
+        tls = client.service.writer.get_extra_info('ssl_object')
+        expected = record['DeviceCertificate']
+        if isinstance(expected, bytes): expected = expected.decode('ascii')
+        expected = ssl.PEM_cert_to_DER_cert(expected)
+        return bool(tls and hmac.compare_digest(tls.getpeercert(binary_form=True), expected))
+    except Exception: return False
+    finally:
+        if client is not None:
+            try: await asyncio.wait_for(client.close(), 2)
+            except Exception: pass
+
+
+async def find_phone(udid, record, networks, previous):
+    deadline = time.monotonic() + 18
+    async def authenticated(address):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0: return False
+        try: return await asyncio.wait_for(verify(address, udid, record), min(6, remaining))
+        except asyncio.TimeoutError: return False
+    # Try the last authenticated endpoint first. Other neighbour-table entries
+    # join the bounded scan so several unrelated iPhones cannot delay discovery.
+    cached = previous.get('address')
+    if cached and on_link(cached, networks):
+        if port_open(cached) and await authenticated(cached): return cached
+    addresses = list(dict.fromkeys(candidate_addresses(networks, previous) + scan_addresses(networks)))
+    addresses = [a for a in addresses if a != cached]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=48) as pool:
+        opened = list(pool.map(port_open, addresses))
+    # Validate live candidates concurrently: another iPhone must not consume the
+    # entire install timeout before the configured phone is checked.
+    limit = asyncio.Semaphore(4)
+    async def candidate(address):
+        async with limit:
+            return address if await authenticated(address) else None
+    tasks = [asyncio.create_task(candidate(a)) for a, opened in zip(addresses, opened) if opened]
+    try:
+        for completed in asyncio.as_completed(tasks):
+            address = await completed
+            if address: return address
+    finally:
+        for task in tasks: task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+    raise RuntimeError('No endpoint authenticated as the configured phone on the current LAN')
+
+
+def encode_name(name):
+    labels = name.rstrip('.').split('.')
+    data = b''.join(bytes([len(s.encode('utf8'))]) + s.encode('utf8') for s in labels) + b'\0'
+    if any(len(s.encode('utf8')) > 63 for s in labels) or len(data) > 255: raise ValueError('Invalid DNS name')
+    return data
+
+
+def dns_query(address, questions):
+    packet = struct.pack('!6H', 0, 0, len(questions), 0, 0, 0)
+    packet += b''.join(encode_name(n) + struct.pack('!HH', t, 0x8001) for n, t in questions)
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as stream:
+        stream.settimeout(2)
+        stream.sendto(packet, (address, 5353))
+        data, source = stream.recvfrom(65535)
+        if source != (address, 5353): raise ValueError('Unexpected DNS response source')
+    return parse_dns(data)
+
+
+def parse_dns(data):
+    def name(position):
+        labels, seen, end = [], set(), None
+        while True:
+            if position in seen or len(seen) >= 128: raise ValueError('DNS compression loop')
+            seen.add(position)
+            size = data[position]
+            if size & 0xc0 == 0xc0:
+                if end is None: end = position + 2
+                position = ((size & 63) << 8) | data[position + 1]
+                continue
+            if size > 63: raise ValueError('Invalid DNS label')
+            position += 1
+            if not size:
+                result = '.'.join(labels) + '.'
+                if len(result.encode('utf8')) > 255: raise ValueError('DNS name too long')
+                return result, end or position
+            if position + size > len(data): raise ValueError('Truncated DNS name')
+            labels.append(data[position:position + size].decode('utf8')); position += size
+    try:
+        _, flags, count, answers, authority, extra = struct.unpack('!6H', data[:12])
+        if not flags & 0x8000 or count > 64 or answers + authority + extra > 128: raise ValueError('Invalid DNS response')
+        position, records = 12, []
+        for _ in range(count): _, position = name(position); position += 4
+        for _ in range(answers + authority + extra):
+            owner, position = name(position)
+            kind, cls, ttl, size = struct.unpack('!HHIH', data[position:position + 10]); position += 10
+            start = position; position += size
+            if position > len(data): raise ValueError('Truncated DNS record')
+            value = data[start:position]
+            if kind in (12, 33):
+                offset = 6 if kind == 33 else 0
+                if size <= offset: raise ValueError('Truncated DNS service record')
+                target, end = name(start + offset)
+                if end > position: raise ValueError('Truncated DNS service name')
+                value = (struct.unpack('!HHH', value[:6])[2], target) if kind == 33 else target
+            elif kind == 28: value = str(ipaddress.IPv6Address(value))
+            elif kind == 1: value = str(ipaddress.IPv4Address(value))
+            elif kind == 16:
+                value, p = [], start
+                while p < position:
+                    length = data[p]; p += 1
+                    if p + length > position: raise ValueError('Truncated TXT record')
+                    text = data[p:p + length].decode('utf8')
+                    if '\0' in text: raise ValueError('Unsupported binary TXT record')
+                    value.append(text); p += length
+            records.append(dict(name=owner, type=kind, value=value, ttl=ttl))
+        return records
+    except (IndexError, struct.error, UnicodeError) as error:
+        raise ValueError('Malformed DNS response') from error
+
+
+def service_record(address, records, query=dns_query):
+    records = [r for r in records if r.get('ttl', 0) > 0]
+    aliases = [r['value'] for r in records if r['type'] == 12 and r['name'].lower() == SERVICE]
+    for alias in aliases:
+        instance = alias[:-len('.' + SERVICE)] if alias.lower().endswith('.' + SERVICE) else ''
+        if not re.fullmatch('[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}', instance): continue
+        found = {r['type']: r['value'] for r in records if r['name'].lower() == alias.lower()}
+        if 33 not in found or 16 not in found:
+            records += query(address, [(alias, 33), (alias, 16)])
+            found = {r['type']: r['value'] for r in records if r['name'].lower() == alias.lower()}
+        if 33 not in found or 16 not in found: continue
+        port, host = found[33]
+        if not 0 < port < 65536 or not host.lower().endswith('.local.'): continue
+        addresses = [r for r in records if r['name'].lower() == host.lower() and r['type'] in (1, 28)]
+        if not addresses:
+            addresses = [r for r in query(address, [(host, 1), (host, 28)])
+                         if r['name'].lower() == host.lower() and r['type'] in (1, 28)]
+        ipv6 = next((r['value'] for r in addresses if r['type'] == 28 and ipaddress.ip_address(r['value']).is_link_local), None)
+        if not ipv6 and not any(r['type'] == 1 and r['value'] == address for r in addresses): continue
+        return dict(instance=instance, host=host, port=port, ip=ipv6 or address, txt=found[16])
+    raise RuntimeError('The authenticated phone did not return a complete remote-pairing service')
+
+
+def stop_child(child):
+    if child is not None and child.poll() is None:
+        child.terminate()
+        try: child.wait(timeout=3)
+        except subprocess.TimeoutExpired: child.kill(); child.wait(timeout=3)
+
+
+def retain_endpoint(previous, networks, child, now=None):
+    # A competing lockdown session or a sleeping phone can briefly reject the
+    # identity check while its native developer tunnel remains healthy. Keep
+    # only this recently authenticated endpoint, on its original interface, for
+    # at most a minute. Native CoreDevice still authenticates every connection.
+    network = on_link(previous.get('address', ''), networks, previous.get('interface'))
+    return bool(child is not None and child.poll() is None and network and
+                network['interface'] == previous.get('interface') and
+                0 <= (time.time() if now is None else now) - previous.get('verified', 0) < 60)
+
+
+def serve(udid):
+    state_path, control_path, lock_path = paths(udid)
+    DIRECTORY.mkdir(parents=True, exist_ok=True)
+    lock = lock_path.open('a')
+    try: fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError: lock.close(); return
+    previous, child, fingerprint = read_json(state_path), None, None
+    failures = 0
+    control_path.unlink(missing_ok=True)
+    control = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    control.bind(str(control_path)); control.listen(4); os.chmod(control_path, 0o600)
+    stopping = False
+    def stop(*args):
+        nonlocal stopping
+        stopping = True
+    signal.signal(signal.SIGTERM, stop); signal.signal(signal.SIGINT, stop)
+    try:
+        record = pair_record(udid)
+        while not stopping:
+            networks = []
+            try:
+                networks = interfaces()
+                address = asyncio.run(find_phone(udid, record, networks, previous))
+                network = endpoint_network(address, networks)
+                service = service_record(address, dns_query(address, [(SERVICE, 12)]))
+                new_fingerprint = (address, network['interface'], service['instance'], service['host'], service['port'], service['ip'], tuple(service['txt']))
+                if fingerprint != new_fingerprint or child is None or child.poll() is not None:
+                    stop_child(child)
+                    child = subprocess.Popen(['/usr/bin/dns-sd', '-i', network['interface'], '-P', service['instance'],
+                                              '_remotepairing._tcp', 'local.', str(service['port']), service['host'],
+                                              service['ip']] + service['txt'], stdin=subprocess.DEVNULL,
+                                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    fingerprint = new_fingerprint
+                    print('Authenticated phone %s at %s; publishing its current remote-pairing endpoint on %s.' %
+                          (udid, address, network['interface']), flush=True)
+                previous = dict(pid=os.getpid(), sourceHash=SCRIPT_HASH, udid=udid, address=address,
+                                interface=network['interface'], service=service['instance'], port=service['port'],
+                                verified=time.time(), registered=child.poll() is None)
+                failures = 0
+            except Exception as error:
+                failures += 1
+                retained = retain_endpoint(previous, networks, child)
+                if not retained:
+                    stop_child(child); child = None; fingerprint = None
+                if previous.get('error') != str(error):
+                    print('Unicast phone discovery: ' + str(error), flush=True)
+                previous.update(pid=os.getpid(), sourceHash=SCRIPT_HASH, registered=retained, error=str(error), checked=time.time())
+            write_json(state_path, previous)
+            # Installer requests wake discovery immediately after a Wi-Fi move.
+            # Back off while away instead of scanning the LAN every 20 seconds.
+            control.settimeout(5 if failures and child is not None else min(300, 20 * 2 ** min(failures, 4)))
+            try:
+                connection, _ = control.accept()
+                with connection:
+                    connection.settimeout(1)
+                    stopping = stopping or connection.recv(32) == b'stop'
+            except (socket.timeout, InterruptedError): pass
+    finally:
+        stop_child(child)
+        control.close(); control_path.unlink(missing_ok=True); lock.close()
+
+
+def request(path, command):
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as control:
+            control.settimeout(.5); control.connect(str(path)); control.sendall(command)
+        return True
+    except OSError: return False
+
+
+def ensure(udid, wait):
+    state_path, control_path, _ = paths(udid)
+    DIRECTORY.mkdir(parents=True, exist_ok=True)
+    before = read_json(state_path)
+    if before.get('sourceHash') != SCRIPT_HASH and request(control_path, b'stop'):
+        deadline = time.monotonic() + 25
+        while control_path.exists() and time.monotonic() < deadline: time.sleep(.1)
+    started = time.time()
+    if not request(control_path, b'refresh'):
+        log = Path.home() / 'Library/Logs/phone-discovery.log'; log.parent.mkdir(parents=True, exist_ok=True)
+        with log.open('a') as output:
+            subprocess.Popen([sys.executable, str(Path(__file__).resolve()), '--serve', '--device', udid],
+                             stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT,
+                             start_new_session=True, close_fds=True)
+    deadline = time.monotonic() + wait
+    while time.monotonic() < deadline:
+        state = read_json(state_path)
+        if state.get('registered') and state.get('sourceHash') == SCRIPT_HASH and state.get('verified', 0) >= started - 1:
+            print(json.dumps({k: state.get(k) for k in ['udid', 'address', 'interface', 'service', 'port']}))
+            return 0
+        time.sleep(.25)
+    return 1
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--device')
+    parser.add_argument('--serve', action='store_true')
+    parser.add_argument('--ensure', action='store_true')
+    parser.add_argument('--wait', type=float, default=20)
+    args = parser.parse_args()
+    device = args.device or json.loads((ROOT / 'ios-tools.local.json').read_text())['device']
+    normalized(device)
+    if args.serve: serve(device)
+    else: sys.exit(ensure(device, args.wait))
