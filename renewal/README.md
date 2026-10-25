@@ -16,6 +16,7 @@ renew one calendar month after their last successful update.
 | maid-heroes | `maid-heroes/apps/ios` |
 | deep-town | `deep-town/apps/ios` |
 | custom-twitter | `custom-twitter` |
+| trader | `trader/apps/ios` |
 
 Each scheduler checks every ten minutes and at login, so offline or locked phones
 are retried. It builds only its due apps, sequentially, installing over the
