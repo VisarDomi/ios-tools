@@ -11,6 +11,7 @@ that and this file before changing an app.
 | `/home/visar/Documents/work/manga/gallery-reader` | gallery-a, gallery-b | `apps/ios/README.md` |
 | `/home/visar/Documents/work/manga/gallery-downloader` | Gallery Reader (offline, from the PC) | `apps/ios/README.md` |
 | `/home/visar/Documents/work/video/video-platform` | TsLive local, LADDER local, FMP4 local, Video Vault, TsLive | `apps/ios/README.md` |
+| `/home/visar/Documents/work/trading/trader` | Trader | `apps/ios/README.md` |
 
 Not native, on purpose: Twitter (an x.com wrapper), Maid Heroes (a Unity WebGL game), World
 Rumble (App Store); Deep Town was native already. The Safari Web Extensions (TsLive Login,
@@ -71,7 +72,7 @@ python3 scripts/vendor-kit.py <repository> [...]          # copy (replaces the o
 python3 scripts/vendor-kit.py --check <repository> [...]  # exit 1 when a copy differs
 ```
 
-Every repository carries the same Kit: after changing it, vendor it into all four, build
+Every repository carries the same Kit: after changing it, vendor it into every native app repository above, build
 and deploy the apps that changed (their renewal inputs change; installing with the deploy
 script approves them).
 
