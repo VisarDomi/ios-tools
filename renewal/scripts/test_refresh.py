@@ -78,6 +78,13 @@ class RenewalTests(unittest.TestCase):
         self.assertEqual(self.device_calls, [])
         self.assertEqual(self.process_calls, [])
 
+    def test_mac_renewal_wraps_the_builder_in_the_shared_workload_guard(self):
+        with patch.object(refresh.sys, 'platform', 'darwin'):
+            refresh.run(self.config, 'refresh')
+        command=next(c for c in self.process_calls if 'build' in c and '--timeout' in c)
+        self.assertTrue(command[1].endswith('native/scripts/mac-workload'))
+        self.assertEqual(command[-1], 'fake-build')
+
     def test_next_day_is_due_even_with_six_days_remaining(self):
         refresh.run(self.config, 'refresh')
         self.after = {key: dict(value, expires=1100000) for key, value in self.after.items()}

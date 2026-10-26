@@ -1,6 +1,7 @@
 import importlib.machinery
 import importlib.util
 import json
+import fcntl
 from pathlib import Path
 import subprocess
 import tempfile
@@ -17,7 +18,9 @@ class PairingTests(unittest.TestCase):
         self.root=Path(self.tmp.name)
         self.state=self.root/'state.json'
         (self.root/'ios-tools.local.json').write_text(json.dumps({'device':'a'*24}))
-        self.patches=[patch.object(m,'STATE',self.state),patch.object(m,'ROOT',self.root),patch.object(m,'say')]
+        self.patches=[patch.object(m,'STATE',self.state),patch.object(m,'ROOT',self.root),patch.object(m,'say'),
+                      patch.object(m,'WORKLOAD_LOCK',self.root/'workload.lock'),patch.object(m,'tool_path',return_value='/fake/devicectl'),
+                      patch.object(m.os,'getloadavg',return_value=(1,1,1))]
         for p in self.patches:p.start();self.addCleanup(p.stop)
 
     def test_stale_connected_catalog_requires_real_request(self):
@@ -34,6 +37,25 @@ class PairingTests(unittest.TestCase):
             visible,hosts,reason,recent=m.phone()
         self.assertFalse(visible);self.assertEqual(hosts,['Visars-iPhone.local'])
         self.assertIn('ecid_123',reason)
+
+    def test_automatic_probe_yields_to_a_shared_mac_workload(self):
+        with m.WORKLOAD_LOCK.open('a') as lock:
+            fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+            with patch.object(m,'check') as check:
+                self.assertEqual(m.locked_check(False),0)
+            check.assert_not_called()
+
+    def test_automatic_probe_yields_to_host_startup_pressure(self):
+        with patch.object(m.os,'getloadavg',return_value=(7,7,7)),patch.object(m,'check') as check:
+            self.assertEqual(m.locked_check(False),0)
+        check.assert_not_called()
+
+    def test_idle_monitor_releases_the_shared_lock_after_checking(self):
+        with patch.object(m,'check',return_value=0) as check:
+            self.assertEqual(m.locked_check(False),0)
+        check.assert_called_once_with(False,False)
+        with m.WORKLOAD_LOCK.open('a') as lock:
+            fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
 
     def test_ipv6_fallback_when_ipv4_address_is_stale(self):
         def run(args,**kw):

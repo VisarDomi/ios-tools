@@ -1,5 +1,7 @@
 # ios-tools
 
+This working copy’s Mac-specific changes are backed up to the private `VisarDomi/ios-tools-private` repository (`private-backup` remote). The public `origin` remains upstream; local incident notes are not published there.
+
 Shared iOS tooling for the app repositories, used from this PC and the Mac
 (`~/Developer/ios-tools`):
 

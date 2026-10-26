@@ -4,13 +4,20 @@
 # shoots the settled screen, sends the app to the background, kills it and records the
 # relaunch as video; then, on this PC, restore-frames.py <outdir copied back> [fps] lists how
 # much of each frame differs from the screen as it was left.
-SIM=960E5E0A-15C3-423E-B196-1206C66B28E9; B=$1; OUT=$2; S=${3:-5}
-rm -rf $OUT; mkdir -p $OUT
-xcrun simctl io $SIM screenshot $OUT/before.png >/dev/null 2>&1
-xcrun simctl launch $SIM com.apple.Preferences >/dev/null; sleep 2
-xcrun simctl terminate $SIM $B; sleep 1
-xcrun simctl io $SIM recordVideo --codec h264 --force $OUT/launch.mp4 >/dev/null 2>&1 &
-rec=$!; sleep 1.5
-xcrun simctl launch $SIM $B >/dev/null
-sleep $S
-kill -INT $rec; wait $rec 2>/dev/null
+set -euo pipefail
+: "${SIM:?Select the exact UUID of an active guarded simulator session}"
+"$(dirname "$0")/mac-workload" assert-simulator --device "$SIM"
+APPLE_TOOL="$(dirname "$0")/apple-tool"
+B=${1:?bundle}; OUT=${2:?output directory}; S=${3:-5}
+mkdir -p "$OUT"
+if [ -n "$(ls -A "$OUT")" ]; then echo 'Use an empty output directory; existing captures are preserved.' >&2; exit 1; fi
+"$APPLE_TOOL" simctl io "$SIM" screenshot "$OUT"/before.png >/dev/null 2>&1
+"$APPLE_TOOL" simctl launch "$SIM" com.apple.Preferences >/dev/null; sleep 2
+"$APPLE_TOOL" simctl terminate "$SIM" "$B"; sleep 1
+"$APPLE_TOOL" simctl io "$SIM" recordVideo --codec h264 --force "$OUT"/launch.mp4 >/dev/null 2>&1 &
+rec=$!
+trap 'kill -INT "$rec" 2>/dev/null || true' EXIT
+sleep 1.5
+"$APPLE_TOOL" simctl launch "$SIM" "$B" >/dev/null
+sleep "$S"
+kill -INT "$rec"; wait "$rec" 2>/dev/null || true

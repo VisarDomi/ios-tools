@@ -31,6 +31,8 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+sys.path.insert(0,str(Path(__file__).resolve().parent))
+from apple_tools import tool_path
 
 LABEL = 'com.visar.phone-pairing'
 ROOT = Path(__file__).resolve().parents[2]
@@ -40,6 +42,7 @@ CHECKS = 2               # unavailable checks in a row before restarting
 WAIT = 600               # seconds between restarts
 RECENT = 1800            # rediscover a phone lost within the last 30 minutes, even without old-IP replies
 WAIT_FAILED = 3600       # ... after a restart that did not bring the phone back
+WORKLOAD_LOCK = Path.home()/'Library/Caches/ios-app-refresh/signing.lock'
 
 
 def say(text):
@@ -54,7 +57,7 @@ def phone():
     try:
         with tempfile.TemporaryDirectory() as work:
             out = Path(work) / 'devices.json'
-            result = subprocess.run(['/usr/bin/xcrun', 'devicectl', 'list', 'devices', '--quiet',
+            result = subprocess.run([tool_path('devicectl'), 'list', 'devices', '--quiet',
                                      '--timeout', '12', '--json-output', str(out)],
                                     capture_output=True, text=True, timeout=15)
             devices = json.loads(out.read_text())['result']['devices'] if out.exists() else []
@@ -76,7 +79,7 @@ def phone():
                     if host not in hosts:
                         hosts.append(host)
         # This contacts the device rather than relying on the cached catalog/details.
-        result = subprocess.run(['/usr/bin/xcrun', 'devicectl', 'device', 'info', 'processes',
+        result = subprocess.run([tool_path('devicectl'), 'device', 'info', 'processes',
                                  '--device', udid, '--timeout', '15', '--quiet'],
                                 capture_output=True, text=True, timeout=18)
         reason = (result.stderr or result.stdout).strip()[-500:]
@@ -219,7 +222,7 @@ def check(now, force=False):
     return 0 if visible else 1
 
 
-def locked_check(now, force=False):
+def state_locked_check(now, force=False):
     STATE.parent.mkdir(parents=True, exist_ok=True)
     # The LaunchAgent and an installer may run together. One service restart at a time.
     with STATE.with_suffix('.lock').open('a') as lock:
@@ -230,6 +233,24 @@ def locked_check(now, force=False):
                 return check(now, force)
             except BlockingIOError:
                 if time.monotonic() >= deadline:
+                    return 1 if now else 0
+                time.sleep(1)
+
+
+def locked_check(now, force=False):
+    # Automatic device upkeep must yield to builds/UI tests and cold host startup.
+    if not now and os.getloadavg()[0]>6:
+        return 0
+    WORKLOAD_LOCK.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+    with WORKLOAD_LOCK.open('a') as workload:
+        deadline=time.monotonic()+(90 if now else 0)
+        while True:
+            try:
+                fcntl.flock(workload,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                return state_locked_check(now,force)
+            except BlockingIOError:
+                if time.monotonic()>=deadline:
+                    if now:say('Mac workload active; device maintenance deferred.')
                     return 1 if now else 0
                 time.sleep(1)
 

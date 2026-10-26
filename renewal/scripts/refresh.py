@@ -109,7 +109,7 @@ def device_json(config, arguments):
     timeout = 180 if arguments[0] == 'install' else 45
     with tempfile.TemporaryDirectory(prefix='reader-device-') as directory:
         output = Path(directory) / 'result.json'
-        subprocess.run(['/usr/bin/xcrun', 'devicectl', '--timeout', str(timeout), '--json-output', str(output),
+        subprocess.run([str(Path(__file__).resolve().parents[2]/'native/scripts/apple-tool'), 'devicectl', '--timeout', str(timeout), '--json-output', str(output),
                         'device', *arguments, '--device', config['device']],
                        check=True, timeout=timeout + 15, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         return json.loads(output.read_text())['result']
@@ -195,8 +195,14 @@ def run(config, action, force=False, wireless=False, keep_schedule=False):
                 if cached not in reusable and any(fnmatch.fnmatchcase(identity, item['id']) for identity in expected):
                     os.replace(cached, stash / cached.name)
             environment = {**os.environ, **config.get('environment', {}), 'IOS_REFRESH_LOCK_FD': str(lock.fileno())}
+            command = config['build']
+            guard = Path(__file__).resolve().parents[2] / 'native/scripts/mac-workload'
+            if sys.platform == 'darwin':
+                if not guard.exists():
+                    raise RuntimeError('Shared Mac workload guard is missing; sync ios-tools before renewal')
+                command = [sys.executable, str(guard), 'build', '--timeout', '900', '--', *command]
             with (state_dir / 'build.log').open('w') as log:
-                result = subprocess.run(config['build'], cwd=root, env=environment,
+                result = subprocess.run(command, cwd=root, env=environment,
                                         stdout=log, stderr=subprocess.STDOUT, timeout=900, pass_fds=(lock.fileno(),))
             if result.returncode:
                 raise RuntimeError('Xcode build failed; see build/refresh/build.log')

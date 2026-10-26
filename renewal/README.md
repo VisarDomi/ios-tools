@@ -136,3 +136,10 @@ scripts or configuration change.
   profiles or revoke certificates as a shortcut.
 - New Safari extension identities must be enabled (and their sites allowed) in
   iOS Settings after the first install.
+
+
+Mac renewal builders run through `native/scripts/mac-workload` under the inherited
+signing lock. A booted simulator or busy/pressured host defers the build. Device
+requests use `native/scripts/apple-tool devicectl`, avoiding repeated component
+initialization from older Xcode stubs. The automatic pairing monitor shares the
+lock. These shared changes do not alter approved app input fingerprints.

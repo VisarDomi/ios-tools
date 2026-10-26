@@ -1,0 +1,388 @@
+#!/usr/bin/env python3
+"""Run one bounded Mac build or owned simulator session under the shared signing lock.
+
+Run inside the logged-in Mac GUI bootstrap (see native/MAC-WORKLOADS.md).
+This is an attached command, not a LaunchAgent. It never controls a physical phone.
+"""
+import argparse
+import contextlib
+import ctypes
+import datetime
+import fcntl
+import json
+import os
+from pathlib import Path
+import platform
+import plistlib
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import time
+sys.path.insert(0,str(Path(__file__).resolve().parent))
+from apple_tools import tool_path
+
+ROOT = Path.home() / 'Library/Caches/ios-app-refresh'
+POLICY = Path.home() / 'Library/Application Support/ios-tools/mac-workload.json'
+LOCK = ROOT / 'signing.lock'
+PANIC_REPORTS = Path('/Library/Logs/DiagnosticReports')
+_CPU_PORT = None
+_CPU_TICKS = None
+_MACH = None
+
+
+class UnsafeWorkload(RuntimeError):
+    pass
+
+
+def capture(argv, timeout=10):
+    return subprocess.check_output(argv, timeout=timeout, stderr=subprocess.PIPE)
+
+
+def policy():
+    return json.loads(POLICY.read_text()) if POLICY.exists() else {}
+
+
+def check_panic_reports(settings):
+    known=settings.get('acknowledgedPanicReports')
+    if known is None:
+        return
+    current={p.name for p in PANIC_REPORTS.glob('*.panic') if not p.name.startswith('.')}
+    new=current-set(known)
+    if new:
+        raise UnsafeWorkload('New Mac kernel panic report: '+', '.join(sorted(new))+
+                             '; review it and revalidate the graphics policy before simulator work')
+
+
+def idle_delta(before,after):
+    delta=[(new-old)&0xffffffff for old,new in zip(before,after)]
+    return 100*delta[2]/sum(delta) if sum(delta) else None
+
+
+def cpu_idle():
+    # Public Mach HOST_CPU_LOAD_INFO: four natural_t counters, idle at index2.
+    # Cache one host send right for this short-lived guard process.
+    global _CPU_PORT,_CPU_TICKS,_MACH
+    if _MACH is None:
+        _MACH=ctypes.CDLL('/usr/lib/libSystem.B.dylib')
+        _MACH.mach_host_self.restype=ctypes.c_uint32
+        _MACH.host_statistics.argtypes=[ctypes.c_uint32,ctypes.c_int,ctypes.c_void_p,ctypes.POINTER(ctypes.c_uint32)]
+        _CPU_PORT=_MACH.mach_host_self()
+    ticks=(ctypes.c_uint32*4)();count=ctypes.c_uint32(4)
+    if _MACH.host_statistics(_CPU_PORT,3,ctypes.byref(ticks),ctypes.byref(count))!=0 or count.value!=4:
+        return None
+    current=list(ticks)
+    result=idle_delta(_CPU_TICKS,current) if _CPU_TICKS is not None else None
+    _CPU_TICKS=current
+    return result
+
+
+def metrics():
+    started=time.monotonic()
+    sample=dict(load=os.getloadavg()[0],cpuIdle=cpu_idle(),
+                pressure=int(capture(['/usr/sbin/sysctl', '-n', 'kern.memorystatus_vm_pressure_level'])),
+                diskGiB=shutil.disk_usage(Path.home()).free / 2**30)
+    sample['probeSeconds']=time.monotonic()-started
+    return sample
+
+
+def devices():
+    result = json.loads(capture([tool_path('simctl'), 'list', 'devices', '--json'], 15))
+    return [item for group in result['devices'].values() for item in group]
+
+
+def preflight(sample, booted, xcode_busy=False):
+    reasons = []
+    if sample['load'] > 6:
+        reasons.append('load %.2f > 6; let the Mac settle' % sample['load'])
+    if sample['pressure'] != 1:
+        reasons.append('memory pressure is not normal')
+    if sample['diskGiB'] < 12:
+        reasons.append('less than 12 GiB free')
+    if booted:
+        reasons.append('a simulator is already booted: ' + ', '.join(booted))
+    if xcode_busy:
+        reasons.append('an Xcode build is already running')
+    if reasons:
+        raise UnsafeWorkload('; '.join(reasons))
+
+
+def simulator_policy(settings, trial, current_coalescing=None, now=None, current_renderstandby=None):
+    required = settings.get('requiredMetalCoalesce')
+    if required is not None and current_coalescing != required:
+        raise UnsafeWorkload('The recorded graphics patch is not active: MetalCoalesce does not match.')
+    required=settings.get('requiredRenderStandby')
+    if required is not None and current_renderstandby!=required:
+        raise UnsafeWorkload('The recorded Render Standby workaround is not active.')
+    reason = settings.get('simulatorBlockedReason')
+    if not reason:
+        return
+    now = time.time() if now is None else now
+    if not trial or settings.get('trialUntil', 0) <= now or not settings.get('trialChange'):
+        raise UnsafeWorkload('Simulator quarantined: ' + reason + '. A recorded, time-limited driver trial is required.')
+
+
+def metal_coalescing():
+    entries = plistlib.loads(capture(['/usr/sbin/ioreg', '-a', '-r', '-c', 'IntelAccelerator']))
+    return entries[0].get('Development', {}).get('MetalCoalesce') if entries else None
+
+
+def render_standby(settings):
+    if 'requiredRenderStandby' not in settings:
+        return None
+    entries=plistlib.loads(capture(['/usr/sbin/ioreg','-a','-r','-c','AppleIntelFramebufferController']))
+    return entries[0].get('FeatureControl',{}).get('RenderStandby') if entries else None
+
+
+@contextlib.contextmanager
+def signing_lock(wait=30):
+    ROOT.mkdir(parents=True, exist_ok=True, mode=0o700)
+    inherited = os.environ.get('IOS_REFRESH_LOCK_FD')
+    with LOCK.open('a') as lock:
+        fd = lock.fileno()
+        if inherited is not None:
+            fd = int(inherited)
+            actual, expected = os.fstat(fd), LOCK.stat()
+            if (actual.st_dev, actual.st_ino) != (expected.st_dev, expected.st_ino):
+                raise UnsafeWorkload('Inherited signing lock has the wrong identity')
+        deadline=time.monotonic()+wait
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic()>=deadline:
+                    raise UnsafeWorkload('Another build, renewal, simulator, or device-maintenance check owns the shared Mac lock')
+                time.sleep(.5)
+        yield fd
+
+
+def bounded_jobs(command):
+    command = list(command)
+    index = 1 if Path(command[0]).name == 'xcrun' else 0
+    tool = Path(command[index]).name
+    if tool == 'xcodebuild':
+        if '-jobs' in command:
+            command[command.index('-jobs') + 1] = '2'
+        else:
+            command[index + 1:index + 1] = ['-jobs', '2']
+    elif tool == 'swift' and len(command) > index + 1 and command[index + 1] in ('build', 'test'):
+        for flag in ('--jobs', '-j'):
+            if flag in command:
+                command[command.index(flag) + 1] = '2'
+                break
+        else:
+            command += ['--jobs', '2']
+    return command
+
+
+def stop_owned_process(process):
+    # Only the process group this invocation created. Never kill by process name.
+    # A wrapper can exit while a compiler grandchild remains in its group.
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    if process.poll() is None:
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+    end=time.monotonic()+2
+    while time.monotonic()<end:
+        try:
+            os.killpg(process.pid,0)
+        except ProcessLookupError:
+            return
+        time.sleep(.1)
+    try:
+        os.killpg(process.pid,signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    if process.poll() is None:
+        process.wait(timeout=5)
+
+
+def trial_limits(settings, trial, kind='build'):
+    # Only an explicit, expiring driver trial can calibrate startup load. The
+    # absolute ceiling stays bounded; critical memory/disk checks never change.
+    if trial:
+        return dict(soft=min(40, settings.get('trialSoftLoad',16)),
+                    hard=min(80, settings.get('trialHardLoad',40)))
+    if kind=='simulator' and not settings.get('simulatorBlockedReason'):
+        return dict(soft=min(40,settings.get('simulatorSoftLoad',16)),
+                    hard=min(80,settings.get('simulatorHardLoad',40)))
+    return dict(soft=16, hard=40)
+
+
+def pressure_failure(sample, previous, now, limits=None):
+    limits = limits or dict(soft=16, hard=40)
+    latency=sample.get('probeSeconds')
+    # Load includes queued startup work. With actual telemetry, require impaired
+    # control responsiveness too; a high queue count alone is not a freeze.
+    slow=latency is not None and latency>2
+    queued=sample['load']>limits['soft'] and (latency is None or latency>1)
+    bad = queued or slow or sample['pressure'] != 1
+    since = previous if previous is not None and bad else (now if bad else None)
+    if sample['load'] > limits['hard'] and (latency is None or latency>3):
+        return 'high load with an unresponsive health probe', since
+    if sample['pressure'] >= 4:
+        return 'critical memory pressure', since
+    if sample['diskGiB'] < 8:
+        return 'free disk fell below 8 GiB', since
+    if since is not None and now - since >= 12:
+        return 'sustained loss of responsiveness or memory pressure', since
+    return None, since
+
+
+def monitor(command, deadline, log, fd, phase, limits=None):
+    env = dict(os.environ, IOS_REFRESH_LOCK_FD=str(fd), IOS_WORKLOAD_ACTIVE=str(os.getpid()))
+    process = subprocess.Popen(command, env=env, pass_fds=(fd,), start_new_session=True)
+    since = None
+    try:
+        while process.poll() is None:
+            now = time.monotonic()
+            sample = metrics()
+            log.write(json.dumps(dict(phase=phase, at=time.time(), **sample)) + '\n')
+            log.flush()
+            reason, since = pressure_failure(sample, since, now, limits)
+            if reason or now >= deadline:
+                raise UnsafeWorkload(reason or 'workload deadline expired')
+            time.sleep(min(2, max(0, deadline - now)))
+        if process.returncode:
+            raise subprocess.CalledProcessError(process.returncode, command)
+    finally:
+        stop_owned_process(process)
+
+
+def shutdown(device):
+    # The exact guest was Shutdown before this invocation booted it.
+    result = subprocess.run([tool_path('simctl'), 'shutdown', device],
+                            capture_output=True, text=True, timeout=45)
+    if result.returncode and any(x['udid'] == device and x['state'] != 'Shutdown' for x in devices()):
+        raise UnsafeWorkload('Owned simulator did not shut down: ' + result.stderr.strip())
+
+
+def assert_session(device):
+    settings = policy()
+    check_panic_reports(settings)
+    lease = json.loads((ROOT / 'workload-current.json').read_text())
+    os.kill(lease['pid'], 0)
+    if lease.get('device') != device or lease['expiresAt'] < time.time():
+        raise UnsafeWorkload('No active guarded session owns this simulator')
+    simulator_policy(settings, lease.get('trial', False), metal_coalescing(),current_renderstandby=render_standby(settings))
+
+
+def run_workload(args):
+    if not args.command:
+        raise UnsafeWorkload('Provide the bounded command after --')
+    if os.environ.get('IOS_WORKLOAD_ACTIVE'):
+        raise UnsafeWorkload('Nested workloads are not allowed; build before booting the simulator')
+    if args.kind == 'simulator':
+        settings=policy()
+        check_panic_reports(settings)
+        simulator_policy(settings, args.trial, metal_coalescing(),current_renderstandby=render_standby(settings))
+        if settings.get('simulatorRequiresGUI') and not getattr(args,'visible',False):
+            raise UnsafeWorkload('This host requires --visible through the logged-in GUI session')
+        if subprocess.run(['/usr/bin/pgrep','-x','Simulator'],stdout=subprocess.DEVNULL).returncode==0:
+            raise UnsafeWorkload('Simulator.app is already open; this session cannot take over its GUI')
+    limits = trial_limits(policy(), args.trial, args.kind)
+    with signing_lock() as fd:
+        known = devices()
+        preflight(metrics(), [x['udid'] for x in known if x['state'] != 'Shutdown'],
+                  subprocess.run(['/usr/bin/pgrep', '-x', 'xcodebuild'], stdout=subprocess.DEVNULL).returncode == 0)
+        if args.kind == 'simulator' and not any(x['udid'] == args.device and x.get('isAvailable') for x in known):
+            raise UnsafeWorkload('The explicitly selected simulator is unavailable')
+        duration = min(args.timeout, 600 if args.kind == 'simulator' else 900)
+        if args.kind=='simulator' and args.trial and policy().get('trialUntil',0)<time.time()+duration+15:
+            raise UnsafeWorkload('The recorded trial window is too short for this workload deadline')
+        stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+        report = ROOT / ('workload-' + stamp + '.jsonl')
+        lease = ROOT / 'workload-current.json'
+        lease.write_text(json.dumps(dict(pid=os.getpid(), device=args.device, trial=args.trial,
+                                         expiresAt=time.time() + duration, kind=args.kind)))
+        # Retain at most the twenty newest small reports.
+        for old in sorted(ROOT.glob('workload-*.jsonl'), reverse=True)[20:]:
+            old.unlink()
+        deadline = time.monotonic() + duration
+        boot_attempted = False
+        gui_started = False
+        try:
+            with report.open('w') as log:
+                print('Guarded %s; deadline %ss; limits %s; telemetry %s' % (args.kind, duration, limits, report), flush=True)
+                if args.kind == 'simulator':
+                    boot_attempted = True
+                    boot = [tool_path('simctl'), 'boot', args.device]
+                    if platform.machine() == 'x86_64':
+                        boot.append('--arch=x86_64')
+                    monitor(boot, deadline, log, fd, 'boot', limits)
+                    if getattr(args,'visible',False):
+                        gui_started = True
+                        subprocess.run(['/usr/bin/open','-a','Simulator','--args','-CurrentDeviceUDID',args.device],check=True,timeout=15)
+                    monitor([tool_path('simctl'), 'bootstatus', args.device, '-b'], deadline, log, fd, 'bootstatus', limits)
+                monitor(bounded_jobs(args.command) if args.kind == 'build' else args.command,
+                        deadline, log, fd, 'command', limits)
+        finally:
+            cleaned = not boot_attempted
+            try:
+                if boot_attempted:
+                    shutdown(args.device)
+                    cleaned = True
+            except Exception as error:
+                recovery=json.loads(lease.read_text())
+                recovery.update(cleanupFailed=str(error),expiresAt=0)
+                lease.write_text(json.dumps(recovery))
+                raise
+            finally:
+                if gui_started and not any(x['udid']!=args.device and x['state']!='Shutdown' for x in devices()):
+                    subprocess.run(['/usr/bin/osascript','-e','tell application id "com.apple.iphonesimulator" to quit'],check=True,timeout=15)
+                if cleaned:
+                    lease.unlink(missing_ok=True)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest='kind', required=True)
+    sub.add_parser('status')
+    assertion = sub.add_parser('assert-simulator')
+    assertion.add_argument('--device', required=True)
+    for kind in ('build', 'simulator'):
+        p = sub.add_parser(kind)
+        p.add_argument('--timeout', type=int, default=300 if kind == 'simulator' else 900)
+        p.add_argument('--device', required=kind == 'simulator')
+        p.add_argument('--trial', action='store_true')
+        if kind == 'simulator':
+            p.add_argument('--visible', action='store_true', help='Owned GUI process, closed with the owned guest')
+        p.add_argument('command', nargs=argparse.REMAINDER)
+    args = parser.parse_args()
+    if platform.system() != 'Darwin':
+        parser.error('Run this on the Mac; use ssh mac and the logged-in GUI bootstrap')
+    if getattr(args, 'device', None) and not re.fullmatch(r'[A-Fa-f0-9-]{36}', args.device):
+        parser.error('Use an explicit simulator UUID')
+    os.umask(0o077)
+    if args.kind == 'status':
+        print(json.dumps(dict(metrics=metrics(), booted=[x for x in devices() if x['state'] != 'Shutdown'], policy=policy()), indent=2))
+    elif args.kind == 'assert-simulator':
+        assert_session(args.device)
+    else:
+        if args.timeout <= 0:
+            parser.error('Timeout must be positive')
+        if args.command[:1] == ['--']:
+            args.command = args.command[1:]
+        run_workload(args)
+
+
+if __name__ == '__main__':
+    def interrupted(signum, frame):
+        raise KeyboardInterrupt()
+    signal.signal(signal.SIGTERM, interrupted)
+    signal.signal(signal.SIGHUP, interrupted)
+    try:
+        main()
+    except (UnsafeWorkload, subprocess.SubprocessError, OSError, ValueError) as error:
+        print('MAC WORKLOAD STOPPED: ' + str(error), file=sys.stderr, flush=True)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        print('MAC WORKLOAD CANCELLED; owned processes and guest cleaned up', file=sys.stderr, flush=True)
+        sys.exit(130)

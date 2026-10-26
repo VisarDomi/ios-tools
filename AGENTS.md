@@ -1,3 +1,7 @@
 The coding agent owns this repository: any file may be changed, including this one, README.md and test.txt.
 
 Start here: [README.md](README.md), then [native/README.md](native/README.md) for anything about the iPhone apps (NativeKit, the rules every app follows, measuring on the phone, the simulator, deploying, renewal inputs). Mac and phone access: [mac-access.md](../../environment/mac-access.md).
+
+Before Xcode builds or virtual-iPhone work, read [native/MAC-WORKLOADS.md](native/MAC-WORKLOADS.md) and use `native/scripts/mac-workload`. The Intel Mac has a captured SimMetalHost/AppleIntelKBLGraphics kernel panic; simulator use is subject to its recorded graphics-repair policy. Build with guests shut down, use explicit guest UUIDs, and never overlap compilation and simulator tests. A blocked simulator is not permission to automate the physical phone.
+
+Mac-specific work is backed up to the private `private-backup` remote (`VisarDomi/ios-tools-private`). The public `VisarDomi/ios-tools` repository is upstream: do not publish local incident records or private Mac changes there. This checkout names that public remote `origin` and defaults pushes to `private-backup`; a restored private clone may name its private remote `origin`. Check URLs and visibility, not just remote names.

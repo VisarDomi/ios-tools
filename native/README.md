@@ -100,21 +100,34 @@ A long frame with no span of ours is the system's: Core Animation's commit, a la
 uploaded, a new player layer. The spans already in the apps name their work (`list.*`,
 `reader.*`, `viewer.*`, `open.*`, `close.*`, ...); keep new work inside a span.
 
+## Mac workloads and Apple component tools
+
+Use `scripts/apple-tool simctl ...` / `devicectl ...` for installed Apple CLIs.
+The Xcode26.3 stubs repeatedly initialize components when newer hotfixes are
+installed. The helper calls the same installed native binaries without changing
+Apple files. Read [MAC-WORKLOADS.md](MAC-WORKLOADS.md) for the exact version issue,
+shared locking, host-health limits and recovery.
+
 ## Simulator
 
-The Mac (8 GB, two cores) is slow with a booted iOS 26 simulator (an iPhone 17 Pro Max,
-`960E5E0A-15C3-423E-B196-1206C66B28E9`): boot it for one batch of checks and
-`xcrun simctl shutdown all` afterwards.
+Read [MAC-WORKLOADS.md](MAC-WORKLOADS.md) first. The Mac has 8 GB RAM, two physical
+cores, and an observed SimMetalHost/Intel graphics kernel panic. Use
+`scripts/mac-workload` for builds and complete simulator sessions; check its
+graphics-repair policy before any boot. Build before booting, with two compiler
+jobs and no active guests. Use an explicit project-owned UUID, never an implicit
+old iPhone 17 Pro Max. The guard shuts down only the guest it booted, including
+after timeout/cancellation. Do not use `shutdown all` or restart shared services.
 
 - **Never play video in the simulator.** It decodes in software here and drives the Mac's
-  load past 300 within minutes. A local video app restores its viewer at launch: delete
-  `viewer-checkpoint.json` in its container first.
+  load past 300 within minutes. A local video app can restore playback at launch: use a dedicated
+  non-playing fixture and preserve existing checkpoints.
 - UI tests and WebDriverAgent cannot run on this Mac's simulator; `KitTestHooks` replaces
   them (simulator builds only; one app at a time, port 8765):
   `/state`, `/tap?x=&y=`, `/scroll?y=[&x=][&at=x,y]`, `/back`, `/forward`, `/zoom?scale=`,
   `/action?name=`, `/layout` (what is on screen, with frames), `/timeline` (the layout at
   the first frames after launch).
-- `scripts/sim`: `shot`, `hook`, `install`, `launch`, `terminate`, `container`.
+- `scripts/sim`: `shot`, `hook`, `install`, `launch`, `terminate`, `container`;
+  set `SIM`/`--device` to an active guarded guest. Installation no longer boots one.
 - `scripts/restore-check <bundle> [--warm]`: the fast relaunch test (the layout before a kill
   against the app's first frames after it). `scripts/restore-video.sh` (on the Mac) plus
   `scripts/restore-frames.py` (here): the slow, visual one, frame by frame.
