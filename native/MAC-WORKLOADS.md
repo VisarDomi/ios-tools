@@ -32,10 +32,10 @@ The graphics repair source and evidence are in
 
 ## Xcode launcher mismatch: do not repeatedly initialize components
 
-Xcode26.3's `devicectl` and `simctl` are shell launchers. They compare exact
+Xcode 26.3's `devicectl` and `simctl` are shell launchers. They compare exact
 component versions and call `xcodebuild -runFirstLaunch` before executing the
 installed tool when those strings differ. This machine has newer Apple hotfixes:
-CoreDevice506.8 versus the stub's506.7; CoreSimulator1051.17.11 versus1051.17.8.
+CoreDevice 506.8 versus the stub's506.7; CoreSimulator 1051.17.11 versus1051.17.8.
 First-launch status is already successful, so repeating setup does not resolve
 that comparison. The phone monitor invoked it before its probes. The setup churn
 is established; its causal contribution to the GPU panic is not.
@@ -90,8 +90,8 @@ Reports are private `~/Library/Caches/ios-app-refresh/workload-*.jsonl` (20 reta
 
 ## Simulator sessions
 
-Check `mac-workload status` and the graphics repair status first. A recorded GPU
-unreviewed panic quarantines booting. Driver experiments require an explicitly recorded,
+Check `mac-workload status` and the graphics repair status first. A new,
+unreviewed kernel panic report blocks simulator startup. Driver experiments require an explicitly recorded,
 time-limited trial whose expected driver setting is verified before boot.
 Do not bypass quarantine with raw `simctl boot` or opening Simulator.app.
 
@@ -148,10 +148,10 @@ physical restart; user-space cleanup cannot run while the kernel is halted.
 
 ## Verified recovery run
 
-On October26 the stock driver completed a real UIKit game batch in285.4seconds:
+On October 26 the stock driver completed a real UIKit game batch in 285.4 seconds:
 factory turn, tabs, portrait/landscape, private draft, offline read, and exact
-cold/warm restoration from0ms. Captures were inspected. Peak queued load was339.34,
-maximum probe latency2.45seconds, and memory pressure remained normal. No new
+cold/warm restoration from 0 ms. Captures were inspected. Peak queued load was 339.34,
+maximum probe latency 2.45 seconds, and memory pressure remained normal. No new
 panic appeared; the guest, GUI and lease were all cleaned up. This is bounded
 validation, not a guarantee for every future GPU workload.
 

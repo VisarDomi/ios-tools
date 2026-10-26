@@ -12,6 +12,7 @@ that and this file before changing an app.
 | `/home/visar/Documents/work/manga/gallery-downloader` | Gallery Reader (offline, from the PC) | `apps/ios/README.md` |
 | `/home/visar/Documents/work/video/video-platform` | TsLive local, LADDER local, FMP4 local, Video Vault, TsLive | `apps/ios/README.md` |
 | `/home/visar/Documents/work/trading/trader` | Trader | `apps/ios/README.md` |
+| `/home/visar/Documents/work/games/guidance` | Guidance | `apps/ios/README.md` |
 
 Not native, on purpose: Twitter (an x.com wrapper), Maid Heroes (a Unity WebGL game), World
 Rumble (App Store); Deep Town was native already. The Safari Web Extensions (TsLive Login,
