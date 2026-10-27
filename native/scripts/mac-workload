@@ -47,13 +47,32 @@ def policy():
 
 def check_panic_reports(settings):
     known=settings.get('acknowledgedPanicReports')
-    if known is None:
-        return
-    current={p.name for p in PANIC_REPORTS.glob('*.panic') if not p.name.startswith('.')}
-    new=current-set(known)
-    if new:
-        raise UnsafeWorkload('New Mac kernel panic report: '+', '.join(sorted(new))+
-                             '; review it and revalidate the graphics policy before simulator work')
+    for suffix, acknowledged, label in (
+            ('panic', known, 'kernel panic'),
+            ('gpuRestart', settings.get('acknowledgedGpuResetReports'), 'GPU reset')):
+        if acknowledged is None:
+            continue
+        current={p.name for p in PANIC_REPORTS.glob('*.'+suffix) if not p.name.startswith('.')}
+        new=current-set(acknowledged)
+        if new:
+            raise UnsafeWorkload('New Mac '+label+' report: '+', '.join(sorted(new))+
+                                 '; review it and revalidate the graphics policy before simulator work')
+
+
+class SimulatorFailureWatch:
+    """GPU resets are host-wide; only WebContent crashes can be guest-scoped."""
+    def __init__(self, device, allow_webcontent_crash=False):
+        self.graphics={p.name for suffix in ('panic','gpuRestart')
+                       for p in PANIC_REPORTS.glob('*.'+suffix) if not p.name.startswith('.')}
+        self.web=None if allow_webcontent_crash else WebContentCrashWatch(device)
+
+    def failure(self):
+        current={p.name for suffix in ('panic','gpuRestart')
+                 for p in PANIC_REPORTS.glob('*.'+suffix) if not p.name.startswith('.')}
+        new=current-self.graphics
+        if new:
+            return 'New Mac graphics failure report: '+', '.join(sorted(new))+'; inspect before another simulator launch'
+        return self.web.failure() if self.web else None
 
 
 class WebContentCrashWatch:
@@ -320,6 +339,10 @@ def monitor(command, deadline, log, fd, phase, limits=None, extra_env=None, cras
             if reason or now >= deadline:
                 raise UnsafeWorkload(reason or 'workload deadline expired')
             time.sleep(min(2, max(0, deadline - now)))
+        # A short child can finish between samples while a report is published.
+        if crash_watch is not None:
+            reason=crash_watch.failure()
+            if reason:raise UnsafeWorkload(reason)
         if process.returncode:
             raise subprocess.CalledProcessError(process.returncode, command)
     finally:
@@ -371,6 +394,7 @@ def run_workload(args):
     limits = trial_limits(policy(), args.trial, args.kind)
     with signing_lock() as fd:
         known = wait_for_idle(getattr(args,'wait_for_idle',0))
+        if args.kind=='simulator':check_panic_reports(policy())
         if args.kind=='simulator' and getattr(args,'visible',False) and subprocess.run(['/usr/bin/pgrep','-x','Simulator'],stdout=subprocess.DEVNULL).returncode==0:
             raise UnsafeWorkload('Simulator.app opened during admission wait; refusing to take over')
         if args.kind == 'simulator' and not any(x['udid'] == args.device and x.get('isAvailable') for x in known):
@@ -383,12 +407,13 @@ def run_workload(args):
         lease = ROOT / 'workload-current.json'
         lease.write_text(json.dumps(dict(pid=os.getpid(), device=args.device, trial=args.trial,
                                          expiresAt=time.time() + duration, kind=args.kind,
+                                         allowWebContentCrash=getattr(args,'allow_webcontent_crash',False),
                                          checkedWasm=mode in ('checked','compat'), wasmCompat=mode=='compat',wasmMode=mode)))
         # Retain at most the twenty newest small reports.
         for old in sorted(ROOT.glob('workload-*.jsonl'), reverse=True)[20:]:
             old.unlink()
         deadline = time.monotonic() + duration
-        crash_watch = WebContentCrashWatch(args.device) if args.kind=='simulator' and not getattr(args,'allow_webcontent_crash',False) else None
+        crash_watch = SimulatorFailureWatch(args.device,getattr(args,'allow_webcontent_crash',False)) if args.kind=='simulator' else None
         boot_attempted = False
         gui_started = False
         try:
@@ -423,6 +448,9 @@ def run_workload(args):
                     subprocess.run(['/usr/bin/osascript','-e','tell application id "com.apple.iphonesimulator" to quit'],check=True,timeout=15)
                 if cleaned:
                     lease.unlink(missing_ok=True)
+        if crash_watch is not None:
+            reason=crash_watch.failure()
+            if reason:raise UnsafeWorkload(reason)
 
 
 def main():

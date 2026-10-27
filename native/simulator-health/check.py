@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Guarded, simulator-only native/JS/Wasm checks. Never uses devicectl or a phone."""
-import argparse,json,os,re,subprocess,time
+import argparse,json,os,re,subprocess,sys,time
 from pathlib import Path
 p=argparse.ArgumentParser();p.add_argument('--device',required=True);p.add_argument('--app',required=True);p.add_argument('--mode',choices=['default','checked','compare'],default='compare');p.add_argument('--no-jit',action='store_true');p.add_argument('--out',required=True);a=p.parse_args()
 tools=Path.home()/'Developer/ios-tools/native/scripts';tool=str(tools/'apple-tool');bundle='com.visar.SimulatorHealth.QA'
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
+from simulator_environment import diagnostic_environment,CHECKED_WASM
 subprocess.run([str(tools/'mac-workload'),'assert-simulator','--device',a.device],check=True)
 out=Path(a.out);out.mkdir(parents=True,exist_ok=True);out.chmod(0o700)
 def sim(*args,timeout=30,check=True,env=None):
@@ -41,12 +43,10 @@ try:
  for mode in (['default','checked','checked-repeat'] if a.mode=='compare' else [a.mode]):
   sim('terminate',a.device,bundle,check=False)
   for file in ('command.json','response.json'):(root/file).unlink(missing_ok=True)
-  env=dict(os.environ)
   flags={'dumpOptions':'1'}
- if a.no_jit:flags['useJIT']='false'
-  if mode.startswith('checked'):flags.update(useWasmFastMemory='false',useWasmFaultSignalHandler='false',usePollingTraps='true',useSharedArrayBuffer='false')
-  for name,value in flags.items():
-   env['SIMCTL_CHILD_JSC_'+name]=value;env['SIMCTL_CHILD___XPC_JSC_'+name]=value
+  if a.no_jit:flags['useJIT']='false'
+  if mode.startswith('checked'):flags.update(CHECKED_WASM)
+  env=diagnostic_environment(os.environ,flags)
   sim('launch','--stdout='+str(out/(mode+'-stdout.log')),'--stderr='+str(out/(mode+'-stderr.log')),a.device,bundle,env=env)
   t=time.monotonic();native=command(action='native',timeout=60)
   assert native['value']['counter']==1 and native['value']['width']>0 and native['value']['labelHeight']>0,native

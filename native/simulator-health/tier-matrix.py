@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """Controlled app-only JSC tier comparisons in one guarded diagnostic session."""
-import argparse,json,os,subprocess,time
+import argparse,json,os,subprocess,sys,time
 from pathlib import Path
 p=argparse.ArgumentParser();p.add_argument('--device',required=True);p.add_argument('--app',required=True);p.add_argument('--checker',required=True);p.add_argument('--save',required=True);p.add_argument('--scenario',required=True);p.add_argument('--out',required=True);a=p.parse_args()
 tools=Path.home()/'Developer/ios-tools/native/scripts';subprocess.run([str(tools/'mac-workload'),'assert-simulator','--device',a.device],check=True)
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
+from simulator_environment import diagnostic_environment,CHECKED_WASM
+lease=json.loads((Path.home()/'Library/Caches/ios-app-refresh/workload-current.json').read_text())
+if not lease.get('allowWebContentCrash'):
+ raise RuntimeError('Tier comparison requires an explicit --allow-webcontent-crash diagnostic session')
 out=Path(a.out);out.mkdir(parents=True,exist_ok=True);out.chmod(0o700)
 subprocess.run([str(tools/'apple-tool'),'simctl','install',a.device,a.app],timeout=240,check=True)
 variants={
@@ -13,9 +18,7 @@ variants={
 }
 report={}
 for name,options in variants.items():
- env=dict(os.environ)
- for option,value in options.items():
-  env['SIMCTL_CHILD_JSC_'+option]=value;env['SIMCTL_CHILD___XPC_JSC_'+option]=value
+ env=diagnostic_environment(os.environ,dict(CHECKED_WASM,**options))
  command=['python3',a.checker,'--device',a.device,'--app',a.app,'--save',a.save,'--scenario',a.scenario,'--startup-timeout','100','--skip-install','--startup-only','--out',str(out/name)]
  print('Testing',name,options,flush=True);start=time.monotonic()
  with (out/(name+'.log')).open('w') as log:

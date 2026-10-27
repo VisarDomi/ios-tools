@@ -79,10 +79,30 @@ The host's private `simulatorWasmMode` policy can select `compat` for routine
 sessions. `--native-wasm`, `--checked-wasm` and `--wasm-compat` provide explicit
 controls; build jobs never receive simulator launch overrides. The lease records
 the selected mode so PC-side `sim launch` commands use the same configuration.
-The health comparator removes inherited tier flags before each control mode.
+The health comparator removes all inherited `SIMCTL_CHILD_JSC_*` and
+`SIMCTL_CHILD___XPC_JSC_*` settings before each control mode, then applies only
+the requested flags. Thus a default control stays default even when the guard
+selects `compat`. The tier matrix does the same and independently requires the
+lease to record `allowWebContentCrash=true`. That flag never bypasses GPU reset
+detection.
 
 `tier-matrix.py` is a deliberate diagnostic comparison, requiring an active
 `--allow-webcontent-crash` session. Its app checker must stop on the first crash;
 ordinary UI sessions abort when a new owned-guest WebContent crash report appears.
 No endless reload/boot loop is a repair. Historical reports and other guests'
 crashes are excluded from that scoped watcher.
+
+## Regression checks on the PC
+
+These checks do not boot a guest or contact a phone:
+
+```sh
+python3 -m unittest discover -s native/tests -p 'test_mac_workload.py'
+python3 -m unittest discover -s native/tests -p 'test_sim_client.py'
+python3 -m unittest discover -s native/tests -p 'test_simulator_health.py'
+```
+
+The diagnostic-control tests compile every saved Python probe and verify that a
+routine compatibility profile cannot leak into default/checked comparisons.
+The workload regressions include new GPU resets during testing, reports published
+at command exit or shutdown, review gates, exact guest ownership and cleanup.

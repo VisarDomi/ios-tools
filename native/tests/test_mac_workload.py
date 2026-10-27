@@ -268,6 +268,53 @@ class WorkloadTests(unittest.TestCase):
             with self.assertRaisesRegex(m.UnsafeWorkload,'Kernel-new.panic'):
                 m.check_panic_reports({'acknowledgedPanicReports':['Kernel-old.panic']})
 
+    def test_gpu_reset_requires_its_own_review_even_with_no_new_kernel_panic(self):
+        folder=self.root/'reports';folder.mkdir()
+        (folder/'Kernel-history.gpuRestart').write_text('GPU Reset')
+        with patch.object(m,'PANIC_REPORTS',folder):
+            settings={'acknowledgedPanicReports':[],'acknowledgedGpuResetReports':[]}
+            with self.assertRaisesRegex(m.UnsafeWorkload,'GPU reset'):
+                m.check_panic_reports(settings)
+            settings['acknowledgedGpuResetReports']=['Kernel-history.gpuRestart']
+            m.check_panic_reports(settings)
+
+    def test_gpu_watch_ignores_history_but_cannot_be_bypassed_by_webcontent_diagnostics(self):
+        folder=self.root/'reports';folder.mkdir()
+        (folder/'history.gpuRestart').write_text('history')
+        with patch.object(m,'PANIC_REPORTS',folder):
+            watch=m.SimulatorFailureWatch(DEVICE,allow_webcontent_crash=True)
+            self.assertIsNone(watch.failure())
+            (folder/'new.gpuRestart').touch() # Detect immediately, even before report contents finish.
+            self.assertIn('new.gpuRestart',watch.failure())
+            self.assertIsNone(watch.web)
+
+    def test_report_published_at_child_exit_prevents_false_success(self):
+        class Finished:
+            returncode=0
+            def poll(self):return 0
+        class Watch:
+            def failure(self):return 'new GPU reset'
+        with (self.root/'log').open('w') as log,patch.object(m.subprocess,'Popen',return_value=Finished()), \
+             patch.object(m,'stop_owned_process') as stop:
+            with self.assertRaisesRegex(m.UnsafeWorkload,'GPU reset'):
+                m.monitor(['qa'],time.monotonic()+10,log,1,'command',crash_watch=Watch())
+            stop.assert_called_once()
+
+    def test_graphics_failure_at_shutdown_is_reported_after_owned_cleanup(self):
+        class Watch:
+            def failure(self):return 'GPU reset during shutdown'
+        args=argparse.Namespace(kind='simulator',device=DEVICE,trial=False,timeout=10,command=['qa'])
+        with patch.object(m,'metrics',return_value=HEALTHY), \
+             patch.object(m,'devices',return_value=[dict(udid=DEVICE,state='Shutdown',isAvailable=True)]), \
+             patch.object(m,'metal_coalescing',return_value=1), \
+             patch.object(m.subprocess,'run',return_value=subprocess.CompletedProcess([],1)), \
+             patch.object(m,'SimulatorFailureWatch',return_value=Watch()), \
+             patch.object(m,'monitor'),patch.object(m,'shutdown') as shutdown:
+            with self.assertRaisesRegex(m.UnsafeWorkload,'GPU reset during shutdown'):
+                m.run_workload(args)
+        shutdown.assert_called_once_with(DEVICE)
+        self.assertFalse((m.ROOT/'workload-current.json').exists())
+
     def test_install_timeout_covers_observed_cold_registration(self):
         from simulator_environment import operation_timeout
         self.assertGreaterEqual(operation_timeout('install'),180)
