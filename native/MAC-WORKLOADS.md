@@ -213,3 +213,13 @@ in their owned guest crashes. This prevents an application's automatic recovery
 from generating a rapid crash/reload storm and prolonging host saturation. A
 specific `--allow-webcontent-crash` diagnostic may compare known failing modes;
 normal memory/disk/deadline/ownership safeguards remain in force.
+
+### Remaining graphics limitation
+
+A separate `SimMetalHost` GPU Reset report at October 27 21:00:14 CET
+(20:00:14 UTC) records an Intel HD 620 RCS-ring hang. This precedes the later
+successful cold compatibility and plain-background UI batches. It is not a
+kernel panic, and the Wasm execution-profile repair does not establish that this
+GPU fault is fixed. Preserve the reset report/tailspin privately; do not describe
+all simulator graphics problems as resolved solely because the UI batches pass.
+The later plain-background run completed and shut down its owned guest normally.
