@@ -1,0 +1,4 @@
+{
+  "wasm": "AGFzbQEAAAABDwNgAAF/YAF/AX9gAn9/AAMFBAABAgAFBAEBAQIHKQUGbWVtb3J5AgAGYW5zd2VyAAAEcmVhZAABBXdyaXRlAAIEZ3JvdwADCh8EBABBKgsHACAAKAIACwkAIAAgATYCAAsGAEEBQAAL",
+  "source": "(module\n(memory (export \"memory\") 1 2)\n(func (export \"answer\") (result i32) i32.const 42)\n(func (export \"read\") (param i32) (result i32) local.get 0 i32.load)\n(func (export \"write\") (param i32 i32) local.get 0 local.get 1 i32.store)\n(func (export \"grow\") (result i32) i32.const 1 memory.grow))\n"
+}

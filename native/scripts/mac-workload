@@ -22,6 +22,7 @@ import sys
 import time
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 from apple_tools import tool_path
+from simulator_environment import checked_wasm_overrides,intel_wasm_overrides
 
 ROOT = Path.home() / 'Library/Caches/ios-app-refresh'
 POLICY = Path.home() / 'Library/Application Support/ios-tools/mac-workload.json'
@@ -55,6 +56,31 @@ def check_panic_reports(settings):
                              '; review it and revalidate the graphics policy before simulator work')
 
 
+class WebContentCrashWatch:
+    """Stop a failed owned guest once, rather than letting an app crash-loop."""
+    def __init__(self, device, root=None, started=None):
+        self.device=device
+        self.root=root or Path.home()/'Library/Logs/DiagnosticReports'
+        self.started=time.time() if started is None else started
+        self.seen={p.name for p in self.root.glob('com.apple.WebKit.WebContent*.ips')}
+
+    def failure(self):
+        for path in self.root.glob('com.apple.WebKit.WebContent*.ips'):
+            if path.name in self.seen:continue
+            try:
+                text=path.read_text()
+                try:report=json.loads(text)
+                except json.JSONDecodeError:report=json.loads(text.split('\n',1)[1])
+                launch=datetime.datetime.strptime(report['procLaunch'],'%Y-%m-%d %H:%M:%S.%f %z').timestamp()
+            except (OSError,ValueError,KeyError,IndexError):
+                continue # Reports can still be materializing; retry next sample.
+            self.seen.add(path.name)
+            if (report.get('coalitionName')=='com.apple.CoreSimulator.SimDevice.'+self.device
+                    and launch>=self.started-1):
+                return 'Owned simulator WebContent crashed: '+path.name+'; inspect the report before another launch'
+        return None
+
+
 def idle_delta(before,after):
     delta=[(new-old)&0xffffffff for old,new in zip(before,after)]
     return 100*delta[2]/sum(delta) if sum(delta) else None
@@ -65,7 +91,8 @@ def cpu_idle():
     # Cache one host send right for this short-lived guard process.
     global _CPU_PORT,_CPU_TICKS,_MACH
     if _MACH is None:
-        _MACH=ctypes.CDLL('/usr/lib/libSystem.B.dylib')
+        _MACH=ctypes.CDLL('/usr/lib/libSystem.B.dylib',use_errno=True)
+    if _CPU_PORT is None:
         _MACH.mach_host_self.restype=ctypes.c_uint32
         _MACH.host_statistics.argtypes=[ctypes.c_uint32,ctypes.c_int,ctypes.c_void_p,ctypes.POINTER(ctypes.c_uint32)]
         _CPU_PORT=_MACH.mach_host_self()
@@ -78,10 +105,29 @@ def cpu_idle():
     return result
 
 
+def memory_pressure():
+    # Read the kernel value in-process. Spawning /usr/sbin/sysctl made the old
+    # "health" probe measure scheduling/exec contention during simulator boot,
+    # causing aborts even while the kernel reported normal memory pressure.
+    global _MACH
+    if _MACH is None:
+        _MACH=ctypes.CDLL('/usr/lib/libSystem.B.dylib',use_errno=True)
+    function=_MACH.sysctlbyname
+    function.argtypes=[ctypes.c_char_p,ctypes.c_void_p,ctypes.POINTER(ctypes.c_size_t),ctypes.c_void_p,ctypes.c_size_t]
+    function.restype=ctypes.c_int
+    value=ctypes.c_uint32();size=ctypes.c_size_t(ctypes.sizeof(value))
+    if function(b'kern.memorystatus_vm_pressure_level',ctypes.byref(value),ctypes.byref(size),None,0)!=0:
+        number=ctypes.get_errno()
+        raise OSError(number,'Unable to read kernel memory pressure')
+    if size.value!=ctypes.sizeof(value) or value.value not in (1,2,4):
+        raise UnsafeWorkload('Unexpected kernel memory pressure response')
+    return value.value
+
+
 def metrics():
     started=time.monotonic()
     sample=dict(load=os.getloadavg()[0],cpuIdle=cpu_idle(),
-                pressure=int(capture(['/usr/sbin/sysctl', '-n', 'kern.memorystatus_vm_pressure_level'])),
+                pressure=memory_pressure(),
                 diskGiB=shutil.disk_usage(Path.home()).free / 2**30)
     sample['probeSeconds']=time.monotonic()-started
     return sample
@@ -106,6 +152,28 @@ def preflight(sample, booted, xcode_busy=False):
         reasons.append('an Xcode build is already running')
     if reasons:
         raise UnsafeWorkload('; '.join(reasons))
+
+
+def wait_for_idle(wait=0):
+    """Bounded admission wait, never a reboot/retry loop and never raises limits."""
+    end=time.monotonic()+max(0,min(wait,300))
+    announced=False
+    while True:
+        known=devices()
+        sample=metrics()
+        busy=subprocess.run(['/usr/bin/pgrep','-x','xcodebuild'],stdout=subprocess.DEVNULL).returncode==0
+        # Do not wait for/take over another person's workload or GUI.
+        if any(x['state']!='Shutdown' for x in known) or busy or sample['diskGiB']<12 or sample['pressure']>=4:
+            preflight(sample,[x['udid'] for x in known if x['state']!='Shutdown'],busy)
+        try:
+            preflight(sample,[],busy)
+            return known
+        except UnsafeWorkload:
+            if time.monotonic()>=end:raise
+            if not announced:
+                print('Waiting up to %ss for a quiet Mac; no guest or compiler has started'%wait,flush=True)
+                announced=True
+            time.sleep(min(5,max(0,end-time.monotonic())))
 
 
 def simulator_policy(settings, trial, current_coalescing=None, now=None, current_renderstandby=None):
@@ -236,8 +304,9 @@ def pressure_failure(sample, previous, now, limits=None):
     return None, since
 
 
-def monitor(command, deadline, log, fd, phase, limits=None):
+def monitor(command, deadline, log, fd, phase, limits=None, extra_env=None, crash_watch=None):
     env = dict(os.environ, IOS_REFRESH_LOCK_FD=str(fd), IOS_WORKLOAD_ACTIVE=str(os.getpid()))
+    env.update(extra_env or {})
     process = subprocess.Popen(command, env=env, pass_fds=(fd,), start_new_session=True)
     since = None
     try:
@@ -247,6 +316,7 @@ def monitor(command, deadline, log, fd, phase, limits=None):
             log.write(json.dumps(dict(phase=phase, at=time.time(), **sample)) + '\n')
             log.flush()
             reason, since = pressure_failure(sample, since, now, limits)
+            if crash_watch is not None:reason=crash_watch.failure() or reason
             if reason or now >= deadline:
                 raise UnsafeWorkload(reason or 'workload deadline expired')
             time.sleep(min(2, max(0, deadline - now)))
@@ -274,6 +344,16 @@ def assert_session(device):
     simulator_policy(settings, lease.get('trial', False), metal_coalescing(),current_renderstandby=render_standby(settings))
 
 
+def wasm_mode(args, settings):
+    if getattr(args,'native_wasm',False):return 'default'
+    if getattr(args,'wasm_compat',False):return 'compat'
+    if getattr(args,'checked_wasm',False):return 'checked'
+    configured=settings.get('simulatorWasmMode','default')
+    if configured not in ('default','checked','compat'):
+        raise UnsafeWorkload('Unknown recorded simulator Wasm mode')
+    return configured if args.kind=='simulator' else 'default'
+
+
 def run_workload(args):
     if not args.command:
         raise UnsafeWorkload('Provide the bounded command after --')
@@ -287,11 +367,12 @@ def run_workload(args):
             raise UnsafeWorkload('This host requires --visible through the logged-in GUI session')
         if subprocess.run(['/usr/bin/pgrep','-x','Simulator'],stdout=subprocess.DEVNULL).returncode==0:
             raise UnsafeWorkload('Simulator.app is already open; this session cannot take over its GUI')
+    mode = wasm_mode(args,policy())
     limits = trial_limits(policy(), args.trial, args.kind)
     with signing_lock() as fd:
-        known = devices()
-        preflight(metrics(), [x['udid'] for x in known if x['state'] != 'Shutdown'],
-                  subprocess.run(['/usr/bin/pgrep', '-x', 'xcodebuild'], stdout=subprocess.DEVNULL).returncode == 0)
+        known = wait_for_idle(getattr(args,'wait_for_idle',0))
+        if args.kind=='simulator' and getattr(args,'visible',False) and subprocess.run(['/usr/bin/pgrep','-x','Simulator'],stdout=subprocess.DEVNULL).returncode==0:
+            raise UnsafeWorkload('Simulator.app opened during admission wait; refusing to take over')
         if args.kind == 'simulator' and not any(x['udid'] == args.device and x.get('isAvailable') for x in known):
             raise UnsafeWorkload('The explicitly selected simulator is unavailable')
         duration = min(args.timeout, 600 if args.kind == 'simulator' else 900)
@@ -301,11 +382,13 @@ def run_workload(args):
         report = ROOT / ('workload-' + stamp + '.jsonl')
         lease = ROOT / 'workload-current.json'
         lease.write_text(json.dumps(dict(pid=os.getpid(), device=args.device, trial=args.trial,
-                                         expiresAt=time.time() + duration, kind=args.kind)))
+                                         expiresAt=time.time() + duration, kind=args.kind,
+                                         checkedWasm=mode in ('checked','compat'), wasmCompat=mode=='compat',wasmMode=mode)))
         # Retain at most the twenty newest small reports.
         for old in sorted(ROOT.glob('workload-*.jsonl'), reverse=True)[20:]:
             old.unlink()
         deadline = time.monotonic() + duration
+        crash_watch = WebContentCrashWatch(args.device) if args.kind=='simulator' and not getattr(args,'allow_webcontent_crash',False) else None
         boot_attempted = False
         gui_started = False
         try:
@@ -316,13 +399,14 @@ def run_workload(args):
                     boot = [tool_path('simctl'), 'boot', args.device]
                     if platform.machine() == 'x86_64':
                         boot.append('--arch=x86_64')
-                    monitor(boot, deadline, log, fd, 'boot', limits)
+                    monitor(boot, deadline, log, fd, 'boot', limits, crash_watch=crash_watch)
                     if getattr(args,'visible',False):
                         gui_started = True
                         subprocess.run(['/usr/bin/open','-a','Simulator','--args','-CurrentDeviceUDID',args.device],check=True,timeout=15)
-                    monitor([tool_path('simctl'), 'bootstatus', args.device, '-b'], deadline, log, fd, 'bootstatus', limits)
+                    monitor([tool_path('simctl'), 'bootstatus', args.device, '-b'], deadline, log, fd, 'bootstatus', limits, crash_watch=crash_watch)
                 monitor(bounded_jobs(args.command) if args.kind == 'build' else args.command,
-                        deadline, log, fd, 'command', limits)
+                        deadline, log, fd, 'command', limits,
+                        intel_wasm_overrides() if mode=='compat' else (checked_wasm_overrides() if mode=='checked' else None),crash_watch=crash_watch)
         finally:
             cleaned = not boot_attempted
             try:
@@ -350,10 +434,15 @@ def main():
     for kind in ('build', 'simulator'):
         p = sub.add_parser(kind)
         p.add_argument('--timeout', type=int, default=300 if kind == 'simulator' else 900)
+        p.add_argument('--wait-for-idle',type=int,default=180,help='Wait before starting, without changing admission limits (0-300 seconds)')
         p.add_argument('--device', required=kind == 'simulator')
         p.add_argument('--trial', action='store_true')
         if kind == 'simulator':
             p.add_argument('--visible', action='store_true', help='Owned GUI process, closed with the owned guest')
+            p.add_argument('--allow-webcontent-crash',action='store_true',help='Explicit diagnostic comparison only: retain normal deadline/pressure checks')
+            p.add_argument('--native-wasm',action='store_true',help='Explicit runtime-default JSC configuration for diagnostic controls')
+            p.add_argument('--wasm-compat',action='store_true',help='Intel runtime compatibility: checked memory and baseline Wasm JIT instead of IPInt')
+            p.add_argument('--checked-wasm',action='store_true',help='Simulator app launch flags: explicit Wasm bounds checks instead of the signal handler')
         p.add_argument('command', nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if platform.system() != 'Darwin':

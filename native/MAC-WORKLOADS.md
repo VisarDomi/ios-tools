@@ -159,3 +159,57 @@ The runtime policy records acknowledged historical panic reports. A new report
 blocks simulator work pending inspection and revalidation; it never causes an
 automatic repeated boot. Recovery retains stock graphics and default GPU power
 settings. The experimental custom WEG patch was not accepted.
+
+## October 27 diagnostic improvements
+
+The previous pressure probe spawned `/usr/sbin/sysctl`. Under simulator startup
+contention that measured child scheduling/exec delay (over a second), even while
+kernel memory pressure remained normal. The guard now reads the same value
+through in-process `sysctlbyname`, alongside the existing Mach CPU counters.
+Mac comparisons matched the CLI's pressure value; idle measurements were about
+0.00002–0.0002 seconds for the direct read versus 0.06 seconds for the CLI.
+Critical/warning memory, disk, responsiveness, deadlines, ownership and graphics
+policy checks remain. This is a measurement repair, not increased abort limits.
+
+Admission now waits up to 180 seconds for the unchanged quiet-host conditions
+(`--wait-for-idle 0` disables waiting, maximum 300). Nothing is booted or compiled
+while waiting. Another guest/build, critical pressure or insufficient disk still
+refuses admission. A shutdown's lagging load average need not provoke repeated
+manual attempts. Existing GUI ownership is rechecked before boot.
+
+A tiny native app took 70 seconds to install on this Mac after boot. The shared
+`sim install` therefore allows up to 240 seconds for the actual Mac operation,
+with a slightly longer SSH allowance; launch/container operations remain bounded.
+This does not assert that every install should take that long. Builds and first
+runtime migrations are separate phases, and the outer session deadline remains.
+App relaunches terminate the prior selected simulator app so launch arguments and
+JSC configuration cannot silently be ignored.
+
+Use [simulator-health](simulator-health/README.md) to separate native controls,
+plain WebKit JS/canvas and a tiny Wasm module. Its October 27 baseline, checked
+and repeated checked launches passed real load/store, memory growth and a caught
+bounds trap on an iPhone 12 Pro Max guest. Actual WebContent environments and
+modified-options dumps verified the checked configuration. This does not prove
+large Unity modules work: the real Maid Heroes test remains a separate gate.
+
+### Recorded Intel Wasm profile
+
+The host now records `simulatorWasmMode=compat`. The default guarded simulator
+command therefore supplies the validated app/XPC flags automatically: explicit
+bounds checks, baseline Wasm JIT (BBQ), IPInt off, optimizing Wasm tier (OMG) off.
+This follows a controlled same-binary A/B comparison, not a guess based on load.
+Small Wasm passed even in the failing default runtime path, so the actual large
+application remains an essential validation gate. The Mac's stock graphics,
+Apple framework binaries, host-global JSC settings and phone behavior are unchanged.
+
+Use `--native-wasm` for a deliberate platform-default control, `--checked-wasm`
+for memory-only diagnosis, or `--wasm-compat` to select the compatibility profile
+explicitly. These are simulator configuration controls, not performance results
+for a physical iPhone. See [simulator-health](simulator-health/README.md) for
+source rationale, reproducible checks and the differences between execution tiers.
+
+Ordinary simulator sessions now stop after a newly launched WebContent process
+in their owned guest crashes. This prevents an application's automatic recovery
+from generating a rapid crash/reload storm and prolonging host saturation. A
+specific `--allow-webcontent-crash` diagnostic may compare known failing modes;
+normal memory/disk/deadline/ownership safeguards remain in force.

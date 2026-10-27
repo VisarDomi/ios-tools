@@ -11,9 +11,13 @@ import re
 import shlex
 import subprocess
 import sys
+from simulator_environment import operation_timeout
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--device', default=os.environ.get('SIM'))
+parser.add_argument('--native-wasm',action='store_true',help='Use runtime defaults for this explicit diagnostic launch')
+parser.add_argument('--wasm-compat',action='store_true',help='Use the validated Intel Wasm compatibility launch profile')
+parser.add_argument('--checked-wasm',action='store_true',help='Use explicit Wasm bounds checks for this simulator app launch')
 parser.add_argument('action', choices=['shot','hook','install','launch','terminate','container'])
 parser.add_argument('args', nargs='*')
 a = parser.parse_args()
@@ -23,9 +27,9 @@ if not a.args:
     parser.error('This action requires an argument')
 
 guard = '~/Developer/ios-tools/native/scripts/mac-workload assert-simulator --device ' + shlex.quote(a.device)
-def remote(command, cleanup=False):
+def remote(command, cleanup=False, timeout=55):
     program = command if cleanup else guard + ' && ' + command
-    return subprocess.run(['ssh','-o','BatchMode=yes','mac',program],capture_output=True,check=True,timeout=55).stdout
+    return subprocess.run(['ssh','-o','BatchMode=yes','mac',program],capture_output=True,check=True,timeout=timeout).stdout
 
 cmd = ['simctl']
 if a.action == 'hook':
@@ -46,4 +50,16 @@ else:
                  'launch':['launch',a.device,*a.args],
                  'terminate':['terminate',a.device,*a.args],
                  'container':['get_app_container',a.device,a.args[0],'data']}[a.action]
-    sys.stdout.buffer.write(remote('~/Developer/ios-tools/native/scripts/apple-tool '+shlex.join(cmd+operation),cleanup=a.action=='terminate'))
+    # Bound the actual Mac operation as well as SSH; a short client timeout must
+    # not leave an unobserved installer running. Paths/arguments remain argv data.
+    timeout = operation_timeout(a.action)
+    code = "import os,subprocess,sys,json; sys.path.insert(0,os.path.expanduser('~/Developer/ios-tools/native/scripts')); from simulator_environment import checked_wasm_overrides,intel_wasm_overrides; env=dict(os.environ); "
+    if a.action=='launch':
+        code += "lease=json.load(open(os.path.expanduser('~/Library/Caches/ios-app-refresh/workload-current.json'))); "
+        code += "env.update({} if "+repr(a.native_wasm)+" else (intel_wasm_overrides() if "+repr(a.wasm_compat)+" else (checked_wasm_overrides() if "+repr(a.checked_wasm)+" else (intel_wasm_overrides() if lease.get('wasmCompat',False) else (checked_wasm_overrides() if lease.get('checkedWasm',False) else {}))))); "
+        # A running app cannot adopt new launch arguments or JSC settings.
+        terminate=["~/Developer/ios-tools/native/scripts/apple-tool",'simctl','terminate',a.device,a.args[0]]
+        code += "subprocess.run("+repr(terminate)+",stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=20); "
+    code += "p=subprocess.run("+repr(["~/Developer/ios-tools/native/scripts/apple-tool",*cmd,*operation])+",env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout="+str(timeout)+"); sys.stdout.buffer.write(p.stdout); sys.stderr.buffer.write(p.stderr); sys.exit(p.returncode)"
+    code = code.replace(repr("~/Developer/ios-tools/native/scripts/apple-tool"),"os.path.expanduser('~/Developer/ios-tools/native/scripts/apple-tool')")
+    sys.stdout.buffer.write(remote(shlex.join(['python3','-c',code]),cleanup=a.action=='terminate',timeout=timeout+30))
