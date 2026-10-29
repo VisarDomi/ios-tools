@@ -14,12 +14,16 @@ m=importlib.util.module_from_spec(spec);loader.exec_module(m)
 
 class PairingTests(unittest.TestCase):
     def setUp(self):
+        self.real_host_network=m.host_network
+        self.real_discovery_generation=m.discovery_generation
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
         self.root=Path(self.tmp.name)
         self.state=self.root/'state.json'
         (self.root/'ios-tools.local.json').write_text(json.dumps({'device':'a'*24}))
         self.patches=[patch.object(m,'STATE',self.state),patch.object(m,'ROOT',self.root),patch.object(m,'say'),
                       patch.object(m,'WORKLOAD_LOCK',self.root/'workload.lock'),patch.object(m,'tool_path',return_value='/fake/devicectl'),
+                      patch.object(m,'host_network',return_value=None),
+                      patch.object(m,'discovery_generation',return_value=None),
                       patch.object(m.os,'getloadavg',return_value=(1,1,1))]
         for p in self.patches:p.start();self.addCleanup(p.stop)
 
@@ -116,7 +120,69 @@ class PairingTests(unittest.TestCase):
              patch.object(m,'reachable',return_value='phone|192.168.1.45|wifi'), \
              patch.object(m,'restart',return_value=True) as restart:
             self.assertEqual(m.check(False),0)
-            restart.assert_called_once_with(discovery=True)
+            restart.assert_called_once_with(discovery=True,allow_services=False)
+
+    def test_host_route_change_recovers_when_old_bonjour_name_is_silent(self):
+        old={'interfaces':['en4|192.168.7.199|0xffffff00'],'route':'interface: en4'}
+        new={'interfaces':old['interfaces']+['en0|192.168.7.198|0xffffff00'],'route':'interface: en0'}
+        self.state.write_text(json.dumps({'hostNetwork':old,'fixed':m.time.time(),
+                                         'seen':1,'failed':True,'status':'unreachable'}))
+        with patch.object(m,'host_network',return_value=new), \
+             patch.object(m,'phone',return_value=(False,['old-phone.local'],'not found',False)), \
+             patch.object(m,'reachable',return_value=None),patch.object(m,'restart',return_value=True) as restart:
+            self.assertEqual(m.check(False),0)
+        restart.assert_called_once_with(discovery=True,allow_services=False)
+        self.assertEqual(json.loads(self.state.read_text())['hostNetwork'],new)
+
+    def test_missing_topology_sample_does_not_replace_previous_or_bypass_backoff(self):
+        old={'interfaces':['en4|192.168.7.199|0xffffff00'],'route':'interface: en4'}
+        self.state.write_text(json.dumps({'hostNetwork':old,'fixed':m.time.time(),
+                                         'seen':1,'failed':True,'status':'unreachable'}))
+        self.assertEqual(self.check(network=None),(1,0))
+        self.assertEqual(json.loads(self.state.read_text())['hostNetwork'],old)
+
+    def test_returning_authenticated_phone_bypasses_old_retry_delay_once(self):
+        network='phone|192.168.1.54|wifi'
+        generation=[123,'192.168.1.54','en4',64000]
+        self.state.write_text(json.dumps({'network':network,'fixed':m.time.time(),'failed':True}))
+        with patch.object(m,'discovery_generation',return_value=generation):
+            self.assertEqual(self.check(network=network),(0,1))
+        saved=json.loads(self.state.read_text())
+        self.assertEqual(saved['discoveryGeneration'],generation)
+        # Ongoing verification of the same endpoint must not continually reset
+        # the throttle if native service repair itself continues to fail.
+        saved.update(fixed=m.time.time(),failed=True)
+        self.state.write_text(json.dumps(saved))
+        with patch.object(m,'discovery_generation',return_value=generation):
+            self.assertEqual(self.check(network=network),(1,0))
+
+    def test_only_fresh_registered_discovery_can_bypass_retry_delay(self):
+        path=self.root/('discovery-'+'a'*24+'.json')
+        good={'registered':True,'registeredAt':123,'verified':m.time.time(),
+              'address':'192.168.7.45','interface':'en4','port':64000}
+        path.write_text(json.dumps(good))
+        self.assertEqual(self.real_discovery_generation(),[123,'192.168.7.45','en4',64000])
+        for bad in [dict(good,registered=False),dict(good,verified=m.time.time()-61),
+                    dict(good,registeredAt=None),dict(good,verified='bad'),{},[]]:
+            path.write_text(json.dumps(bad));self.assertIsNone(self.real_discovery_generation())
+
+    def test_topology_does_not_depend_on_successful_phone_lookup(self):
+        route='gateway: 192.168.7.1\ninterface: en4\n'
+        links='''en0: flags=8863<UP,RUNNING>
+    inet 192.168.7.198 netmask 0xffffff00
+    status: inactive
+en4: flags=8863<UP,RUNNING>
+    inet 192.168.7.199 netmask 0xffffff00
+    status: active
+utun0: flags=8051<UP,RUNNING>
+    inet 100.64.0.1 netmask 0xffffffff
+    status: active
+'''
+        # Exercise the real function hidden by setUp's general network mock.
+        with patch.object(m.subprocess,'run',side_effect=[
+                subprocess.CompletedProcess([],0,route),subprocess.CompletedProcess([],0,links)]):
+            self.assertEqual(self.real_host_network(),{'interfaces':['en4|192.168.7.199|0xffffff00'],
+                                                       'route':'gateway: 192.168.7.1|interface: en4'})
 
     def test_basic_repair_escalates_before_entering_backoff(self):
         self.state.write_text(json.dumps({'network':'phone|192.168.1.45|wifi','misses':1}))
@@ -124,17 +190,29 @@ class PairingTests(unittest.TestCase):
              patch.object(m,'reachable',return_value='phone|192.168.1.45|wifi'), \
              patch.object(m,'restart',side_effect=[False,True]) as restart:
             self.assertEqual(m.check(False),0)
-            self.assertEqual([c.kwargs for c in restart.call_args_list],[{'discovery':False},{'discovery':True}])
+            self.assertEqual([c.kwargs for c in restart.call_args_list],
+                             [{'discovery':False,'allow_services':False},{'discovery':True,'allow_services':False}])
 
-    def test_automatic_check_does_not_restart_for_an_away_phone(self):
-        self.assertEqual(self.check(network=None),(1,0))
+    def test_cold_cache_starts_unicast_without_blind_service_restarts(self):
+        with patch.object(m,'phone',return_value=(False,[],'not found',False)), \
+             patch.object(m,'reachable',return_value=None), \
+             patch.object(m,'bootstrap_discovery',return_value=False) as discovery, \
+             patch.object(m.subprocess,'run') as services:
+            self.assertEqual(m.check(False),1)
+            discovery.assert_not_called()
+            self.assertEqual(m.check(False),1)
+            discovery.assert_called_once()
+            # An away or unreachable phone must not cause global daemon churn.
+            services.assert_not_called()
+            self.assertEqual(m.check(False),1)
+            discovery.assert_called_once()
 
     def test_explicit_repair_refreshes_discovery_despite_stale_bonjour(self):
         self.state.write_text(json.dumps({'seen':1,'fixed':m.time.time(),'failed':True,'status':'unreachable'}))
         with patch.object(m,'phone',return_value=(False,['phone.local'],'stale discovery',False)), \
              patch.object(m,'reachable',return_value=None),patch.object(m,'restart',return_value=True) as restart:
             self.assertEqual(m.check(True,True),0)
-            restart.assert_called_once_with(discovery=True)
+            restart.assert_called_once_with(discovery=True,allow_services=True)
 
     def test_installer_check_repairs_without_a_ping_reply(self):
         self.assertEqual(self.check(network=None,now=True),(0,1))
@@ -155,6 +233,14 @@ class PairingTests(unittest.TestCase):
              patch.object(m.subprocess,'run') as services:
             self.assertTrue(m.restart(discovery=True))
             services.assert_not_called()
+
+    def test_automatic_repair_can_refresh_services_after_authenticated_discovery(self):
+        with patch.object(m,'bootstrap_discovery',return_value=True), \
+             patch.object(m,'phone',side_effect=[(False,[],'stale native tunnel',False)]*3+[(True,[],'',True)]), \
+             patch.object(m.time,'sleep'), \
+             patch.object(m.subprocess,'run',return_value=subprocess.CompletedProcess([],0,'')) as services:
+            self.assertTrue(m.restart(discovery=True,allow_services=False))
+        self.assertTrue(any('mDNSResponder' in call.args[0] for call in services.call_args_list))
 
     def test_published_endpoint_alone_is_not_a_healthy_connection(self):
         with patch.object(m,'bootstrap_discovery',return_value=True), \

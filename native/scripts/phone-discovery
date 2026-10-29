@@ -301,6 +301,45 @@ def retain_endpoint(previous, networks, child, now=None):
                 0 <= (time.time() if now is None else now) - previous.get('verified', 0) < 60)
 
 
+def network_signature(networks):
+    return tuple(sorted((n['interface'], n['address'], str(n['network'])) for n in networks))
+
+
+def wait_for_refresh(control, networks, delay, stopping=lambda: False):
+    """Keep scan backoff, but wake promptly when a physical LAN link changes."""
+    previous = network_signature(networks)
+    deadline = time.monotonic() + delay
+    last_tick, last_wall = time.monotonic(), time.time()
+    while not stopping():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return b'timer'
+        control.settimeout(min(5, remaining))
+        try:
+            connection, _ = control.accept()
+            with connection:
+                connection.settimeout(1)
+                return connection.recv(32)
+        except (socket.timeout, InterruptedError):
+            pass
+        tick, wall = time.monotonic(), time.time()
+        # Some monotonic clocks exclude system sleep. A resumed host can retain
+        # exactly the same addresses; do not leave it in its pre-sleep backoff.
+        if abs((wall - last_wall) - (tick - last_tick)) > 15:
+            return b'wake'
+        last_tick, last_wall = tick, wall
+        try:
+            if network_signature(interfaces()) != previous:
+                return b'network'
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    return b'stop'
+
+
+def log(message):
+    print(time.strftime('%Y-%m-%d %H:%M:%S ') + message, flush=True)
+
+
 def serve(udid):
     state_path, control_path, lock_path = paths(udid)
     DIRECTORY.mkdir(parents=True, exist_ok=True)
@@ -308,6 +347,7 @@ def serve(udid):
     try: fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError: lock.close(); return
     previous, child, fingerprint = read_json(state_path), None, None
+    registered_at = None
     failures = 0
     control_path.unlink(missing_ok=True)
     control = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -333,12 +373,16 @@ def serve(udid):
                                               '_remotepairing._tcp', 'local.', str(service['port']), service['host'],
                                               service['ip']] + service['txt'], stdin=subprocess.DEVNULL,
                                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    # Replacing a failed proxy process for the same endpoint
+                    # must not repeatedly bypass the monitor's repair throttle.
+                    if fingerprint != new_fingerprint:
+                        registered_at = time.time()
                     fingerprint = new_fingerprint
-                    print('Authenticated phone %s at %s; publishing its current remote-pairing endpoint on %s.' %
-                          (udid, address, network['interface']), flush=True)
+                    log('Authenticated phone %s at %s; publishing its current remote-pairing endpoint on %s.' %
+                        (udid, address, network['interface']))
                 previous = dict(pid=os.getpid(), sourceHash=SCRIPT_HASH, udid=udid, address=address,
                                 interface=network['interface'], service=service['instance'], port=service['port'],
-                                verified=time.time(), registered=child.poll() is None)
+                                verified=time.time(), registeredAt=registered_at, registered=child.poll() is None)
                 failures = 0
             except Exception as error:
                 failures += 1
@@ -346,18 +390,18 @@ def serve(udid):
                 if not retained:
                     stop_child(child); child = None; fingerprint = None
                 if previous.get('error') != str(error):
-                    print('Unicast phone discovery: ' + str(error), flush=True)
+                    log('Unicast phone discovery: ' + str(error))
                 previous.update(pid=os.getpid(), sourceHash=SCRIPT_HASH, registered=retained, error=str(error), checked=time.time())
             write_json(state_path, previous)
             # Installer requests wake discovery immediately after a Wi-Fi move.
             # Back off while away instead of scanning the LAN every 20 seconds.
-            control.settimeout(5 if failures and child is not None else min(300, 20 * 2 ** min(failures, 4)))
-            try:
-                connection, _ = control.accept()
-                with connection:
-                    connection.settimeout(1)
-                    stopping = stopping or connection.recv(32) == b'stop'
-            except (socket.timeout, InterruptedError): pass
+            delay = 5 if failures and child is not None else min(300, 20 * 2 ** min(failures, 4))
+            trigger = wait_for_refresh(control, networks, delay, lambda: stopping)
+            if trigger in (b'network', b'wake'):
+                failures = 0
+                event = 'Active LAN interface/address changed' if trigger == b'network' else 'Host sleep/clock gap detected'
+                log(event + '; retrying authenticated discovery now.')
+            stopping = stopping or trigger == b'stop'
     finally:
         stop_child(child)
         control.close(); control_path.unlink(missing_ok=True); lock.close()

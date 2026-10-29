@@ -24,7 +24,12 @@ On a fresh Mac the mirror alone does not install the phone monitor. Restore
 repository's `mac-renewal/config/`), then run `native/scripts/phone-pairing --install` in
 the logged-in GUI session. Its generator recreates `com.visar.phone-pairing.plist` and
 the 30-second schedule. Confirm a real `devicectl device info processes` request succeeds.
-The pairing state file is a disposable cache and need not be restored. Exact commands
+The pairing state file is a disposable cache and need not be restored: two failed
+automatic checks start authenticated discovery even without past Bonjour success.
+Host network changes and a returning authenticated phone bypass stale retry delays;
+no phone VPN toggle or routine repair command is required at home. Automatic checks
+leave Apple services alone when no endpoint authenticates, and respect workload
+locks. Exact commands
 and the source/configuration backup map are in
 [Mac recovery](../../environment/mac-renewal/RECOVERY.md#restore-wireless-phone-recovery-and-network-access).
 

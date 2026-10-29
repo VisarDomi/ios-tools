@@ -11,14 +11,18 @@ using the existing trusted identity before restarting Mac pairing services:
                            Address changes bypass prior backoff. Retries back off
                            10 minutes (an hour after failure with a reachable address).
                            Known phones with broken discovery keep retrying every 10 minutes.
-                           A network change resets the backoff.
+                           Host interface/route changes reset the backoff even if
+                           the old phone hostname no longer resolves. A fresh
+                           cache also starts authenticated discovery automatically.
   phone-pairing --now      check, and restart right away even if Bonjour is stale
   phone-pairing --repair   repair after an installer reports a stale CoreDevice connection
   phone-pairing --install  write and load the LaunchAgent
   phone-pairing --probe    test a real device request without repairing anything
 
-Restarting does not help while the phone's Tailscale is on: it hides the phone's pairing
-path from the Mac. Events go to ~/Library/Logs/phone-pairing.log.
+An unreachable endpoint does not establish that the phone is away or using a VPN.
+Automatic recovery leaves Apple services untouched unless unicast discovery first
+authenticates the configured phone. It never changes phone networking or trust.
+Events go to ~/Library/Logs/phone-pairing.log.
 """
 import fcntl
 import datetime
@@ -118,14 +122,60 @@ def reachable(hosts):
     return None
 
 
-def restart(discovery=False):
+def host_network():
+    """Detect host topology without relying on the missing phone's Bonjour name."""
+    try:
+        route = subprocess.run(['/sbin/route', '-n', 'get', 'default'],
+                               capture_output=True, text=True, timeout=4)
+        links = subprocess.run(['/sbin/ifconfig', '-a'],
+                               capture_output=True, text=True, timeout=4)
+        if links.returncode != 0:
+            return None
+        active = []
+        for block in re.split(r'(?=^\S[^\n]*: flags=)', links.stdout, flags=re.M):
+            match = re.match(r'((?:en|bridge)\d+): flags=', block)
+            if match and 'status: active' in block:
+                addresses = re.findall(r'\binet (\S+) netmask (\S+)', block)
+                active.extend('%s|%s|%s' % (match[1], ip, mask) for ip, mask in addresses)
+        return dict(interfaces=sorted(active), route='|'.join(
+            line.strip() for line in route.stdout.splitlines()
+            if line.strip().startswith(('gateway:', 'interface:'))))
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+
+
+def discovery_generation():
+    """A fresh authenticated endpoint registration can outlive old repair backoff."""
+    try:
+        udid = json.loads((ROOT / 'ios-tools.local.json').read_text())['device']
+        if not isinstance(udid, str):
+            return None
+        identity = udid.replace('-', '').lower()
+        if not re.fullmatch(r'(?:[0-9a-f]{24}|[0-9a-f]{40})', identity):
+            return None
+        endpoint = json.loads((STATE.parent / ('discovery-' + identity + '.json')).read_text())
+        if not isinstance(endpoint, dict):
+            return None
+        if (not endpoint.get('registered') or not endpoint.get('registeredAt') or
+                not 0 <= time.time() - endpoint.get('verified', 0) < 60):
+            return None
+        return [endpoint['registeredAt'], endpoint['address'], endpoint['interface'], endpoint['port']]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def restart(discovery=False, allow_services=True):
     # A reachable phone can be invisible to Bonjour after roaming between APs.
     # Validate its existing identity over unicast, publish its actual current RSD
     # endpoint, and only restart Apple services if a real request still fails.
-    if bootstrap_discovery():
+    authenticated = bootstrap_discovery()
+    if authenticated:
         for attempt in range(3):
             if phone()[0]: return True
             if attempt < 2: time.sleep(2)
+    elif not allow_services:
+        say('No authenticated phone endpoint on the active LAN; leaving Apple services untouched.')
+        return False
     # Keep trust records. A dead cached address needs discovery/transport refresh,
     # not just the two pairing processes used for a stale but reachable tunnel.
     services = ['remotepairingd','CoreDeviceService']
@@ -168,18 +218,27 @@ def check(now, force=False):
     visible, hosts, reason, recent = phone()
     hosts = hosts or state.get('hosts', [])
     network = reachable(hosts)
-    changed = bool(network and network != state.get('network') and
-                   (state.get('network') or state.get('failed') or state.get('status') == 'unreachable'))
+    topology = host_network()
+    host_changed = bool(topology is not None and 'hostNetwork' in state and
+                        topology != state['hostNetwork'])
+    registration = discovery_generation()
+    rediscovered = bool(registration is not None and registration != state.get('discoveryGeneration'))
+    changed = host_changed or rediscovered or bool(network and network != state.get('network') and
+                                                 (state.get('network') or state.get('failed') or state.get('status') == 'unreachable'))
+    if topology is not None:
+        state['hostNetwork'] = topology
+    if registration is not None:
+        state['discoveryGeneration'] = registration
     recent = recent or time.time()-state.get('seen',0) <= RECENT
     if hosts:
         state['hosts'] = hosts
     if network:
         state['network'] = network
-    # Missing Bonjour is also a symptom of stuck discovery. Keep rediscovering a
-    # previously working phone instead of permanently giving up after RECENT.
+    # Pairing configuration is sufficient to try authenticated discovery. A new
+    # or discarded cache must not require a past successful Bonjour connection.
     wait = WAIT_FAILED if network and state.get('failed') else WAIT
     due = time.time() - state.get('fixed', 0) >= wait
-    rediscover = bool(state.get('seen')) and due
+    rediscover = due
     if visible and not force:
         if state.get('misses') or state.get('status') == 'unreachable':
             say('The phone is available again (device request succeeded).')
@@ -187,7 +246,7 @@ def check(now, force=False):
         state['failed'] = False
         state['status'] = 'healthy'
         state['seen'] = time.time()
-    elif not network and not recent and not now and not rediscover:
+    elif not network and not recent and not now and not rediscover and not changed:
         if state.get('status') != 'unreachable':
             say('The phone request failed and Bonjour IPv4/IPv6 do not answer; awaiting the phone on the LAN.')
         state['status'] = 'unreachable'
@@ -203,10 +262,12 @@ def check(now, force=False):
                  reason or 'Installer requested repair.'))
             state['fixed'] = time.time()
             discovery = changed or force or not network or state.get('failed', False)
-            visible = restart(discovery=discovery)
+            # Scheduled checks may rediscover an absent/roaming phone, but must
+            # not restart global services without an authenticated endpoint.
+            visible = restart(discovery=discovery, allow_services=now)
             if not visible and not discovery:
                 say('Pairing-only repair did not restore the device; refreshing Bonjour and device transports.')
-                visible = restart(discovery=True)
+                visible = restart(discovery=True, allow_services=now)
             state['failed'] = not visible
             if visible:
                 say('The phone is available again (device request succeeded).')

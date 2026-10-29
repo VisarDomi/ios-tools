@@ -5,6 +5,7 @@ import importlib.util
 import ipaddress
 from pathlib import Path
 import ssl
+import socket
 import struct
 import subprocess
 import tempfile
@@ -137,6 +138,94 @@ lo0: flags=8049<UP,LOOPBACK,RUNNING>
         self.assertFalse(m.retain_endpoint(previous, NETWORKS, child, 99))
         child.poll.return_value = 1
         self.assertFalse(m.retain_endpoint(previous, NETWORKS, child, 130))
+
+
+class DiscoveryWakeupTests(unittest.TestCase):
+    def setUp(self):
+        self.now=0
+        self.wall_offset=1000
+        self.control=Mock()
+        def timeout():
+            self.now+=self.control.settimeout.call_args.args[0]
+            raise socket.timeout()
+        self.control.accept.side_effect=timeout
+        clock=patch.object(m.time,'monotonic',side_effect=lambda:self.now)
+        clock.start();self.addCleanup(clock.stop)
+        wall=patch.object(m.time,'time',side_effect=lambda:self.wall_offset+self.now)
+        wall.start();self.addCleanup(wall.stop)
+
+    def test_added_ethernet_wakes_discovery_during_long_backoff(self):
+        ethernet=dict(NETWORKS[0],interface='en0',address='192.168.7.198')
+        with patch.object(m,'interfaces',return_value=NETWORKS+[ethernet]):
+            self.assertEqual(m.wait_for_refresh(self.control,NETWORKS,300),b'network')
+        self.assertEqual(self.now,5)
+
+    def test_dhcp_address_change_wakes_discovery(self):
+        with patch.object(m,'interfaces',return_value=[dict(NETWORKS[0],address='192.168.7.54')]):
+            self.assertEqual(m.wait_for_refresh(self.control,NETWORKS,300),b'network')
+        self.assertEqual(self.now,5)
+
+    def test_sleep_gap_wakes_discovery_even_with_unchanged_addresses(self):
+        original=self.control.accept.side_effect
+        def wake():
+            self.wall_offset+=3600
+            return original()
+        self.control.accept.side_effect=wake
+        with patch.object(m,'interfaces',return_value=NETWORKS):
+            self.assertEqual(m.wait_for_refresh(self.control,NETWORKS,300),b'wake')
+        self.assertEqual(self.now,5)
+
+    def test_unchanged_links_preserve_scan_backoff_despite_interface_order(self):
+        ethernet=dict(NETWORKS[0],interface='en0',address='192.168.7.198')
+        with patch.object(m,'interfaces',return_value=[ethernet]+NETWORKS):
+            self.assertEqual(m.wait_for_refresh(self.control,NETWORKS+[ethernet],20),b'timer')
+        self.assertEqual(self.now,20)
+
+    def test_temporary_interface_read_failure_does_not_trigger_a_network_change(self):
+        with patch.object(m,'interfaces',side_effect=OSError('temporary read error')):
+            self.assertEqual(m.wait_for_refresh(self.control,NETWORKS,10),b'timer')
+        self.assertEqual(self.now,10)
+
+    def test_stop_signal_does_not_wait_out_long_backoff(self):
+        with patch.object(m,'interfaces',return_value=NETWORKS):
+            self.assertEqual(m.wait_for_refresh(self.control,NETWORKS,300,lambda:self.now>=5),b'stop')
+        self.assertEqual(self.now,5)
+
+    def test_explicit_refresh_and_stop_requests_are_serviced(self):
+        for command in [b'refresh',b'stop']:
+            with self.subTest(command=command):
+                client=Mock();client.__enter__=Mock(return_value=client);client.__exit__=Mock(return_value=False)
+                client.recv.return_value=command
+                self.control.accept.side_effect=None;self.control.accept.return_value=(client,None)
+                with patch.object(m,'interfaces') as interfaces:
+                    self.assertEqual(m.wait_for_refresh(self.control,NETWORKS,300),command)
+                interfaces.assert_not_called()
+
+
+class RegistrationTests(unittest.TestCase):
+    def test_proxy_process_replacement_does_not_create_repeated_return_events(self):
+        first=Mock();first.poll.side_effect=[None,1]
+        second=Mock();second.poll.return_value=None
+        states=[]
+        service=dict(instance=UUID,host=HOST,port=64000,ip=ADDRESS,txt=['ver=1'])
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(m,'DIRECTORY',Path(directory)), \
+             patch.object(m,'pair_record',return_value={}), \
+             patch.object(m,'interfaces',return_value=NETWORKS), \
+             patch.object(m,'find_phone',new=AsyncMock(return_value=ADDRESS)), \
+             patch.object(m,'endpoint_network',return_value=NETWORKS[0]), \
+             patch.object(m,'dns_query',return_value=[]), \
+             patch.object(m,'service_record',return_value=service), \
+             patch.object(m.subprocess,'Popen',side_effect=[first,second]), \
+             patch.object(m,'stop_child'),patch.object(m.signal,'signal'),patch.object(m,'log'), \
+             patch.object(m,'wait_for_refresh',side_effect=[b'timer',b'stop']), \
+             patch.object(m.time,'time',side_effect=[100,101,110]), \
+             patch.object(m,'write_json',side_effect=lambda path,state:states.append(dict(state))):
+            m.serve(UDID)
+        self.assertEqual(len(states),2)
+        self.assertTrue(all(state['registered'] for state in states))
+        self.assertEqual([state['registeredAt'] for state in states],[100,100])
+        self.assertEqual([state['verified'] for state in states],[101,110])
 
 
 class IdentityTests(unittest.IsolatedAsyncioTestCase):

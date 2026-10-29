@@ -169,21 +169,28 @@ on a fresh Mac. It runs under the existing monitor, with no additional LaunchAge
 
 The monitor runs every 30 s from
 the Mac's LaunchAgent `com.visar.phone-pairing` (`phone-pairing --install` sets it up), and
-from `phone-install` before it falls back to over the air. Unicast recovery runs first;
-Apple services restart only if a real device request still fails. The proxy checks every
-20 seconds, tolerates a temporary identity-query failure for at most a minute on the same
-interface, and backs off up to five minutes while away. An installer wakes discovery
-immediately. `phone-pairing --probe` performs a real device request without repairing.
-Two failed monitor checks trigger repair;
-a changed phone address or default route bypasses an old failure backoff and refreshes
-Bonjour plus `remoted`/`usbmuxd`, even when the new IP answers pings. A failed pairing-only
-repair escalates to that full discovery refresh before entering backoff. If a phone connected
-within the last 30 minutes disappears completely, two failed requests also refresh Bonjour,
-`remoted` and `usbmuxd`; recovery does not depend on its obsolete IP answering a ping.
-After that window, a previously working phone still gets discovery retries every ten
-minutes; stale Bonjour records cannot disable recovery indefinitely. Explicit installer
-checks (`--now`) and repairs (`--repair`) refresh discovery immediately even without a ping
-reply or a recent connection. Checks and installers share a lock. `phone-install` also repairs and retries once when a previously reachable phone
+from `phone-install` before it falls back to over the air. Two failed automatic
+requests start authenticated discovery even with a new cache and no past Bonjour
+success. Active host interfaces/addresses and the default route are tracked separately
+from the phone hostname, so a host network change can bypass old backoff even when
+Bonjour is silent. A newly authenticated endpoint gets one immediate native recovery
+attempt; ongoing verification or replacement of the same proxy process does not keep
+bypassing the service-repair throttle.
+
+Unicast recovery runs first. Automatic checks leave Apple services untouched when
+no endpoint authenticates. If the phone is authenticated but a real request still
+fails, they can refresh pairing/Bonjour transports. Workload locks, the startup
+load guard and service-restart backoff remain in force. The proxy verifies every
+20 seconds, tolerates a temporary identity-query failure for at most a minute on
+the same interface, and backs off scans up to five minutes while unreachable.
+During that backoff it checks local interface/address changes every five seconds;
+a changed link or sleep/clock gap triggers discovery immediately. This does not
+perform a LAN scan every five seconds. No routine repair command is required.
+
+Explicit installer checks (`--now`) and repairs (`--repair`) can override retry
+backoff even without a ping reply or recent connection. `phone-pairing --probe`
+checks a real device request without repairing. Checks and installers share a lock.
+`phone-install` also repairs and retries once when a previously reachable phone
 fails installation with a stale-device/connection error. Package/signing errors stay errors.
 Logs: `~/Library/Logs/phone-pairing.log` and `phone-discovery.log`; disposable discovery
 state: `~/Library/Application Support/phone-pairing/discovery-<UDID>.json`. It records
