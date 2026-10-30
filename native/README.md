@@ -22,6 +22,10 @@ Mac and phone access, signing and the phone's UDID:
 
 ## What every app must do (the owner's rules)
 
+- **Routine iPhone tests run on the Mac's virtual iPhone.** Reserve the physical
+  phone for behavior the virtual device cannot establish, such as its actual network,
+  credentials or hardware. Remove temporary phone-control runners and verify removal.
+
 - **Instant, offline where possible, kill-robust.** Every change of state (position,
   progress, navigation, downloads) is written durably and atomically when it happens, in the
   background (`BackgroundWriter`); leaving for the background waits for pending writes. A
