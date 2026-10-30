@@ -65,6 +65,11 @@ in Swift 5 mode), no third-party packages.
 | `KitMigration` | One-time readers of what the WebKit versions kept (see Open items) |
 | `KitBackup` | The PC backups of the apps' own data |
 
+The reader zooms its existing strip throughout a pinch. It retains the current image/slice
+surfaces and decode quality while fingers move; sharper images, newly learned page sizes
+and appended chapters apply after zooming ends. A later quality decode never becomes new
+page-size metadata. Geometry uses UIKit's content-coordinate conversion, including bounce.
+
 **Vendoring.** `Kit/` here is canonical. Each repository builds its own copy, `apps/ios/Kit`
 (renewal fingerprints only files inside a repository):
 
