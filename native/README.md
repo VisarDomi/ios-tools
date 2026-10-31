@@ -10,7 +10,7 @@ that and this file before changing an app.
 | `/home/visar/Documents/work/manga/manga-reader` | Asura, Scythe, Yaksha, QiScans, Lua, EzScans, Violet | `apps/ios/README.md` |
 | `/home/visar/Documents/work/manga/gallery-reader` | gallery-a, gallery-b | `apps/ios/README.md` |
 | `/home/visar/Documents/work/manga/gallery-downloader` | Gallery Reader (offline, from the PC) | `apps/ios/README.md` |
-| `/home/visar/Documents/work/video/video-platform` | TsLive local, LADDER local, FMP4 local, Video Vault, TsLive | `apps/ios/README.md` |
+| `/home/visar/Documents/work/video/video-platform` | TsLive local, LADDER local, FMP4 local, FileHost local, Video Vault, TsLive | `apps/ios/README.md` |
 | `/home/visar/Documents/work/trading/trader` | Trader | `apps/ios/README.md` |
 | `/home/visar/Documents/work/games/guidance` | Guidance | `apps/ios/README.md` |
 
@@ -21,6 +21,12 @@ Mac and phone access, signing and the phone's UDID:
 [mac-access.md](../../../environment/mac-access.md). Renewal: [renewal](../renewal/README.md).
 
 ## What every app must do (the owner's rules)
+
+- **The user owns the viewport.** Manga, gallery and video viewers scroll continuously and
+  stop at the exact position the user leaves, including partial items. No snapping, automatic
+  centering, page landings or blank runways. Loading, appending, refreshing and player reuse
+  preserve that view. Pinching scales the existing content. Cached chapters append without
+  waiting for a scroll to end; idle callbacks save state rather than choose a reading position.
 
 - **Routine iPhone tests run on the Mac's virtual iPhone.** Reserve the physical
   phone for behavior the virtual device cannot establish, such as its actual network,
@@ -70,8 +76,10 @@ in Swift 5 mode), no third-party packages.
 | `KitBackup` | The PC backups of the apps' own data |
 
 The reader zooms its existing strip throughout a pinch. It retains the current image/slice
-surfaces and decode quality while fingers move; sharper images, newly learned page sizes
-and appended chapters apply after zooming ends. A later quality decode never becomes new
+surfaces and decode quality while fingers move; sharper images and newly learned page sizes
+apply after zooming ends. Size changes also wait through a drag/deceleration. Appended
+chapters extend the document during scrolling without touching its offset; during a pinch
+their geometry waits, keeping the content under the fingers stable. A later quality decode never becomes new
 page-size metadata. Geometry uses UIKit's content-coordinate conversion, including bounce.
 
 **Vendoring.** `Kit/` here is canonical. Each repository builds its own copy, `apps/ios/Kit`
