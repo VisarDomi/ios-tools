@@ -239,3 +239,8 @@ so deploy the app the change is about first.
 
 The rewrite's plan, its surveys of the WebKit apps and its round-by-round status are in Git
 history (`git show 65bec79:native/STATUS.md`, `PLAN.md`, `inventory/`).
+
+Video viewer contract: only the current video is visible at rest or while zoomed. Neighbours
+appear during unzoomed scrolling only, with no idle snap. VOD neighbours are paused; only
+TsLive live keeps muted neighbours playing. This visibility rule does not change scroll
+coordinates. Metadata reserves size before playback, and zoom disables the carousel.
