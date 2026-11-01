@@ -98,6 +98,21 @@ class PairingTests(unittest.TestCase):
         self.state.write_text(json.dumps({'network':'phone|192.168.1.54|wifi','fixed':m.time.time(),'failed':True,'misses':5}))
         self.assertEqual(self.check(),(1,0))
 
+    def test_failed_probe_does_not_leave_an_old_healthy_label(self):
+        self.state.write_text(json.dumps({'network':'phone|192.168.1.54|wifi','fixed':m.time.time(),
+                                         'failed':True,'misses':5,'status':'healthy'}))
+        self.assertEqual(self.check(),(1,0))
+        self.assertEqual(json.loads(self.state.read_text())['status'],'unreachable')
+
+    def test_failed_repair_does_not_report_healthy(self):
+        self.state.write_text(json.dumps({'status':'healthy','seen':m.time.time()}))
+        with patch.object(m,'phone',return_value=(False,[],'not found',True)), \
+             patch.object(m,'reachable',return_value=None),patch.object(m,'restart',return_value=False):
+            self.assertEqual(m.check(True),1)
+        saved=json.loads(self.state.read_text())
+        self.assertEqual(saved['status'],'unreachable')
+        self.assertTrue(saved['failed'])
+
     def test_recovery_does_not_erase_restart_throttle(self):
         self.state.write_text(json.dumps({'fixed':123,'misses':2}))
         self.assertEqual(self.check(healthy=True),(0,0))
@@ -240,7 +255,13 @@ utun0: flags=8051<UP,RUNNING>
              patch.object(m.time,'sleep'), \
              patch.object(m.subprocess,'run',return_value=subprocess.CompletedProcess([],0,'')) as services:
             self.assertTrue(m.restart(discovery=True,allow_services=False))
-        self.assertTrue(any('mDNSResponder' in call.args[0] for call in services.call_args_list))
+        commands=[call.args[0] for call in services.call_args_list]
+        self.assertIn(['/usr/bin/sudo','-n','/bin/launchctl','kill','SIGHUP','system/com.apple.mDNSResponder'],commands)
+        for target in ['user/%s/com.apple.CoreDevice.remotepairingd' % m.os.getuid(),
+                       'user/%s/com.apple.CoreDevice.CoreDeviceService' % m.os.getuid(),
+                       'system/com.apple.remoted','system/com.apple.usbmuxd']:
+            self.assertIn(['/usr/bin/sudo','-n','/bin/launchctl','kickstart','-k',target],commands)
+        self.assertFalse(any('pgrep' in arg or 'killall' in arg for command in commands for arg in command))
 
     def test_published_endpoint_alone_is_not_a_healthy_connection(self):
         with patch.object(m,'bootstrap_discovery',return_value=True), \
@@ -248,5 +269,16 @@ utun0: flags=8051<UP,RUNNING>
              patch.object(m.time,'sleep'), patch.object(m.subprocess,'run',return_value=subprocess.CompletedProcess([],0,'')) as services:
             self.assertFalse(m.restart(discovery=True))
             self.assertTrue(services.called)
+
+    def test_reloaded_mdns_job_is_selected_by_exact_identity(self):
+        def run(args,**kwargs):
+            missing = 'print' in args and args[-1] == 'system/com.apple.mDNSResponder'
+            return subprocess.CompletedProcess(args,1 if missing else 0,'','')
+        with patch.object(m,'bootstrap_discovery',return_value=True), \
+             patch.object(m,'phone',side_effect=[(False,[],'stale',False)]*3+[(True,[],'',True)]), \
+             patch.object(m.time,'sleep'),patch.object(m.subprocess,'run',side_effect=run) as services:
+            self.assertTrue(m.restart(discovery=True,allow_services=False))
+        signals=[call.args[0] for call in services.call_args_list if 'SIGHUP' in call.args[0]]
+        self.assertEqual(signals,[['/usr/bin/sudo','-n','/bin/launchctl','kill','SIGHUP','system/com.apple.mDNSResponder.reloaded']])
 
 if __name__=='__main__':unittest.main()

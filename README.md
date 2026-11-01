@@ -33,6 +33,9 @@ locks. Exact commands
 and the source/configuration backup map are in
 [Mac recovery](../../environment/mac-renewal/RECOVERY.md#restore-wireless-phone-recovery-and-network-access).
 
+Failed device requests clear the monitor's healthy status. Native recovery targets
+exact launchd jobs, preserving trust records and avoiding process-name kills.
+
 ```sh
 npm test   # renewal and phone-recovery tests
 ```

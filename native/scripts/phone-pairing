@@ -178,15 +178,25 @@ def restart(discovery=False, allow_services=True):
         return False
     # Keep trust records. A dead cached address needs discovery/transport refresh,
     # not just the two pairing processes used for a stale but reachable tunnel.
-    services = ['remotepairingd','CoreDeviceService']
+    services = ['user/%s/com.apple.CoreDevice.remotepairingd' % os.getuid(),
+                'user/%s/com.apple.CoreDevice.CoreDeviceService' % os.getuid()]
     if discovery:
-        services += ['remoted','usbmuxd']
+        services += ['system/com.apple.remoted','system/com.apple.usbmuxd']
         subprocess.run(['/usr/bin/dscacheutil','-flushcache'],check=False)
-        subprocess.run(['/usr/bin/sudo','-n','/usr/bin/killall','-HUP','mDNSResponder'],check=False)
-    for name in services:
-        pids = subprocess.run(['/usr/bin/pgrep','-x',name],capture_output=True,text=True).stdout.split()
-        if pids:
-            subprocess.run(['/usr/bin/sudo','-n','/bin/kill','-9']+pids,check=False)
+        # Address the launchd job, including this Mac's reloaded Apple job,
+        # instead of signalling every process with a matching name.
+        for label in ['com.apple.mDNSResponder','com.apple.mDNSResponder.reloaded']:
+            target = 'system/' + label
+            present = subprocess.run(['/usr/bin/sudo','-n','/bin/launchctl','print',target],
+                                     stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+            if present.returncode == 0:
+                subprocess.run(['/usr/bin/sudo','-n','/bin/launchctl','kill','SIGHUP',target],check=False)
+                break
+    for target in services:
+        result = subprocess.run(['/usr/bin/sudo','-n','/bin/launchctl','kickstart','-k',target],
+                                capture_output=True,text=True,check=False)
+        if result.returncode:
+            say('Could not refresh launchd job %s (exit %s).' % (target,result.returncode))
     for _ in range(6):
         time.sleep(5)
         if phone()[0]:
@@ -276,6 +286,8 @@ def check(now, force=False):
                 state['status'] = 'healthy'
             else:
                 say('Still unavailable; automatic checks will continue with backoff.')
+    if not visible:
+        state['status'] = 'unreachable'
     STATE.parent.mkdir(parents=True, exist_ok=True)
     temporary = STATE.with_suffix('.tmp')
     temporary.write_text(json.dumps(state))
