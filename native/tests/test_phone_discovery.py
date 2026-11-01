@@ -8,6 +8,7 @@ import ssl
 import socket
 import struct
 import subprocess
+import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -201,8 +202,40 @@ class DiscoveryWakeupTests(unittest.TestCase):
                     self.assertEqual(m.wait_for_refresh(self.control,NETWORKS,300),command)
                 interfaces.assert_not_called()
 
+    def test_returning_phone_wakes_backoff_without_a_mac_interface_change(self):
+        with patch.object(m,'interfaces',return_value=NETWORKS), \
+             patch.object(m,'port_open',side_effect=[False,True]) as probe:
+            self.assertEqual(m.wait_for_refresh(self.control,NETWORKS,60,endpoint=ADDRESS),b'endpoint')
+        self.assertEqual(self.now,5)
+        self.assertEqual([call.args for call in probe.call_args_list],[(ADDRESS,),(ADDRESS,)])
+
+    def test_open_unverified_port_does_not_force_continuous_retries(self):
+        with patch.object(m,'interfaces',return_value=NETWORKS),patch.object(m,'port_open',return_value=True) as probe:
+            self.assertEqual(m.wait_for_refresh(self.control,NETWORKS,20,endpoint=ADDRESS),b'timer')
+        self.assertEqual(self.now,20)
+        probe.assert_called_once_with(ADDRESS)
+
+    def test_old_address_on_another_subnet_is_not_probed(self):
+        with patch.object(m,'interfaces',return_value=NETWORKS),patch.object(m,'port_open') as probe:
+            self.assertEqual(m.wait_for_refresh(self.control,NETWORKS,10,endpoint='192.168.8.45'),b'timer')
+        probe.assert_not_called()
+
 
 class RegistrationTests(unittest.TestCase):
+    def test_unreachable_roaming_phone_never_waits_five_minutes_or_publishes(self):
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(m,'DIRECTORY',Path(directory)), \
+             patch.object(m,'pair_record',return_value={}), \
+             patch.object(m,'interfaces',return_value=NETWORKS), \
+             patch.object(m,'find_phone',new=AsyncMock(side_effect=m.NoAuthenticatedEndpoint('No authenticated endpoint'))), \
+             patch.object(m.signal,'signal'),patch.object(m,'log'), \
+             patch.object(m,'wait_for_refresh',side_effect=[b'timer']*4+[b'stop']) as wait, \
+             patch.object(m.subprocess,'Popen') as publish:
+            m.serve(UDID)
+        self.assertEqual(len(wait.call_args_list),5)
+        self.assertTrue(all(call.args[2]<=60 for call in wait.call_args_list))
+        publish.assert_not_called()
+
     def test_proxy_process_replacement_does_not_create_repeated_return_events(self):
         first=Mock();first.poll.side_effect=[None,1]
         second=Mock();second.poll.return_value=None
@@ -248,6 +281,24 @@ class IdentityTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(await m.verify(ADDRESS, UDID, {}, connector))
         self.assertEqual(connector.await_count, 1)
         self.assertFalse(connector.call_args.kwargs['autopair'])
+
+    async def test_default_candidate_connector_never_recursively_reconnects(self):
+        connection=SimpleNamespace(close=AsyncMock())
+        attempts=[]
+        class Client:
+            async def areestablish_connection(self):
+                raise AssertionError('The discovery probe must override recursive reconnect')
+            @classmethod
+            async def create(cls,service,**kwargs):
+                attempts.append(kwargs)
+                await cls().areestablish_connection()
+        service=SimpleNamespace(create_using_tcp=AsyncMock(return_value=connection))
+        with patch.dict(sys.modules,{'pymobiledevice3.lockdown':SimpleNamespace(TcpLockdownClient=Client),
+                                     'pymobiledevice3.service_connection':SimpleNamespace(ServiceConnection=service)}):
+            self.assertFalse(await m.verify(ADDRESS,UDID,{}))
+        self.assertEqual(len(attempts),1)
+        self.assertFalse(attempts[0]['autopair'])
+        connection.close.assert_awaited_once()
 
     async def test_dhcp_move_finds_correct_phone_despite_another_iphone(self):
         async def verify(address, *args):

@@ -31,6 +31,11 @@ ROOT = Path(__file__).resolve().parents[2]
 DIRECTORY = Path.home() / 'Library/Application Support/phone-pairing'
 SCRIPT_HASH = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 SERVICE = '_remotepairing._tcp.local.'
+MAX_DISCOVERY_DELAY = 60
+
+
+class NoAuthenticatedEndpoint(RuntimeError):
+    pass
 
 
 def normalized(udid):
@@ -137,10 +142,27 @@ def pair_record(udid):
     return plistlib.loads(data)
 
 
+async def single_attempt_tcp(address, **kwargs):
+    # Do not let an unrelated Watch/phone on an open 62078 port recursively
+    # reconnect. This probe must never pair or repair the candidate device.
+    if os.getuid() != 0:
+        for key in ('SUDO_UID','SUDO_GID','SUDO_USER'):
+            os.environ.pop(key,None)
+    from pymobiledevice3.lockdown import TcpLockdownClient
+    from pymobiledevice3.service_connection import ServiceConnection
+    class CandidateClient(TcpLockdownClient):
+        async def areestablish_connection(self):
+            raise ConnectionError('Candidate closed its authenticated discovery connection')
+    connection = await ServiceConnection.create_using_tcp(address,62078)
+    try:
+        return await CandidateClient.create(connection,hostname=address,port=62078,**kwargs)
+    except BaseException:
+        await asyncio.wait_for(connection.close(),2)
+        raise
+
+
 async def verify(address, udid, record, connector=None):
-    if connector is None:
-        from pymobiledevice3.lockdown import create_using_tcp
-        connector = create_using_tcp
+    connector = single_attempt_tcp if connector is None else connector
     client = None
     try:
         client = await connector(address, identifier=udid, autopair=False, pair_record=record)
@@ -187,7 +209,9 @@ async def find_phone(udid, record, networks, previous):
     finally:
         for task in tasks: task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
-    raise RuntimeError('No endpoint authenticated as the configured phone on the current LAN')
+    raise NoAuthenticatedEndpoint('No phone endpoint authenticated on the Mac\'s attached LANs. '
+                                  'A phone behind another router/NAT needs a reachable LAN path; '
+                                  'restarting Apple services cannot bridge that boundary.')
 
 
 def encode_name(name):
@@ -305,9 +329,14 @@ def network_signature(networks):
     return tuple(sorted((n['interface'], n['address'], str(n['network'])) for n in networks))
 
 
-def wait_for_refresh(control, networks, delay, stopping=lambda: False):
+def wait_for_refresh(control, networks, delay, stopping=lambda: False, endpoint=None):
     """Keep scan backoff, but wake promptly when a physical LAN link changes."""
     previous = network_signature(networks)
+    # A phone can leave/return while the Mac's interfaces stay unchanged. Probe
+    # only the last authenticated on-link address; any return still goes through
+    # full certificate/UDID verification before publication.
+    watched_endpoint = endpoint if endpoint and on_link(endpoint, networks) else None
+    was_open = port_open(watched_endpoint) if watched_endpoint else True
     deadline = time.monotonic() + delay
     last_tick, last_wall = time.monotonic(), time.time()
     while not stopping():
@@ -333,6 +362,8 @@ def wait_for_refresh(control, networks, delay, stopping=lambda: False):
                 return b'network'
         except (OSError, subprocess.TimeoutExpired):
             pass
+        if watched_endpoint and not was_open and port_open(watched_endpoint):
+            return b'endpoint'
     return b'stop'
 
 
@@ -391,15 +422,20 @@ def serve(udid):
                     stop_child(child); child = None; fingerprint = None
                 if previous.get('error') != str(error):
                     log('Unicast phone discovery: ' + str(error))
-                previous.update(pid=os.getpid(), sourceHash=SCRIPT_HASH, registered=retained, error=str(error), checked=time.time())
+                previous.update(pid=os.getpid(), sourceHash=SCRIPT_HASH, registered=retained,
+                                errorCode='no_authenticated_endpoint' if isinstance(error,NoAuthenticatedEndpoint) else 'discovery_failed',
+                                error=str(error), checked=time.time())
             write_json(state_path, previous)
             # Installer requests wake discovery immediately after a Wi-Fi move.
             # Back off while away instead of scanning the LAN every 20 seconds.
-            delay = 5 if failures and child is not None else min(300, 20 * 2 ** min(failures, 4))
-            trigger = wait_for_refresh(control, networks, delay, lambda: stopping)
-            if trigger in (b'network', b'wake'):
+            delay = 5 if failures and child is not None else min(MAX_DISCOVERY_DELAY, 20 * 2 ** min(failures, 4))
+            trigger = wait_for_refresh(control, networks, delay, lambda: stopping,
+                                       endpoint=previous.get('address') if failures else None)
+            if trigger in (b'network', b'wake', b'endpoint'):
                 failures = 0
-                event = 'Active LAN interface/address changed' if trigger == b'network' else 'Host sleep/clock gap detected'
+                event = {b'network':'Active LAN interface/address changed',
+                         b'wake':'Host sleep/clock gap detected',
+                         b'endpoint':'Previously authenticated endpoint is reachable again'}[trigger]
                 log(event + '; retrying authenticated discovery now.')
             stopping = stopping or trigger == b'stop'
     finally:

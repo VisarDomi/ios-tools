@@ -35,6 +35,11 @@ and the source/configuration backup map are in
 
 Failed device requests clear the monitor's healthy status. Native recovery targets
 exact launchd jobs, preserving trust records and avoiding process-name kills.
+Discovery checks for a returning trusted address every five seconds during
+backoff; new-address scans are at most a minute apart. Every candidate still needs
+the configured UDID and pinned certificate, with no automatic pairing or recursive
+reconnect. A responding cached hostname is not an authenticated phone. Router/NAT
+boundaries need a reachable LAN path; repeated Apple service restarts cannot fix them.
 
 ```sh
 npm test   # renewal and phone-recovery tests

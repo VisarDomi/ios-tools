@@ -129,6 +129,18 @@ class PairingTests(unittest.TestCase):
         self.state.write_text(json.dumps({'fixed':m.time.time(),'failed':True,'misses':2}))
         self.assertEqual(self.check(network=None,recent=True),(1,0))
 
+    def test_unverified_bonjour_reply_does_not_impose_hour_long_backoff(self):
+        self.state.write_text(json.dumps({'network':'phone|192.168.1.54|wifi',
+            'fixed':m.time.time()-m.WAIT-1,'failed':True,'misses':2}))
+        self.assertEqual(self.check(),(0,1))
+
+    def test_authenticated_native_failure_keeps_hour_long_restart_throttle(self):
+        self.state.write_text(json.dumps({'network':'phone|192.168.1.54|wifi',
+            'fixed':m.time.time()-m.WAIT-1,'failed':True,'misses':2,
+            'discoveryGeneration':[123,'192.168.1.54','en4',64000]}))
+        with patch.object(m,'discovery_generation',return_value=[123,'192.168.1.54','en4',64000]):
+            self.assertEqual(self.check(),(1,0))
+
     def test_network_change_resets_discovery_even_when_ping_works(self):
         self.state.write_text(json.dumps({'network':'phone|192.168.1.54|wifi','failed':True,'fixed':m.time.time()}))
         with patch.object(m,'phone',return_value=(False,['phone.local'],'stale tunnel',True)), \

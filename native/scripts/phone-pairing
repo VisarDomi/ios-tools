@@ -246,7 +246,9 @@ def check(now, force=False):
         state['network'] = network
     # Pairing configuration is sufficient to try authenticated discovery. A new
     # or discarded cache must not require a past successful Bonjour connection.
-    wait = WAIT_FAILED if network and state.get('failed') else WAIT
+    # A hostname/ping can belong to another iPhone or a router. Only a fresh,
+    # authenticated discovery result justifies the longer native-repair throttle.
+    wait = WAIT_FAILED if registration is not None and state.get('failed') else WAIT
     due = time.time() - state.get('fixed', 0) >= wait
     rediscover = due
     if visible and not force:
@@ -265,7 +267,7 @@ def check(now, force=False):
         state['misses'] = state.get('misses', 0) + 1
         if now or changed or (state['misses'] >= CHECKS and due):
             say('%s%s; restoring discovery, then refreshing %s if needed. %s' %
-                ('The phone is on the LAN but its device request failed' if network else
+                ('A cached Bonjour address answers but the paired phone request failed' if network else
                  'The paired phone disappeared and its old Bonjour address does not answer',
                  ' after a network change' if changed else '',
                  'Bonjour discovery and device transports' if (changed or force or not network or state.get('failed')) else 'pairing',
