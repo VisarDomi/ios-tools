@@ -4,4 +4,6 @@ Start here: [README.md](README.md), then [native/README.md](native/README.md) fo
 
 Before Xcode builds or virtual-iPhone work, read [native/MAC-WORKLOADS.md](native/MAC-WORKLOADS.md) and use `native/scripts/mac-workload`. The Intel Mac has a captured SimMetalHost/AppleIntelKBLGraphics kernel panic; simulator use is subject to its recorded graphics-repair policy. Build with guests shut down, use explicit guest UUIDs, and never overlap compilation and simulator tests. A blocked simulator is not permission to automate the physical phone.
 
+All setups must be power-off/reboot robust by default. The Mac already has persistent sleep prevention configured; do not use `caffeinate`, wake/keep-awake wrappers or extra startup jobs for it, or change power settings unless explicitly requested. Required behavior that depends on an agent session or a temporary helper after reboot is a bug, not a completed setup.
+
 Mac-specific work is backed up to the private `private-backup` remote (`VisarDomi/ios-tools-private`). The public `VisarDomi/ios-tools` repository is upstream: do not publish local incident records or private Mac changes there. This checkout names that public remote `origin` and defaults pushes to `private-backup`; a restored private clone may name its private remote `origin`. Check URLs and visibility, not just remote names.

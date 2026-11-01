@@ -4,6 +4,14 @@ Read this before using Xcode or CoreSimulator. This Mac is a Dell Latitude 5480
 Hackintosh: i5-7200U (two physical/four logical cores), HD 620, 8 GiB RAM.
 The PC is canonical; access is `ssh mac`, using the pinned host key.
 
+The Mac already has persistent sleep prevention configured. Per the owner's
+standing requirement, do not wrap workloads in `caffeinate`, add wake/keep-awake
+helpers or startup jobs, or change sleep/power settings unless explicitly asked.
+Every setup must be power-off/reboot robust: persistent state and intended startup
+services must restore normal behavior. A temporary agent/session dependency is
+a recovery bug, not a substitute for persistent configuration. The workload guard
+below provides resource isolation; it is not a keep-awake mechanism.
+
 ## October 26 failure
 
 The captured kernel panic names `SimMetalHost (Guidance QA: …)` and
@@ -61,7 +69,7 @@ It creates no permanent service. Examples from this PC:
 ```sh
 ssh mac 'sudo -n launchctl asuser 501 sudo -n -H -u visar /usr/bin/python3 /Users/visar/Developer/ios-tools/native/scripts/mac-workload status'
 
-ssh mac 'sudo -n launchctl asuser 501 sudo -n -H -u visar /usr/bin/caffeinate -i /usr/bin/python3 /Users/visar/Developer/ios-tools/native/scripts/mac-workload build --timeout 900 -- /usr/bin/python3 /Users/visar/Developer/guidance/apps/ios/scripts/build.py'
+ssh mac 'sudo -n launchctl asuser 501 sudo -n -H -u visar /usr/bin/python3 /Users/visar/Developer/ios-tools/native/scripts/mac-workload build --timeout 900 -- /usr/bin/python3 /Users/visar/Developer/guidance/apps/ios/scripts/build.py'
 ```
 
 Before starting, the guard requires load at most 6, normal kernel memory pressure,
