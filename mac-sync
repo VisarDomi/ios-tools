@@ -8,7 +8,14 @@
 # tried again); run it by hand to sync at once.
 set -eu
 cd "$(dirname "$0")"
+# Workers must not see a half-edited Python module from another coding thread.
+# Commit the tested tool change first; application jobs freeze working edits
+# separately through ios-push.
+snapshot=$(mktemp -d)
+trap 'rm -rf "$snapshot"' EXIT HUP INT TERM
+git archive --format=tar HEAD | tar -xf - -C "$snapshot"
 rsync -a --delete \
     --exclude='*.local.json' --exclude=.git/ --exclude=node_modules/ --exclude=.venv/ \
     --exclude=__pycache__/ --exclude='*.pyc' --exclude=.idea/ \
-    -e 'ssh -o BatchMode=yes -o ConnectTimeout=10' ./ mac:Developer/ios-tools/
+    --exclude=.build/ --exclude=.swiftpm/ \
+    -e 'ssh -o BatchMode=yes -o ConnectTimeout=10' "$snapshot/" mac:Developer/ios-tools/

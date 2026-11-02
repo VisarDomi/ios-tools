@@ -129,7 +129,7 @@ def restore_cache(stash, cache):
             os.replace(backup, destination)
 
 
-def run(config, action, force=False, wireless=False, keep_schedule=False):
+def run(config, action, force=False, wireless=False, keep_schedule=False, config_path=None):
     root = Path(config['root']).resolve()
     state_dir = root / config.get('stateDir', 'build/refresh')
     state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -139,6 +139,12 @@ def run(config, action, force=False, wireless=False, keep_schedule=False):
     expected = [config['team'] + '.' + identity for identity in config['bundleIds']]
     if action == 'status':
         print(json.dumps(state, indent=2))
+        return
+    if config_path is not None and json.loads(Path(config_path).read_text()) != config:
+        print('App registration changed; retry with its current checkpoint.')
+        return
+    if action == 'refresh' and state.get('pendingPush'):
+        print('A queued push is finalizing this app; renewal will retry after delivery.')
         return
     current_hash = fingerprint(root, config['inputs'])
     if action == 'approve':
@@ -159,6 +165,17 @@ def run(config, action, force=False, wireless=False, keep_schedule=False):
         except BlockingIOError:
             print('Another app is signing; retry on the next check.')
             return
+        # A push may atomically move this app to a new frozen source checkpoint
+        # while this process was reading its configuration before taking the lock.
+        if config_path is not None and json.loads(Path(config_path).read_text()) != config:
+            print('App registration changed; retry with the new checkpoint on the next check.')
+            return
+        state = json.loads(state_path.read_text()) if state_path.exists() else {}
+        if state.get('pendingPush'):
+            print('A queued push is finalizing this app; renewal will retry after delivery.')
+            return
+        if state.get('inputHash') != fingerprint(root, config['inputs']):
+            raise RuntimeError('Approved inputs changed before signing')
         cache = Path(config['profileCache'])
         stash = state_dir / 'profile-cache-backup'
         stash.mkdir(exist_ok=True)
@@ -253,7 +270,7 @@ if __name__ == '__main__':
         os.close(log_fd)
         print(dt.datetime.now(dt.timezone.utc).isoformat(), flush=True)
     try:
-        run(settings, args.action, args.force, args.wireless, args.keep_schedule)
+        run(settings, args.action, args.force, args.wireless, args.keep_schedule, config_path=args.config)
     except Exception as error:
         state_path = Path(settings['root']) / settings.get('stateDir', 'build/refresh') / 'state.json'
         state = json.loads(state_path.read_text()) if state_path.exists() else {}

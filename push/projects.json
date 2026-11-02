@@ -1,0 +1,42 @@
+{
+  "video-platform": {
+    "path": "video/video-platform",
+    "prepare": "video",
+    "aliases": {
+      "filehost": "filehost-local",
+      "fmp4": "fmp4-local",
+      "ladder": "ladder-local",
+      "tslive": "tslive-live",
+      "tslive-local": "tslive-local",
+      "vault": "vault"
+    }
+  },
+  "manga-reader": {
+    "path": "manga/manga-reader"
+  },
+  "gallery-reader": {
+    "path": "manga/gallery-reader",
+    "prepare": "gallery"
+  },
+  "gallery-downloader": {
+    "path": "manga/gallery-downloader"
+  },
+  "trader": {
+    "path": "trading/trader"
+  },
+  "guidance": {
+    "path": "games/guidance"
+  },
+  "maid-heroes": {
+    "path": "games/maid-heroes",
+    "copies": {
+      "web": "apps/ios/Resources/Web"
+    }
+  },
+  "deep-town": {
+    "path": "games/deep-town",
+    "carry": [
+      "build/robovm/DeepTown.app"
+    ]
+  }
+}

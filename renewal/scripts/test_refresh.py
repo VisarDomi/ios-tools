@@ -142,6 +142,17 @@ class RenewalTests(unittest.TestCase):
         self.assertEqual(self.device_calls, [])
         self.assertEqual(self.process_calls, [])
 
+    def test_pending_push_prevents_renewing_previous_code(self):
+        state = self.state(); state['pendingPush'] = {'id': 'queued-update'}; refresh.save(self.state_path, state)
+        refresh.run(self.config, 'refresh', force=True)
+        self.assertEqual(self.device_calls, []); self.assertEqual(self.process_calls, [])
+
+    def test_changed_registration_is_reloaded_instead_of_building_old_checkpoint(self):
+        path = self.root / 'registration.json'
+        refresh.save(path, {**self.config, 'root': str(self.root / 'new-checkpoint')})
+        refresh.run(self.config, 'refresh', force=True, config_path=path)
+        self.assertEqual(self.device_calls, []); self.assertEqual(self.process_calls, [])
+
     def test_changed_source_during_build_prevents_install(self):
         self.source_change = True
         with self.assertRaisesRegex(RuntimeError, 'changed during'):

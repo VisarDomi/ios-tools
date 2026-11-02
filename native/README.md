@@ -157,7 +157,25 @@ after timeout/cancellation. Do not use `shutdown all` or restart shared services
 
 ## Deploying
 
-From the app's repository on this PC, three steps (sync, build, install):
+Use the shared asynchronous push command from the app's checkout:
+
+```sh
+ios-push filehost
+ios-push gallery-a
+ios-push manga-reader:asura
+ios-push status JOB
+```
+
+It freezes the accepted source checkpoint, returns a job ID and independently queues
+guarded build/sign/install work. Continue editing after **Queued**; check **installed**
+before claiming delivery. Updates install in place without launch, and only the exact
+installed source/artifact is approved for renewal. Each app retains its own checkpoint,
+so provider-only pushes leave other apps' renewal roots alone. Reboots and disconnects
+resume pending work. See the [push runbook](../push/README.md) for status, recovery,
+source paths and OTA handling.
+
+The older manual deployment commands remain for project-specific bootstrap and
+diagnosis; ordinary updates use the shared queue:
 
 | Repository | Command |
 |---|---|

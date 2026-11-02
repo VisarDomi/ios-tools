@@ -34,6 +34,10 @@ fi
 plist() { /usr/libexec/PlistBuddy -c "Print :$1" "$app/Info.plist"; }
 device_cli() { "$(dirname "$0")/apple-tool" devicectl "$@"; }
 bundle=$(plist CFBundleIdentifier)
+push_runner="$(cd "$(dirname "$0")/../.." && pwd)/push/worker.py"
+if [ -f "$push_runner" ]; then
+    /usr/bin/python3 "$push_runner" install-authority --bundle "$bundle"
+fi
 
 # Probe the app service that installation needs. Process enumeration can fail
 # while app queries/installation work (for example while the DDI is unavailable).
