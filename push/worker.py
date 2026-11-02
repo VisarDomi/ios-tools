@@ -3,6 +3,7 @@
 from __future__ import annotations
 import argparse
 import datetime
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -159,6 +160,21 @@ def configuration(request, source):
 def input_hash(config): return refresh.fingerprint(Path(config['root']), config['inputs'])
 
 
+def recipe_hash(config):
+    recipe = {name: config.get(name) for name in ['name', 'app', 'bundleIds', 'inputs', 'build', 'environment', 'team', 'device']}
+    def normalise(value):
+        if isinstance(value, dict): return {key: normalise(item) for key, item in value.items()}
+        if isinstance(value, list): return [normalise(item) for item in value]
+        return value.replace(config['root'], '{ROOT}') if isinstance(value, str) else value
+    return hashlib.sha256(json.dumps(normalise(recipe), sort_keys=True).encode()).hexdigest()
+
+
+def profiles_current(details, config):
+    state = load(Path(config['stateDir']) / 'state.json', {})
+    return all(name not in details['profiles'] or details['profiles'][name]['expires'] >= profile['expires']
+               for name, profile in state.get('installedProfiles', {}).items())
+
+
 def verify_files(source, files):
     # Build outputs are allowed outside the frozen source file set. Input-tree
     # fingerprints additionally catch newly inserted sources inside build inputs.
@@ -216,20 +232,37 @@ def build_one(job_id):
     app = source / config['app']
     previous = load(config_path(request['repo'], request['app']))
     reused = False
-    if previous and not request.get('force'):
+    # Reuse an identical validated queue build, including validation-only runs.
+    if not request.get('force'):
+        for candidate in sorted((STORE / 'jobs').glob('*'), reverse=True):
+            if candidate == metadata: continue
+            built = load(candidate / 'build-receipt.json', {})
+            captured = load(candidate / 'ready.json', {})
+            older = load(candidate / 'config.json')
+            if not older or not built.get('complete') or built.get('inputHash') != before: continue
+            if captured.get('sourceHash') != frozen['sourceHash'] or recipe_hash(older) != recipe_hash(config): continue
+            cached = Path(older['root']) / older['app']
+            try:
+                verify_checkpoint(older, captured)
+                if refresh.fingerprint(cached.parent, [cached.name]) != built['appHash']: continue
+                if not profiles_current(verify_app(config, cached), config): continue
+                if app.exists(): shutil.rmtree(app)
+                clone(cached, app); reused = True; break
+            except (OSError, RuntimeError, subprocess.SubprocessError): continue
+    if previous and not reused and not request.get('force'):
         state = load(Path(previous['stateDir']) / 'state.json', {})
         old_app = Path(previous['root']) / previous['app']
         if before == state.get('inputHash') and input_hash(previous) == before and old_app.exists():
             try:
                 details = verify_app(config, old_app)
-                if any(name in details['profiles'] and details['profiles'][name]['expires'] < profile['expires']
-                       for name, profile in state.get('installedProfiles', {}).items()): raise RuntimeError('Cached provisioning is older than the installed app')
+                if not profiles_current(details, config): raise RuntimeError('Cached provisioning is older than the installed app')
                 if old_app.resolve() != app.resolve():
                     if app.exists(): shutil.rmtree(app)
                     clone(old_app, app)
                 reused = True
             except (OSError, subprocess.SubprocessError, RuntimeError): reused = False
     if not reused:
+        update(metadata / 'state.json', 'building', message='Compiling the frozen source checkpoint')
         if any(app.is_relative_to(source / item) for item in config['inputs']): raise RuntimeError('Build output overlaps its frozen inputs')
         if app.exists(): shutil.rmtree(app)
         environment = dict(os.environ)
@@ -240,6 +273,7 @@ def build_one(job_id):
     verify_checkpoint(config, frozen)
     details = verify_app(config, app)
     save(metadata / 'build-receipt.json', {'inputHash': before, 'appHash': refresh.fingerprint(app.parent, [app.name]),
+                                         'sourceHash': frozen['sourceHash'], 'recipeHash': recipe_hash(config),
                                          'complete': True, 'reused': reused, **details})
     save(metadata / 'config.json', config)
     cleanup_intermediates(config)
@@ -247,9 +281,18 @@ def build_one(job_id):
 
 def cleanup_intermediates(config):
     root = Path(config['root'])
+    if not root.is_relative_to(CHECKPOINTS): return
+    def protected(path):
+        return any((root / item).is_relative_to(path) or path.is_relative_to(root / item) for item in config['inputs'])
     for directory in (root / 'build').glob('**/DerivedData'):
-        if any((root / item).is_relative_to(directory) or directory.is_relative_to(root / item) for item in config['inputs']): continue
+        if protected(directory): continue
         shutil.rmtree(directory)
+    app = root / config['app']
+    if app.parent.exists():
+        for path in list(app.parent.iterdir()):
+            if path.suffix == '.app' or protected(path): continue
+            if path.is_dir(): shutil.rmtree(path)
+            else: path.unlink()
 
 
 def validate_receipt(config, receipt, app):
@@ -402,6 +445,8 @@ def prune():
                 state = load(metadata / 'state.json', {})
                 if state.get('phase') not in TERMINAL: keep.add(metadata.name)
                 elif recent < 2: keep.add(metadata.name); recent += 1
+                config = load(metadata / 'config.json')
+                if config and load(metadata / 'build-receipt.json', {}).get('complete'): cleanup_intermediates(config)
             for directory in CHECKPOINTS.glob('*'):
                 if directory.name not in keep and IDENTITY.fullmatch(directory.name):
                     shutil.rmtree(directory)

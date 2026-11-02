@@ -159,9 +159,10 @@ def pump():
             except (OSError, subprocess.SubprocessError, ValueError, RuntimeError) as error:
                 attempts = state.get('transportAttempts', 0) + 1
                 detail = (getattr(error, 'stderr', None) or str(error)).strip()[-400:]
+                busy = isinstance(error, subprocess.CalledProcessError) and error.returncode == 75
                 update(directory / 'state.json', state.get('phase', 'queued'), transportAttempts=attempts,
                        transportError=detail, message='Waiting for Mac transfer: ' + detail,
-                       transportNextAttempt=time.time() + min(300, 10 * 2 ** min(5, attempts - 1)))
+                       transportNextAttempt=time.time() + (15 if busy else min(300, 10 * 2 ** min(5, attempts - 1))))
 
 
 def show(job_id=None, follow=False, as_json=False):

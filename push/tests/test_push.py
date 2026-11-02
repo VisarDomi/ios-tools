@@ -266,5 +266,30 @@ class WorkerTests(unittest.TestCase):
         worker.ready('job-2')
         self.assertGreater(common.load(second_metadata / 'ready.json')['sequence'], first)
 
+    def test_identical_validation_build_is_reused_without_another_compile(self):
+        second_metadata, second_source = worker.paths('job-2'); (second_source / 'Sources').mkdir(parents=True)
+        (second_source / 'Sources/view.swift').write_text('reviewed source')
+        request = json.loads(json.dumps(self.request)); request.update(id='job-2', files=common.manifest(second_source))
+        request['sourceHash'] = common.source_hash(request['files']); common.save(second_metadata / 'request.json', request)
+        worker.ready('job-2')
+        import shutil
+        def copy(source, destination):
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(source, destination)
+        lock = (self.base / 'fd').open('a'); self.addCleanup(lock.close)
+        with mock.patch.dict(os.environ, {'IOS_WORKLOAD_ACTIVE': '1', 'IOS_REFRESH_LOCK_FD': str(lock.fileno())}), mock.patch.object(worker, 'clone', side_effect=copy):
+            worker.build_one('job-2')
+        self.assertTrue(common.load(second_metadata / 'build-receipt.json')['reused'])
+        self.assertFalse(any(command == ['python3', 'build.py'] for command, _ in self.calls))
+
+    def test_cleanup_preserves_artifacts_and_declared_inputs(self):
+        products = self.app.parent
+        (products / 'Kit.o').write_text('compiler output')
+        (products / 'Protected').mkdir(); (products / 'Protected/input').write_text('required input')
+        config = dict(self.config, inputs=[*self.config['inputs'], 'build/Protected'])
+        worker.cleanup_intermediates(config)
+        self.assertTrue(self.app.exists()); self.assertTrue((products / 'Protected/input').exists())
+        self.assertFalse((products / 'Kit.o').exists())
+
 
 if __name__ == '__main__': unittest.main()
