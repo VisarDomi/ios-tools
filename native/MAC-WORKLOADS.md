@@ -126,7 +126,22 @@ choose an old iPhone 17 Pro Max or implicitly boot it. Their actions require an
 active guarded session for that same device. Terminating an explicitly selected
 app remains available for recovery. One NativeKit app uses port 8765 at a time.
 Use `/layout` and `/timeline` first; take a few screenshots for visual verification.
-Avoid recording video. Never test video playback on this host's simulator.
+Avoid recording the simulator screen as video. Playback checks are allowed with
+**one actively decoded stream at a time**. This two-core i5/HD 620/8 GiB Mac has
+limited decoding headroom: keep playing neighbours, other video tests and second
+guests stopped. Use static surfaces for unrelated UI checks. Measure each new
+codec/resolution and keep the normal workload, pressure, deadline and GPU-reset
+guards enabled. Try a single stream before concluding that the virtual iPhone
+cannot handle a playback test or moving a test to the physical phone.
+
+On 2026-11-02, an owned iPhone 12 Pro Max guest played one 1280×720 H.264/AAC HLS
+recording. Its clock and sampled video buffers advanced in sequential seek/play
+windows, including the encoder change around 15 minutes. Memory pressure stayed
+normal and the host remained responsive, with no new GPU-reset/panic report.
+Cold guest initialization took about 224 seconds; the combined comparison batch
+later reached its ten-minute deadline. This validation covers single-stream
+720p H.264. Other codecs/resolutions require their own measurements, and the
+historical Intel driver failure retains its separate guard.
 
 Close Simulator.app after guest shutdown so macOS cannot reopen it and reboot
 the guest at the next login. Guarded visible sessions also close the GUI they opened. A pre-existing GUI is never taken over.
