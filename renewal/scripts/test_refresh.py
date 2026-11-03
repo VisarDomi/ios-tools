@@ -275,6 +275,58 @@ class RenewalTests(unittest.TestCase):
         refresh.run(self.config, 'approve', keep_schedule=True)
         self.assertEqual(self.state()['lastSuccess'], 0)
 
+    def test_guard_preflight_refusal_defers_without_claiming_a_build_or_renewal(self):
+        cached = self.root / 'cache/old.mobileprovision'
+        cached.write_bytes(b'approved profile')
+        before = self.state()
+        def refused(command, **kwargs):
+            if command[-1] == 'fake-build':
+                kwargs['stdout'].write('MAC WORKLOAD STOPPED: load 7.49 > 6; let the Mac settle; less than 12 GiB free\n')
+                return subprocess.CompletedProcess(command, 1)
+            return self.process(command, **kwargs)
+        with patch.object(refresh.sys, 'platform', 'darwin'), patch.object(refresh.subprocess, 'run', side_effect=refused):
+            refresh.run(self.config, 'refresh')
+        after = self.state()
+        self.assertEqual(after['lastSuccess'], before['lastSuccess'])
+        self.assertEqual(after['installedProfiles'], before['installedProfiles'])
+        self.assertEqual(after.get('nextDue'), before.get('nextDue'))
+        self.assertIsNone(after['lastError'])
+        self.assertIn('less than 12 GiB', after['lastDeferred'])
+        self.assertEqual(cached.read_bytes(), b'approved profile')
+        self.assertFalse(any(c[:2] == ['install', 'app'] for c in self.device_calls))
+
+    def test_guard_stop_after_compilation_started_is_still_a_failed_build(self):
+        def stopped(command, **kwargs):
+            if command[-1] == 'fake-build':
+                kwargs['stdout'].write('Guarded build; deadline 900s; telemetry x\nSwiftCompile file.swift\nMAC WORKLOAD STOPPED: free disk fell below 8 GiB\n')
+                return subprocess.CompletedProcess(command, 1)
+            return self.process(command, **kwargs)
+        with patch.object(refresh.sys, 'platform', 'darwin'), patch.object(refresh.subprocess, 'run', side_effect=stopped):
+            with self.assertRaisesRegex(RuntimeError, 'build failed'):
+                refresh.run(self.config, 'refresh')
+        self.assertEqual(self.state()['lastSuccess'], 0)
+
+    def test_completed_cache_cleanup_preserves_inputs_products_and_frozen_checkpoints(self):
+        derived = self.root / 'build/DerivedData'
+        derived.mkdir(parents=True)
+        (derived / 'compiler-cache').write_bytes(b'disposable')
+        app = self.root / self.config['app']; app.mkdir(); (app / 'product').write_text('signed app')
+        preserved = self.root / 'build/protected/DerivedData'
+        preserved.mkdir(parents=True); (preserved / 'input').write_text('approved source')
+        self.config['inputs'].append('build/protected')
+        before = refresh.fingerprint(self.root, self.config['inputs'])
+        removed = refresh.prune_completed_caches(self.config)
+        self.assertEqual(removed, [str(derived)])
+        self.assertFalse(derived.exists())
+        self.assertTrue((preserved / 'input').exists())
+        self.assertTrue((app / 'product').exists())
+        self.assertEqual(refresh.fingerprint(self.root, self.config['inputs']), before)
+        frozen = self.root / 'Developer/ios-push/checkpoints/job/source'
+        cache = frozen / 'build/DerivedData'; cache.mkdir(parents=True)
+        (cache / 'pending').write_text('keep checkpoint intact')
+        self.assertEqual(refresh.prune_completed_caches(dict(self.config, root=str(frozen))), [])
+        self.assertTrue((cache / 'pending').exists())
+
     def test_calendar_month_clamps_at_month_end(self):
         import datetime as dt
         start = dt.datetime(2026, 1, 31, tzinfo=dt.timezone.utc).timestamp()

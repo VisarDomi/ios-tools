@@ -143,3 +143,21 @@ signing lock. A booted simulator or busy/pressured host defers the build. Device
 requests use `native/scripts/apple-tool devicectl`, avoiding repeated component
 initialization from older Xcode stubs. The automatic pairing monitor shares the
 lock. These shared changes do not alter approved app input fingerprints.
+
+
+## Resource deferrals and compiler caches
+
+A `mac-workload` refusal **before** the `Guarded build` marker is a resource
+preflight deferral, not a Swift/Xcode compilation failure. The app stays due,
+`lastSuccess`, profile receipts and the calendar-month schedule remain unchanged,
+and the existing scheduler retries on its next check. `lastDeferred` and the actual
+per-app `build.log` preserve the reason. A guard stop after compilation starts is
+still a failed build; all guard thresholds and signing/workload locks stay intact.
+
+After a confirmed successful renewal, the runner removes disposable `DerivedData`
+directories only under that mutable app repository's `build/`, while holding the
+shared signing lock. It protects every registered approved input, signed app and
+pending delivery, and never prunes an ios-push checkpoint. This prevents completed
+monthly cohorts from retaining compiler caches indefinitely. Source trees, profile
+and renewal state, logs, approved/pending checkpoints and phone data are retained.
+Queue checkpoint pruning remains owned by the existing push worker.

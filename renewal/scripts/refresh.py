@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -28,6 +29,9 @@ def save(path, value):
             output.flush()
             os.fsync(output.fileno())
         os.replace(temporary, path)
+        parent = os.open(path.parent, os.O_RDONLY)
+        try: os.fsync(parent)
+        finally: os.close(parent)
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
@@ -46,6 +50,46 @@ def fingerprint(root, inputs):
             digest.update(str(path.relative_to(root)).encode() + b'\0')
             digest.update(hashlib.sha256(path.read_bytes()).digest())
     return digest.hexdigest()
+
+
+def prune_completed_caches(config):
+    """Caller holds signing.lock. Remove only reproducible mutable build caches.
+
+    Approved/pending checkpoints, input trees, signed app bundles and profile/state
+    storage stay intact. Queue checkpoint cleanup belongs to the queue itself.
+    """
+    root = Path(config['root']).resolve()
+    checkpoints = Path.home() / 'Developer/ios-push/checkpoints'
+    if root.is_relative_to(checkpoints): return []
+    build = root / 'build'
+    if not build.is_dir() or build.resolve() != build: return []
+    configs = [config]
+    registry = Path.home() / 'Library/Application Support/ios-tools/renewal'
+    for registration in registry.glob('*/config/*.json'):
+        other = json.loads(registration.read_text())
+        if Path(other['root']).resolve() == root: configs.append(other)
+    protected = []
+    for other in configs:
+        state_path = root / other.get('stateDir', 'build/refresh') / 'state.json'
+        state = json.loads(state_path.read_text()) if state_path.exists() else {}
+        if state.get('pendingPush'): return []
+        protected.extend((root / item).resolve() for item in [*other['inputs'], other['app']])
+    candidates = list(build.rglob('DerivedData'))
+    removed = []
+    for path in sorted(candidates, key=lambda p: len(p.parts)):
+        if not path.is_dir() or path.is_symlink() or path.resolve() != path: continue
+        if any(item.is_relative_to(path) or path.is_relative_to(item) for item in protected): continue
+        shutil.rmtree(path)
+        removed.append(str(path))
+    return removed
+
+
+def preflight_deferral(log):
+    """A guard refusal before its 'Guarded build' start marker is no Swift failure."""
+    text = log.read_text(errors='replace')
+    if 'Guarded build;' in text: return None
+    lines = [line for line in text.splitlines() if line.startswith('MAC WORKLOAD STOPPED: ')]
+    return lines[-1].removeprefix('MAC WORKLOAD STOPPED: ') if lines else None
 
 
 def profile(path):
@@ -244,7 +288,15 @@ def run(config, action, force=False, wireless=False, keep_schedule=False, config
                 result = subprocess.run(command, cwd=root, env=environment,
                                         stdout=log, stderr=subprocess.STDOUT, timeout=900, pass_fds=(lock.fileno(),))
             if result.returncode:
-                raise RuntimeError('Xcode build failed; see build/refresh/build.log')
+                log_path = state_dir / 'build.log'
+                deferred = preflight_deferral(log_path) if sys.platform == 'darwin' else None
+                if deferred:
+                    restore_cache(stash, cache)
+                    state.update(lastError=None, lastDeferred=deferred, lastDeferredAt=time.time(), lastAttempt=time.time())
+                    save(state_path, state)
+                    print('Refresh deferred by Mac workload preflight: ' + deferred + '; still due on the next check.', flush=True)
+                    return
+                raise RuntimeError('Xcode build failed; see ' + str(log_path))
             if fingerprint(root, config['inputs']) != current_hash:
                 raise RuntimeError('Build inputs changed during renewal; refusing installation')
             after = app_profiles(app, expected)
@@ -264,7 +316,7 @@ def run(config, action, force=False, wireless=False, keep_schedule=False, config
                     if not any(row.get('bundleIdentifier') == target['bundle'] and str(row.get('bundleVersion')) == expected_version for row in actual):
                         raise RuntimeError('Renewal installation version was not verified on every target device')
             completed = time.time()
-            state.update(lastSuccess=completed, nextDue=next_due(config, completed), installedProfiles=after, transport=transport, lastError=None)
+            state.update(lastSuccess=completed, nextDue=next_due(config, completed), installedProfiles=after, transport=transport, lastError=None, lastDeferred=None)
             save(state_path, state)
             # Successful replacement: retain no unbounded archive of old profiles.
             for backup in stash.glob('*.mobileprovision'):
@@ -273,6 +325,11 @@ def run(config, action, force=False, wireless=False, keep_schedule=False, config
                 print(identity + ': ' + dt.datetime.fromtimestamp(before[identity]['expires'], dt.timezone.utc).isoformat()
                       + ' -> ' + dt.datetime.fromtimestamp(after[identity]['expires'], dt.timezone.utc).isoformat())
             print('Refresh installed successfully; existing app data retained.', flush=True)
+            try:
+                removed = prune_completed_caches(config)
+                if removed: print('Removed completed compiler caches: ' + ', '.join(removed), flush=True)
+            except OSError as error:
+                print('Compiler cache cleanup deferred: ' + str(error), flush=True)
         except BaseException:
             restore_cache(stash, cache)
             raise
