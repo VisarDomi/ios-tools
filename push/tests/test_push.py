@@ -117,6 +117,8 @@ class WorkerTests(unittest.TestCase):
         self.run = mock.patch.object(worker.subprocess, 'run', side_effect=run); self.run.start(); self.addCleanup(self.run.stop)
         self.verify = mock.patch.object(worker, 'verify_app', return_value=self.details); self.verify.start(); self.addCleanup(self.verify.stop)
         self.profile_patch = mock.patch.object(worker.refresh, 'app_profiles', return_value=self.profiles); self.profile_patch.start(); self.addCleanup(self.profile_patch.stop)
+        self.companion_patch = mock.patch.object(worker.refresh, 'companion_apps', return_value=None)
+        self.companion_patch.start(); self.addCleanup(self.companion_patch.stop)
 
     def test_install_confirmation_moves_only_this_app_to_its_frozen_checkpoint(self):
         sibling = dict(self.old, name='other', bundleIds=['com.test.Other'])
@@ -218,6 +220,37 @@ class WorkerTests(unittest.TestCase):
             worker.deliver(self.job)
         self.assertEqual(common.load(self.metadata / 'state.json')['phase'], 'awaiting_watch')
         self.assertEqual(common.load(worker.config_path('demo', 'demo'))['root'], self.old['root'])
+
+    def test_companion_installs_exact_watch_artifact_before_approving_despite_native_discovery_failure(self):
+        self.test_offline_watch_preserves_phone_delivery_and_defers_approval()
+        self.calls.clear()
+        actual = [{'bundleIdentifier': 'com.test.Demo.watch', 'bundleVersion': '2'}]
+        with mock.patch.object(worker, 'catalog', return_value=None), \
+                mock.patch.object(worker.refresh, 'companion_apps', return_value=actual) as proxy:
+            worker.deliver(self.job)
+        self.assertTrue(proxy.call_args.kwargs['install'])
+        self.assertEqual(proxy.call_args.args[1]['app'], self.app / 'Watch/Demo.app')
+        state = common.load(self.metadata / 'state.json')
+        self.assertEqual((state['phase'], state['watchTransport']), ('installed', 'companion-lockdown'))
+        self.assertFalse(any('install' in command or 'launch' in command for command, _ in self.calls))
+
+    def test_wrong_companion_version_preserves_pending_delivery_and_old_renewal_root(self):
+        self.test_offline_watch_preserves_phone_delivery_and_defers_approval()
+        actual = [{'bundleIdentifier': 'com.test.Demo.watch', 'bundleVersion': 'old'}]
+        with mock.patch.object(worker, 'catalog', return_value=None), \
+                mock.patch.object(worker.refresh, 'companion_apps', return_value=actual):
+            worker.deliver(self.job)
+        self.assertEqual(common.load(self.metadata / 'state.json')['phase'], 'awaiting_watch')
+        self.assertEqual(common.load(worker.config_path('demo', 'demo'))['root'], self.old['root'])
+
+    def test_companion_inventory_can_confirm_an_acknowledged_native_install(self):
+        self.enable_watch()
+        actual = [{'bundleIdentifier': 'com.test.Demo.watch', 'bundleVersion': '2'}]
+        with mock.patch.object(worker, 'catalog', side_effect=[[], [{'bundleIdentifier': 'com.test.Demo', 'bundleVersion': '2'}], [], None]), \
+                mock.patch.object(worker.refresh, 'companion_apps', return_value=actual) as proxy:
+            worker.deliver(self.job)
+        self.assertFalse(proxy.call_args.kwargs.get('install', False))
+        self.assertEqual(common.load(self.metadata / 'state.json')['phase'], 'installed')
 
     def test_watch_target_requires_a_distinct_configured_device_and_contained_app(self):
         self.enable_watch()

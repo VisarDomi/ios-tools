@@ -52,6 +52,14 @@ already verified phone artifact, and approves renewal only after both devices
 are verified. A worker restart or power cut preserves that state. `ios-push logs
 JOB` includes the Watch install log. No product app is launched.
 
+If direct Watch developer discovery fails, the worker can deliver the same signed
+Watch bundle through the existing trusted iPhone's standard lockdown/companion
+service. This does not open a competing Python RSD connection or remount a DDI.
+It validates the Watch identity/profile, installs in place, and reads the actual
+Watch inventory before approval. Merely finding the same version installed does
+not approve a new artifact or a same-version profile renewal. Missing phone/Watch
+access still returns to `awaiting_watch` and releases the lock.
+
 A new project's first verified signed installation starts its monthly renewal
 clock and registers its own existing-style renewal scheduler. Later updates keep
 the existing renewal date. Scheduler setup can resume after interruption without

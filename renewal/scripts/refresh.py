@@ -185,6 +185,33 @@ def device_json(config, arguments):
         return json.loads(output.read_text())['result']
 
 
+def companion_apps(config, target, output, install=False):
+    """Caller holds signing.lock; use saved trust without mounting a native DDI.
+
+    Installation always sends the actual signed bytes before checking inventory.
+    A matching version alone cannot prove a same-version profile renewal.
+    """
+    tools = Path(__file__).resolve().parents[2]
+    python = tools / 'inspector/.venv/bin/python'
+    helper = tools / 'native/scripts/watch-apps'
+    if not python.exists() or not helper.exists(): return None
+    output.unlink(missing_ok=True)
+    command = [str(python), str(helper), '--phone', config['device'], '--watch', target['device'],
+               '--bundle', target['bundle'], '--json-output', str(output)]
+    if install: command += ['--install', str(target['app']), '--team', config['team']]
+    try:
+        with output.with_suffix('.log').open('w') as log:
+            result = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, timeout=190 if install else 80)
+        if result.returncode or not output.exists(): return None
+        report = json.loads(output.read_text())
+        if (report.get('device') != target['device'] or report.get('transport') != 'companion-lockdown'
+                or bool(report.get('installed')) != install or not isinstance(report.get('apps'), list)):
+            return None
+        return report['apps']
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
 def restore_cache(stash, cache):
     # A power cut leaves the stash intact. The next run restores it first.
     if not stash.exists():
@@ -265,7 +292,12 @@ def run(config, action, force=False, wireless=False, keep_schedule=False, config
         targets = delivery_targets(config, app)
         for target in targets[1:]:
             # An unavailable Watch must not provoke a paid-profile rebuild.
-            catalog = device_json(dict(config, device=target['device']), ['info', 'apps'])
+            try:
+                catalog = device_json(dict(config, device=target['device']), ['info', 'apps'])
+            except (RuntimeError, subprocess.SubprocessError):
+                actual = companion_apps(config, target, state_dir / 'watch-companion-before.json')
+                if actual is None: raise
+                catalog = {'apps': actual}
             if not isinstance(catalog.get('apps'), list): raise RuntimeError('Watch app service is unavailable; no renewal build started')
         before = state['installedProfiles']
         try:
@@ -318,9 +350,20 @@ def run(config, action, force=False, wireless=False, keep_schedule=False, config
             subprocess.run(['/usr/bin/codesign', '--verify', '--deep', '--strict', str(app)], check=True)
             for target in targets:
                 target_config = dict(config, device=target['device'])
-                device_json(target_config, ['install', 'app', str(target['app'])])
+                companion = None
+                try:
+                    device_json(target_config, ['install', 'app', str(target['app'])])
+                except (RuntimeError, subprocess.SubprocessError):
+                    if target['platform'] != 'WatchOS': raise
+                    companion = companion_apps(config, target, state_dir / 'watch-companion-install.json', install=True)
+                    if companion is None: raise
                 if config.get('watch'):
-                    actual = device_json(target_config, ['info', 'apps']).get('apps', [])
+                    try:
+                        actual = companion if companion is not None else device_json(target_config, ['info', 'apps']).get('apps', [])
+                    except (RuntimeError, subprocess.SubprocessError):
+                        if target['platform'] != 'WatchOS': raise
+                        actual = companion_apps(config, target, state_dir / 'watch-companion-after.json')
+                        if actual is None: raise
                     expected_version = str(plistlib.loads((target['app'] / 'Info.plist').read_bytes())['CFBundleVersion'])
                     if not any(row.get('bundleIdentifier') == target['bundle'] and str(row.get('bundleVersion')) == expected_version for row in actual):
                         raise RuntimeError('Renewal installation version was not verified on every target device')

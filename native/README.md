@@ -20,6 +20,13 @@ LADDER live, FMP4 live) live inside the TsLive app. Ytb (km-explorer) was droppe
 Mac and phone access, signing and the phone's UDID:
 [mac-access.md](../../../environment/mac-access.md). Renewal: [renewal](../renewal/README.md).
 
+Paired Watch delivery uses the ordinary queue too. Its bounded fallback is
+`inspector/.venv/bin/python native/scripts/watch-apps`, under the caller's shared
+signing lock. It uses existing lockdown trust through the phone and closes only
+its owned service connections/forwards. It never replaces pairing records, stops
+Apple's shared Watch lockdown listener or opens another RSD peer on Apple's
+native tunnel. See [the queue workflow](../push/README.md) before using it directly.
+
 ## What every app must do (the owner's rules)
 
 - **The user owns the viewport.** Manga, gallery and video viewers scroll continuously and

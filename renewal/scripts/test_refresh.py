@@ -40,6 +40,7 @@ class RenewalTests(unittest.TestCase):
         self.start_patch(patch.object(refresh.subprocess, 'run', side_effect=self.process))
         self.start_patch(patch.object(refresh, 'app_profiles', side_effect=lambda *_: self.after))
         self.start_patch(patch.object(refresh, 'profile', return_value=self.before['TEAM.host']))
+        self.start_patch(patch.object(refresh, 'companion_apps', return_value=None))
 
     def start_patch(self, patcher):
         patcher.start()
@@ -129,6 +130,39 @@ class RenewalTests(unittest.TestCase):
             refresh.run(self.config, 'refresh')
         self.assertEqual(self.state()['lastSuccess'], 0)
         self.assertEqual([device for device, args in calls if args[0] == 'install'], ['phone', 'watch'])
+
+    def test_phone_proxy_renews_when_only_direct_watch_developer_discovery_is_broken(self):
+        self.config.update(watch={'app': 'Watch/Demo.app', 'device': 'watch', 'bundleId': 'host.extension'})
+        for entry in [self.root / 'app', self.root / 'app/Watch/Demo.app']:
+            entry.mkdir(parents=True, exist_ok=True)
+            (entry / 'Info.plist').write_bytes(plistlib.dumps({'CFBundleVersion': '2'}))
+        def devices(config, arguments):
+            if config['device'] == 'watch': raise RuntimeError('Native discovery unavailable')
+            if arguments == ['info', 'apps']:
+                return {'apps': [{'bundleIdentifier': 'host', 'bundleVersion': '2'}]}
+            return self.device(config, arguments)
+        actual = [{'bundleIdentifier': 'host.extension', 'bundleVersion': '2'}]
+        with patch.object(refresh, 'device_json', side_effect=devices), \
+                patch.object(refresh, 'companion_apps', return_value=actual) as proxy:
+            refresh.run(self.config, 'refresh')
+        self.assertEqual(self.state()['lastSuccess'], 100000)
+        self.assertEqual([call.kwargs.get('install', False) for call in proxy.call_args_list], [False, True])
+
+    def test_companion_wrong_version_never_advances_renewal_deadline(self):
+        self.config.update(watch={'app': 'Watch/Demo.app', 'device': 'watch', 'bundleId': 'host.extension'})
+        for entry in [self.root / 'app', self.root / 'app/Watch/Demo.app']:
+            entry.mkdir(parents=True, exist_ok=True)
+            (entry / 'Info.plist').write_bytes(plistlib.dumps({'CFBundleVersion': '2'}))
+        def devices(config, arguments):
+            if config['device'] == 'watch': raise RuntimeError('Native discovery unavailable')
+            if arguments == ['info', 'apps']:
+                return {'apps': [{'bundleIdentifier': 'host', 'bundleVersion': '2'}]}
+            return self.device(config, arguments)
+        with patch.object(refresh, 'device_json', side_effect=devices), \
+                patch.object(refresh, 'companion_apps', return_value=[{'bundleIdentifier': 'host.extension', 'bundleVersion': 'old'}]), \
+                self.assertRaisesRegex(RuntimeError, 'every target'):
+            refresh.run(self.config, 'refresh')
+        self.assertEqual(self.state()['lastSuccess'], 0)
 
     def test_next_day_is_due_even_with_six_days_remaining(self):
         refresh.run(self.config, 'refresh')

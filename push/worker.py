@@ -340,9 +340,11 @@ def pending_state(request, config):
 
 def catalog(config, output):
     output.unlink(missing_ok=True)
-    result = subprocess.run([str(TOOLS / 'native/scripts/apple-tool'), 'devicectl', 'device', 'info', 'apps',
-                             '--device', config['device'], '--json-output', str(output), '--timeout', '20', '--quiet'],
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+    try:
+        result = subprocess.run([str(TOOLS / 'native/scripts/apple-tool'), 'devicectl', 'device', 'info', 'apps',
+                                 '--device', config['device'], '--json-output', str(output), '--timeout', '20', '--quiet'],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+    except (OSError, subprocess.SubprocessError): return None
     if result.returncode: return None
     return load(output, {}).get('result', {}).get('apps')
 
@@ -410,9 +412,16 @@ def deliver_watch(config, receipt, app, metadata):
     state = load(metadata / 'state.json', {})
     proof = {'appHash': receipt['appHash'], 'device': target['device'], 'version': receipt['version']}
     if state.get('watchDelivery') == proof: return True
+    def companion_install():
+        actual = refresh.companion_apps(config, target, metadata / 'watch-companion-install.json', install=True)
+        if not any(row.get('bundleIdentifier') == target['bundle'] and str(row.get('bundleVersion')) == receipt['version'] for row in actual or []):
+            return False
+        update(metadata / 'state.json', 'installing', watchDelivery=proof, watchTransport='companion-lockdown')
+        return True
     watch_config = dict(config, device=target['device'])
     if catalog(watch_config, metadata / 'watch-before.json') is None:
-        wait_for_watch(metadata, 'Phone updated; waiting for the paired Watch developer connection')
+        if companion_install(): return True
+        wait_for_watch(metadata, 'Phone updated; waiting for paired Watch delivery access')
         return False
     log_path = metadata / 'watch-install.log'
     command = [str(TOOLS / 'native/scripts/apple-tool'), 'devicectl', 'device', 'install', 'app',
@@ -430,9 +439,14 @@ def deliver_watch(config, receipt, app, metadata):
                                stdout=stream, stderr=subprocess.STDOUT, timeout=45)
                 result = subprocess.run(command, stdout=stream, stderr=subprocess.STDOUT, timeout=140)
         if result.returncode:
+            if companion_install(): return True
             wait_for_watch(metadata, 'Phone updated; Watch install is pending. See watch-install.log')
             return False
     actual = catalog(watch_config, metadata / 'watch-after.json')
+    if not any(row.get('bundleIdentifier') == target['bundle'] and str(row.get('bundleVersion')) == receipt['version'] for row in actual or []):
+        # The native installer acknowledged these exact bytes; a separate live
+        # companion inventory can confirm them if only direct discovery drops.
+        actual = refresh.companion_apps(config, target, metadata / 'watch-companion-after.json')
     if not any(row.get('bundleIdentifier') == target['bundle'] and str(row.get('bundleVersion')) == receipt['version'] for row in actual or []):
         wait_for_watch(metadata, 'Watch install acknowledged; actual installed-version confirmation is pending')
         return False
