@@ -9,6 +9,7 @@ import subprocess
 import sys
 import os
 import time
+import tempfile
 
 from refresh import device_json, next_due
 
@@ -75,11 +76,21 @@ def install(config, path):
     logs.mkdir(parents=True, exist_ok=True)
     target = Path.home() / 'Library/LaunchAgents' / (label + '.plist')
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(plistlib.dumps(dict(Label=label, RunAtLoad=True, StartInterval=600,
+    payload = plistlib.dumps(dict(Label=label, RunAtLoad=True, StartInterval=600,
         LimitLoadToSessionType='Aqua', ProgramArguments=['/usr/bin/python3',
         str(Path(__file__).resolve()), 'refresh', '--config', str(path), '--scheduled'],
-        StandardOutPath=str(logs / 'last-check.log'), StandardErrorPath=str(logs / 'last-check.log'))))
-    target.chmod(0o600)
+        StandardOutPath=str(logs / 'last-check.log'), StandardErrorPath=str(logs / 'last-check.log')))
+    descriptor, temporary = tempfile.mkstemp(prefix='.renewal-agent-', dir=target.parent)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, 'wb') as output:
+            output.write(payload); output.flush(); os.fsync(output.fileno())
+        os.replace(temporary, target)
+        directory = os.open(target.parent, os.O_RDONLY)
+        try: os.fsync(directory)
+        finally: os.close(directory)
+    finally:
+        if os.path.exists(temporary): os.unlink(temporary)
     subprocess.run(['/bin/launchctl', 'enable', domain + '/' + label], check=True)
     subprocess.run(['/bin/launchctl', 'bootstrap', domain, str(target)], check=True)
     print('Enabled ' + label + ': installed free apps daily; installed paid apps monthly.')

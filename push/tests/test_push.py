@@ -80,7 +80,7 @@ class WorkerTests(unittest.TestCase):
         self.base = Path(self.temp.name); self.store = self.base / 'queue'; self.checkpoints = self.base / 'checkpoints'
         self.renewal = self.base / 'renewal'; self.tools = self.base / 'tools'; self.tools.mkdir()
         common.save(self.tools / 'ios-tools.local.json', {'team': 'TEAM', 'device': 'PHONE'})
-        self.patch = mock.patch.multiple(worker, STORE=self.store, CHECKPOINTS=self.checkpoints,
+        self.patch = mock.patch.multiple(worker, STORE=self.store, CHECKPOINTS=self.checkpoints, MAC_HOME=self.base,
                                         RENEWAL=self.renewal, SIGNING_LOCK=self.base / 'signing.lock', TOOLS=self.tools)
         self.patch.start(); self.addCleanup(self.patch.stop)
         self.job = 'job-1'; self.metadata, self.source = worker.paths(self.job)
@@ -131,6 +131,47 @@ class WorkerTests(unittest.TestCase):
         self.assertNotIn('pendingPush', state); self.assertEqual(state['lastSuccess'], previous_success)
         self.assertEqual(state['inputHash'], self.receipt['inputHash'])
         self.assertFalse(any('launch' in str(command) or 'uninstall' in str(command) for command, _ in self.calls))
+
+    def test_first_verified_install_establishes_monthly_clock_and_scheduler(self):
+        worker.config_path('demo', 'demo').unlink(); common.save(self.state_path, {})
+        with mock.patch.object(worker, 'catalog', side_effect=[[], [{'bundleIdentifier': 'com.test.Demo', 'bundleVersion': '2'}]]):
+            worker.deliver(self.job)
+        state = common.load(self.state_path)
+        self.assertGreater(state['lastSuccess'], time.time() - 5)
+        self.assertGreater(state['nextDue'], time.time() + 27 * 86400)
+        self.assertFalse(common.load(self.metadata / 'state.json')['renewalSchedulerPending'])
+        self.assertTrue(common.load(worker.config_path('demo', 'demo'))['pushManagedScheduler'])
+
+    def test_initial_scheduler_retry_does_not_reinstall_verified_phone_or_watch(self):
+        self.enable_watch(); worker.config_path('demo', 'demo').unlink(); common.save(self.state_path, {})
+        loaded = False; fail = True
+        def schedule(command, **kwargs):
+            nonlocal loaded
+            self.calls.append((command, kwargs))
+            if command[:2] == ['/bin/launchctl', 'print']: return subprocess.CompletedProcess(command, 0 if loaded else 1)
+            if len(command) > 1 and command[1].endswith('refresh-installed.py'):
+                if fail: raise subprocess.TimeoutExpired(command, 30)
+                loaded = True
+            return subprocess.CompletedProcess(command, 0)
+        with mock.patch.object(worker.subprocess, 'run', side_effect=schedule), mock.patch.object(worker, 'catalog', side_effect=[[], [{'bundleIdentifier': 'com.test.Demo', 'bundleVersion': '2'}], [], [{'bundleIdentifier': 'com.test.Demo.watch', 'bundleVersion': '2'}]]):
+            with self.assertRaises(worker.Retry): worker.deliver(self.job)
+        self.assertTrue(common.load(self.metadata / 'state.json')['renewalSchedulerPending'])
+        first_clock = common.load(self.state_path)['lastSuccess']; fail = False; self.calls.clear()
+        with mock.patch.object(worker.subprocess, 'run', side_effect=schedule), mock.patch.object(worker, 'catalog') as catalog:
+            worker.deliver(self.job)
+        catalog.assert_not_called()
+        self.assertFalse(any('devicectl' in command and 'install' in command for command, _ in self.calls))
+        self.assertEqual(common.load(self.state_path)['lastSuccess'], first_clock)
+        self.assertEqual(common.load(self.metadata / 'state.json')['phase'], 'installed')
+
+    def test_existing_paused_project_scheduler_is_not_resumed_by_an_update(self):
+        old = common.load(worker.config_path('demo', 'demo')); old['pushManagedScheduler'] = True
+        common.save(worker.config_path('demo', 'demo'), old)
+        agent = self.base / 'Library/LaunchAgents/com.visar.renewal.demo.plist'
+        agent.parent.mkdir(parents=True); agent.write_bytes(b'existing paused scheduler')
+        with mock.patch.object(worker, 'catalog', side_effect=[[], [{'bundleIdentifier': 'com.test.Demo', 'bundleVersion': '2'}]]):
+            worker.deliver(self.job)
+        self.assertFalse(any(command[0] == '/bin/launchctl' for command, _ in self.calls))
 
     def enable_watch(self):
         common.save(self.tools / 'ios-tools.local.json', {'team': 'TEAM', 'device': 'PHONE', 'watchDevice': 'WATCH'})

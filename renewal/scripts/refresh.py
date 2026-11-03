@@ -113,7 +113,7 @@ def delivery_targets(config, app):
     if watch:
         path = Path(watch['app'])
         if (path.is_absolute() or '..' in path.parts or len(path.parts) != 2 or path.parts[0] != 'Watch'
-                or path.suffix != '.app' or not watch.get('device') or watch['device'] == config['device']
+                or path.suffix != '.app' or not isinstance(watch.get('device'), str) or not watch['device'] or watch['device'] == config['device']
                 or watch.get('bundleId') not in config['bundleIds'][1:]):
             raise RuntimeError('Invalid paired Watch delivery target')
         targets.append({'device': watch['device'], 'app': app / path, 'bundle': watch['bundleId'], 'platform': 'WatchOS'})
@@ -144,7 +144,7 @@ def next_due(config, last_success):
                          day=min(value.day, calendar.monthrange(year, month)[1])).timestamp()
 
 
-def approve(config, state_path, state, app, expected, input_hash, keep_schedule=False):
+def approve(config, state_path, state, app, expected, input_hash, keep_schedule=False, initial_install=False):
     """Make the delivered app the renewal baseline. Keeping the schedule leaves the next renewal
     one interval after the last success, unless a delivered profile expires before the renewed one."""
     subprocess.run(['/usr/bin/codesign', '--verify', '--deep', '--strict', str(app)], check=True)
@@ -153,6 +153,12 @@ def approve(config, state_path, state, app, expected, input_hash, keep_schedule=
     keep = (keep_schedule and bool(state.get('lastSuccess')) and set(renewed) == set(profiles)
             and all(profiles[key]['expires'] >= renewed[key]['expires'] for key in profiles))
     approved = {'inputHash': input_hash, 'installedProfiles': profiles, 'lastSuccess': state['lastSuccess'] if keep else 0}
+    # Only a caller that verified the first signed installation on every target
+    # may establish this initial clock. An ordinary approval still claims no
+    # successful installation/renewal and remains due, as before.
+    if initial_install and not state.get('lastSuccess'):
+        approved['lastSuccess'] = time.time()
+        approved['nextDue'] = next_due(config, approved['lastSuccess'])
     if keep:
         approved['nextDue'] = next_due(config, state['lastSuccess'])
     save(state_path, approved)

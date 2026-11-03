@@ -344,19 +344,55 @@ def catalog(config, output):
     return load(output, {}).get('result', {}).get('apps')
 
 
+def ensure_initial_scheduler(request, index, metadata):
+    if not load(metadata / 'state.json', {}).get('renewalSchedulerPending'): return
+    label = 'com.visar.renewal.' + request['repo']; domain = 'gui/' + str(os.getuid())
+    plist = MAC_HOME / 'Library/LaunchAgents' / (label + '.plist')
+    runner = TOOLS / 'renewal/scripts/refresh-installed.py'
+    check = ['/bin/launchctl', 'print', domain + '/' + label]
+    try:
+        if subprocess.run(check, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10).returncode:
+            if plist.exists():
+                data = plistlib.loads(plist.read_bytes())
+                expected = ['/usr/bin/python3', str(runner), 'refresh', '--config', str(index), '--scheduled']
+                if data.get('Label') != label or data.get('ProgramArguments') != expected:
+                    raise RuntimeError('Existing renewal scheduler differs from the new project registration')
+                subprocess.run(['/bin/launchctl', 'bootstrap', domain, str(plist)], check=True, timeout=20)
+            else:
+                subprocess.run([sys.executable, str(runner), 'install', '--repo', request['repo']],
+                               check=True, timeout=30, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            if subprocess.run(check, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10).returncode:
+                raise Retry('Apps installed; initial renewal scheduler is not yet loaded')
+    except subprocess.SubprocessError as error:
+        raise Retry('Apps installed; initial renewal scheduler setup will retry') from error
+    update(metadata / 'state.json', 'installing', renewalSchedulerPending=False)
+
+
 def approve(request, config, receipt):
     state_path, state = pending_state(request, config)
     destination = config_path(request['repo'], request['app'])
+    metadata, _ = paths(request['id'])
+    index = RENEWAL / request['repo'] / 'apps.json'
+    previous = load(destination, {})
+    if not destination.exists():
+        update(metadata / 'state.json', 'installing', initialRegistration=True)
+    initial = load(metadata / 'state.json', {}).get('initialRegistration', False)
+    managed_scheduler = previous.get('pushManagedScheduler', False) or (initial and not index.exists())
+    if managed_scheduler:
+        config['pushManagedScheduler'] = True
+        plist = MAC_HOME / 'Library/LaunchAgents' / ('com.visar.renewal.' + request['repo'] + '.plist')
+        if not plist.exists(): update(metadata / 'state.json', 'installing', renewalSchedulerPending=True)
     config.update(pushJob=request['id'], pushCreatedAt=request['createdAt'], pushSequence=request['queueSequence'])
     save(destination, config)
-    index = RENEWAL / request['repo'] / 'apps.json'
     listing = load(index, {'repo': request['repo'], 'device': config['device'], 'logDir': str(RENEWAL / request['repo']), 'apps': []})
     if not any(item['config'] == str(destination) for item in listing['apps']):
         listing['apps'].append({'config': str(destination), 'runner': str(TOOLS / 'renewal/scripts/refresh.py')})
     save(index, listing)
     expected = [config['team'] + '.' + item for item in config['bundleIds']]
-    refresh.approve(config, state_path, state, Path(config['root']) / config['app'], expected, receipt['inputHash'], keep_schedule=True)
+    refresh.approve(config, state_path, state, Path(config['root']) / config['app'], expected, receipt['inputHash'],
+                    keep_schedule=True, initial_install=initial)
     if load(state_path)['inputHash'] != receipt['inputHash']: raise RuntimeError('Renewal approval did not commit')
+    ensure_initial_scheduler(request, index, metadata)
 
 
 def wait_for_watch(metadata, message):

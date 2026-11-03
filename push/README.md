@@ -52,6 +52,12 @@ already verified phone artifact, and approves renewal only after both devices
 are verified. A worker restart or power cut preserves that state. `ios-push logs
 JOB` includes the Watch install log. No product app is launched.
 
+A new project's first verified signed installation starts its monthly renewal
+clock and registers its own existing-style renewal scheduler. Later updates keep
+the existing renewal date. Scheduler setup can resume after interruption without
+reinstalling already verified apps, and updates preserve intentionally paused
+existing schedulers.
+
 ## Checkpoints and recovery
 
 One PC systemd uploader hands complete hash-checked jobs to one Mac GUI LaunchAgent.

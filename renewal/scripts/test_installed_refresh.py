@@ -2,6 +2,7 @@ import importlib.util
 from pathlib import Path
 import plistlib
 import subprocess
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -10,6 +11,19 @@ m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 m.STORE=Path('/nonexistent/ios-tools-test-store')  # never read this Mac's real registrations
 
 class InstalledTests(unittest.TestCase):
+    def test_interrupted_scheduler_replacement_retains_the_existing_agent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); target = root / 'Library/LaunchAgents/com.visar.renewal.demo.plist'
+            target.parent.mkdir(parents=True); target.write_bytes(b'previous owned agent')
+            config = {'repo': 'demo', 'logDir': str(root / 'logs')}
+            with patch.object(m.Path, 'home', return_value=root), \
+                 patch.object(m.subprocess, 'run', return_value=subprocess.CompletedProcess([], 1)) as run, \
+                 patch.object(m.os, 'replace', side_effect=OSError('power cut')):
+                with self.assertRaises(OSError): m.install(config, root / 'apps.json')
+            self.assertEqual(target.read_bytes(), b'previous owned agent')
+            self.assertFalse(list(target.parent.glob('.renewal-agent-*')))
+            self.assertEqual(run.call_count, 1)
+
     def test_installed_free_due_paid_not_due_deleted_skipped(self):
         now=200000
         configs={key:dict(root='/'+key,app='app',bundleIds=[key],team='FREE' if key=='free' else 'PAID',
