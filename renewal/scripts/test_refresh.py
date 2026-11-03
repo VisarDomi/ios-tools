@@ -367,6 +367,30 @@ class RenewalTests(unittest.TestCase):
         self.assertEqual(self.state()['lastSuccess'], 100000)
         self.assertIsNone(self.state()['lastError'])
 
+    def test_legacy_flat_compiler_caches_leave_inputs_and_all_app_products_intact(self):
+        flat = self.root / 'build/asura.paid/SwiftExplicitPrecompiledModules'
+        objects = self.root / 'build/asura.paid/SwiftSoup.build'
+        root_objects = self.root / 'build/Reader.build'
+        source = self.root / 'build/approved.build'
+        product = self.root / 'build/asura.paid/Release-iphoneos/Reader.app'
+        symbols = product.with_suffix('.app.dSYM')
+        profiles = self.root / 'build/profiles.build'
+        state_dir = self.root / 'build/state.build'
+        for path in [flat, objects, root_objects, source, product, symbols, profiles, state_dir]:
+            path.mkdir(parents=True); (path / 'payload').write_text(path.name)
+        self.config['inputs'].append('build/approved.build')
+        self.config['profileCache'] = str(profiles)
+        self.config['stateDir'] = 'build/state.build'
+        before = refresh.fingerprint(self.root, self.config['inputs'])
+        removed = refresh.prune_completed_caches(self.config)
+        self.assertEqual(set(removed), {str(flat), str(objects), str(root_objects)})
+        self.assertTrue((source / 'payload').exists())
+        self.assertTrue((product / 'payload').exists())
+        self.assertTrue((symbols / 'payload').exists())
+        self.assertTrue((profiles / 'payload').exists())
+        self.assertTrue((state_dir / 'payload').exists())
+        self.assertEqual(refresh.fingerprint(self.root, self.config['inputs']), before)
+
     def test_pending_delivery_and_symlinked_cache_are_preserved(self):
         derived = self.root / 'build/DerivedData'
         derived.mkdir(parents=True); (derived / 'cache').write_text('keep until delivery settles')

@@ -98,12 +98,45 @@ Reports are private `~/Library/Caches/ios-app-refresh/workload-*.jsonl` (20 reta
 
 ## Simulator sessions
 
+### Reuse the shared devices
+
+Routine QA uses one initialized iPhone and one initialized Watch, with only one
+guest running at a time. They cover different operating systems; individual
+apps do not need their own copy of an iPhone simulator.
+
+| Purpose | Device UUID | Runtime |
+| --- | --- | --- |
+| Shared iPhone 12 Pro Max: iOS apps, readers and media | `87BA7A13-DE72-44E5-B227-F930B01613C9` | iOS 26.3.1, build 23D8133 |
+| Shared 41 mm Watch: native watchOS UI and complications | `B2AC5E80-CBAC-447B-822C-4E5952691827` | watchOS 26.2, build 23S303 |
+
+Use the explicit UUID with `--device`/`SIM`; never pick the first available
+device. These are simulator identifiers, not the physical signing targets in
+`ios-tools.local.json`. Historical app-specific names such as “Guidance QA” in
+panic reports do not imply that another simulator must be kept for that app.
+
+Build first with all guests shut down, then enter one bounded guarded session.
+Use fixture data and separate app bundle IDs or test-data directories. Reset
+only the owned app's fixture when needed; do not erase the shared device between
+projects. Update a diagnostic app in place during a testing session, stop it
+after each attempt, and uninstall it after the final check. The guard shuts
+down the exact guest and closes its owned GUI; retain the initialized shared
+device for the next project.
+
+Create a temporary device only when a test actually requires another model,
+OS version or isolated device state. Record its owner, reason and UUID. Remove
+that temporary device through `apple-tool simctl delete UUID` after its final
+check and any needed state/evidence backup. Never delete another active or
+reserved device, and do not remove either shared device as routine cleanup.
+Transport, parser, model and non-iOS checks belong on the PC or in a guarded
+native command without booting a guest. Batch related UI checks within one
+boot instead of creating or rebooting a simulator for each case.
+
 Check `mac-workload status` and the graphics repair status first. A new,
 unreviewed kernel panic or GPU reset report blocks simulator startup. Driver experiments require an explicitly recorded,
 time-limited trial whose expected driver setting is verified before boot.
 Do not bypass quarantine with raw `simctl boot` or opening Simulator.app.
 
-On a verified graphics stack, pass the exact UUID of a project-owned, shut-down
+On a verified graphics stack, pass the exact UUID of a listed shared or owned, shut-down
 guest and the complete test command:
 
 ```sh
@@ -147,6 +180,16 @@ Close Simulator.app after guest shutdown so macOS cannot reopen it and reboot
 the guest at the next login. Guarded visible sessions also close the GUI they opened. A pre-existing GUI is never taken over.
 Keep validation mirrors separate from approved physical-delivery mirrors, so
 simulator changes cannot silently invalidate monthly app renewal fingerprints.
+
+Keep only current runtimes and initialized devices needed by the active test
+pool. Archive a verified installer on the PC rather than retaining another copy
+on the Mac. Completed mutable compiler caches are pruned by the existing renewal
+runner, including older flat per-provider Xcode layouts. Do not delete signed
+apps, source inputs, profile/state stores or approved/pending queue checkpoints
+to make room. Inspect physical APFS usage: mounted simulator runtime images have
+their own virtual capacities and must not be counted again as extra physical
+disk consumption. Do not add a parallel cleanup service or lower the shared
+build-admission reserve.
 
 ## Recovery
 

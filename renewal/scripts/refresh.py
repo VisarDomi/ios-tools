@@ -74,9 +74,20 @@ def prune_completed_caches(config):
         state = json.loads(state_path.read_text()) if state_path.exists() else {}
         if state.get('pendingPush'): return []
         protected.extend((root / item).resolve() for item in [*other['inputs'], other['app']])
-    candidates = list(build.rglob('DerivedData'))
+        protected.append(state_path.parent.resolve())
+        if other.get('profileCache'): protected.append(Path(other['profileCache']).expanduser().resolve())
+    candidates = set(build.rglob('DerivedData'))
+    # Older Xcode recipes put intermediates directly beside SYMROOT products,
+    # rather than inside DerivedData. Their per-provider module copies were
+    # retained after every renewal even though the signed app was complete.
+    cache_names = {'SwiftExplicitPrecompiledModules', 'ExplicitPrecompiledModules',
+                   'XCBuildData', 'EagerLinkingTBDs', 'GeneratedModuleMaps-iphoneos'}
+    levels = [build, *(p for p in build.iterdir() if p.is_dir() and not p.is_symlink() and p.suffix != '.app')]
+    for folder in levels:
+        candidates.update(p for p in folder.iterdir()
+                          if p.is_dir() and (p.name in cache_names or p.name.endswith('.build')))
     removed = []
-    for path in sorted(candidates, key=lambda p: len(p.parts)):
+    for path in sorted(candidates, key=lambda p: (len(p.parts), str(p))):
         if not path.is_dir() or path.is_symlink() or path.resolve() != path: continue
         if any(item.is_relative_to(path) or path.is_relative_to(item) for item in protected): continue
         shutil.rmtree(path)
