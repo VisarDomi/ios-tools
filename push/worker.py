@@ -134,6 +134,9 @@ def expand(value, old_root, new_root, settings):
     if isinstance(value, list): return [expand(item, old_root, new_root, settings) for item in value]
     if isinstance(value, str):
         value = value.replace('__IOS_PUSH_TEAM__', settings['team']).replace('__IOS_PUSH_DEVICE__', settings['device'])
+        if '__IOS_PUSH_WATCH_DEVICE__' in value:
+            if not settings.get('watchDevice'): raise RuntimeError('Set watchDevice in the Mac private ios-tools.local.json before pushing a Watch app')
+            value = value.replace('__IOS_PUSH_WATCH_DEVICE__', settings['watchDevice'])
         if value == old_root or value.startswith(old_root + '/'):
             value = str(new_root) + value[len(old_root):]
     return value
@@ -147,6 +150,7 @@ def configuration(request, source):
                   stateDir=str(RENEWAL / request['repo'] / request['app']))
     relative(config['app'])
     for item in config['inputs']: relative(item)
+    refresh.delivery_targets(config, source / config['app'])
     if not config['bundleIds'] or len(set(config['bundleIds'])) != len(config['bundleIds']): raise ValueError('Invalid app identities')
     for forbidden in ['HOME', 'CODEX_HOME', 'SIMULATOR', 'DECODER_PROBE', 'ORIGINAL_CODEC_PROBE']:
         if config.get('environment', {}).get(forbidden): raise ValueError('Diagnostic builds cannot be pushed')
@@ -161,7 +165,7 @@ def input_hash(config): return refresh.fingerprint(Path(config['root']), config[
 
 
 def recipe_hash(config):
-    recipe = {name: config.get(name) for name in ['name', 'app', 'bundleIds', 'inputs', 'build', 'environment', 'team', 'device']}
+    recipe = {name: config.get(name) for name in ['name', 'app', 'bundleIds', 'inputs', 'build', 'environment', 'team', 'device', 'watch']}
     def normalise(value):
         if isinstance(value, dict): return {key: normalise(item) for key, item in value.items()}
         if isinstance(value, list): return [normalise(item) for item in value]
@@ -203,13 +207,24 @@ def verify_app(config, app):
     now = time.time()
     for identity_name, profile in profiles.items():
         if profile['expires'] < now + 45 * 86400: raise RuntimeError('Provisioning profile expires too soon')
-    for entry in [app, *sorted(app.glob('PlugIns/*.appex'))]:
+    targets = refresh.delivery_targets(config, app)
+    for entry in refresh.bundle_entries(app):
+        target = next((target for target in reversed(targets) if entry.is_relative_to(target['app'])), None)
+        if target is None or not entry.resolve().is_relative_to(app.resolve()): raise RuntimeError('Embedded bundle is outside its signed app')
         profile = plistlib.loads(subprocess.check_output(['security', 'cms', '-D', '-i', str(entry / 'embedded.mobileprovision')], stderr=subprocess.DEVNULL))
-        if profile['TeamIdentifier'] != [config['team']] or config['device'] not in profile.get('ProvisionedDevices', []):
-            raise RuntimeError('Profile does not authorise the paid team and target phone')
-        bundle = plistlib.loads((entry / 'Info.plist').read_bytes())['CFBundleIdentifier']
+        if profile['TeamIdentifier'] != [config['team']] or target['device'] not in profile.get('ProvisionedDevices', []):
+            raise RuntimeError('Profile does not authorise the paid team and target device')
+        embedded = plistlib.loads((entry / 'Info.plist').read_bytes())
+        bundle = embedded['CFBundleIdentifier']
+        if embedded.get('CFBundleSupportedPlatforms') != [target['platform']]: raise RuntimeError('Embedded bundle has the wrong device platform')
+        if config.get('watch') and str(embedded['CFBundleVersion']) != str(info['CFBundleVersion']):
+            raise RuntimeError('Companion, Watch and complication build versions differ')
         entitlement = plistlib.loads(subprocess.check_output(['codesign', '-d', '--entitlements', ':-', str(entry)], stderr=subprocess.DEVNULL))
         if entitlement.get('application-identifier') != config['team'] + '.' + bundle: raise RuntimeError('Signing entitlement differs from the app identity')
+        if target['platform'] == 'WatchOS':
+            required = set(config['watch'].get('appGroups', []))
+            if not required.issubset(entitlement.get('com.apple.security.application-groups', [])) or not required.issubset(profile['Entitlements'].get('com.apple.security.application-groups', [])):
+                raise RuntimeError('Watch app or complication is missing its provisioned App Group')
     binary = (app / info['CFBundleExecutable']).read_bytes()
     arches = subprocess.check_output(['lipo', '-archs', str(app / info['CFBundleExecutable'])], text=True).split()
     if 'arm64' not in arches or any(item.startswith('x86') for item in arches): raise RuntimeError('Product is not an arm64 phone build')
@@ -284,7 +299,7 @@ def cleanup_intermediates(config):
     if not root.is_relative_to(CHECKPOINTS): return
     def protected(path):
         return any((root / item).is_relative_to(path) or path.is_relative_to(root / item) for item in config['inputs'])
-    for directory in (root / 'build').glob('**/DerivedData'):
+    for directory in [*(root / 'build').glob('**/DerivedData'), *(root / 'build').glob('**/Intermediates')]:
         if protected(directory): continue
         shutil.rmtree(directory)
     app = root / config['app']
@@ -344,6 +359,48 @@ def approve(request, config, receipt):
     if load(state_path)['inputHash'] != receipt['inputHash']: raise RuntimeError('Renewal approval did not commit')
 
 
+def wait_for_watch(metadata, message):
+    attempts = load(metadata / 'state.json', {}).get('watchAttempts', 0) + 1
+    update(metadata / 'state.json', 'awaiting_watch', watchAttempts=attempts,
+           nextAttempt=time.time() + min(300, 30 * 2 ** min(attempts, 4)),
+           message=message)
+
+
+def deliver_watch(config, receipt, app, metadata):
+    target = refresh.delivery_targets(config, app)[1]
+    state = load(metadata / 'state.json', {})
+    proof = {'appHash': receipt['appHash'], 'device': target['device'], 'version': receipt['version']}
+    if state.get('watchDelivery') == proof: return True
+    watch_config = dict(config, device=target['device'])
+    if catalog(watch_config, metadata / 'watch-before.json') is None:
+        wait_for_watch(metadata, 'Phone updated; waiting for the paired Watch developer connection')
+        return False
+    log_path = metadata / 'watch-install.log'
+    command = [str(TOOLS / 'native/scripts/apple-tool'), 'devicectl', 'device', 'install', 'app',
+               '--device', target['device'], str(target['app']), '--timeout', '120']
+    with log_path.open('w') as stream:
+        result = subprocess.run(command, stdout=stream, stderr=subprocess.STDOUT, timeout=140)
+    if result.returncode:
+        detail = log_path.read_text(errors='replace').lower()
+        if any(marker in detail for marker in ['remote.installcoordination_proxy', 'coredeviceerror error 4000', 'remotepairingerror error 1001']):
+            # One cold-DDI preparation/retry, with the same signed bytes. A
+            # sleeping/offline Watch normally fails the app-service check above.
+            with log_path.open('a') as stream:
+                subprocess.run([str(TOOLS / 'native/scripts/apple-tool'), 'devicectl', 'device', 'info', 'ddiServices',
+                                '--device', target['device'], '--timeout', '30'],
+                               stdout=stream, stderr=subprocess.STDOUT, timeout=45)
+                result = subprocess.run(command, stdout=stream, stderr=subprocess.STDOUT, timeout=140)
+        if result.returncode:
+            wait_for_watch(metadata, 'Phone updated; Watch install is pending. See watch-install.log')
+            return False
+    actual = catalog(watch_config, metadata / 'watch-after.json')
+    if not any(row.get('bundleIdentifier') == target['bundle'] and str(row.get('bundleVersion')) == receipt['version'] for row in actual or []):
+        wait_for_watch(metadata, 'Watch install acknowledged; actual installed-version confirmation is pending')
+        return False
+    update(metadata / 'state.json', 'installing', watchDelivery=proof)
+    return True
+
+
 def deliver(job_id, allow_ota=False):
     metadata, source = paths(job_id); request = request_for(metadata); config = load(metadata / 'config.json')
     receipt = load(metadata / 'build-receipt.json'); app = source / config['app']
@@ -360,7 +417,9 @@ def deliver(job_id, allow_ota=False):
             update(metadata / 'state.json', 'superseded', message='A newer push owns this app'); return
         verify_checkpoint(config, frozen)
         validate_receipt(config, receipt, app)
-        before = catalog(config, metadata / 'phone-before.json')
+        phone_proof = {'appHash': receipt['appHash'], 'device': config['device'], 'version': receipt['version']}
+        phone_done = bool(config.get('watch') and load(metadata / 'state.json', {}).get('phoneDelivery') == phone_proof)
+        before = [] if phone_done else catalog(config, metadata / 'phone-before.json')
         if before is None and not allow_ota: raise RecoverTransport()
         with locked(metadata / 'control.lock', wait=5):
             if (metadata / 'cancelled.json').exists(): update(metadata / 'state.json', 'cancelled'); return
@@ -376,21 +435,28 @@ def deliver(job_id, allow_ota=False):
             update(metadata / 'state.json', 'awaiting_ota', otaPublished=True, nextAttempt=time.time() + 300,
                    message='Signed update published; direct installation will retry when the phone returns')
             return
-        with (metadata / 'install.log').open('w') as stream:
-            result = subprocess.run([str(TOOLS / 'native/scripts/apple-tool'), 'devicectl', 'device', 'install', 'app',
-                                     '--device', config['device'], str(app), '--timeout', '180'],
-                                    stdout=stream, stderr=subprocess.STDOUT, timeout=200)
-        if result.returncode: raise Retry('Installation interrupted or rejected; see private install.log')
-        after = catalog(config, metadata / 'phone-after.json')
-        installed = next((item for item in after or [] if item['bundleIdentifier'] == config['bundleIds'][0]), None)
-        if not installed or str(installed.get('bundleVersion')) != receipt['version']: raise Retry('Install acknowledgement received; version confirmation is pending')
+        if not phone_done:
+            with (metadata / 'install.log').open('w') as stream:
+                result = subprocess.run([str(TOOLS / 'native/scripts/apple-tool'), 'devicectl', 'device', 'install', 'app',
+                                         '--device', config['device'], str(app), '--timeout', '180'],
+                                        stdout=stream, stderr=subprocess.STDOUT, timeout=200)
+            if result.returncode: raise Retry('Installation interrupted or rejected; see private install.log')
+            after = catalog(config, metadata / 'phone-after.json')
+            installed = next((item for item in after or [] if item['bundleIdentifier'] == config['bundleIds'][0]), None)
+            if not installed or str(installed.get('bundleVersion')) != receipt['version']: raise Retry('Install acknowledgement received; version confirmation is pending')
+            if config.get('watch'): update(metadata / 'state.json', 'installing', phoneDelivery=phone_proof)
+        if config.get('watch') and not deliver_watch(config, receipt, app, metadata): return
         # These checks run under the same lock as installation and approval.
         if input_hash(config) != receipt['inputHash'] or refresh.fingerprint(app.parent, [app.name]) != receipt['appHash']:
             raise RuntimeError('Inputs changed before approval')
         approve(request, config, receipt)
+        watch_result = ({'watchBundle': config['watch']['bundleId'], 'watchVersion': receipt['version']}
+                        if config.get('watch') else {})
         update(metadata / 'state.json', 'installed', bundle=receipt['bundle'], version=receipt['version'],
                inputHash=receipt['inputHash'], appHash=receipt['appHash'], sourceRevision=request.get('sourceRevision'),
-               checkpoint=str(source), launched=False, nextAttempt=0, message='Installed in place and approved for renewal')
+               checkpoint=str(source), launched=False, nextAttempt=0,
+               message='Phone and Watch installed in place and approved for renewal' if config.get('watch') else 'Installed in place and approved for renewal',
+               **watch_result)
 
 
 def run_job(job_id):
@@ -525,7 +591,7 @@ def main():
     elif args.action == 'status': print(json.dumps(load(paths(args.id)[0] / 'state.json', {})))
     elif args.action == 'logs':
         metadata, _ = paths(args.id)
-        for name in ['build.log', 'install.log']:
+        for name in ['build.log', 'install.log', 'watch-install.log']:
             path = metadata / name
             if path.exists(): print(name + '\n' + '\n'.join(line[:500] for line in path.read_text(errors='replace').splitlines()[-20:]))
 

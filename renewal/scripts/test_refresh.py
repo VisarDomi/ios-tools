@@ -1,6 +1,7 @@
 """Behavior checks using fake Xcode/device boundaries; no Mac or phone required."""
 import importlib.util
 import json
+import plistlib
 from pathlib import Path
 import subprocess
 import tempfile
@@ -84,6 +85,50 @@ class RenewalTests(unittest.TestCase):
         command=next(c for c in self.process_calls if 'build' in c and '--timeout' in c)
         self.assertTrue(command[1].endswith('native/scripts/mac-workload'))
         self.assertEqual(command[-1], 'fake-build')
+
+    def test_recursive_profiles_include_watch_and_its_complication(self):
+        root = self.root / 'ProfileHost.app'
+        entries = [(root, 'host'), (root / 'Watch/Watch.app', 'watch'),
+                   (root / 'Watch/Watch.app/PlugIns/Inbox.appex', 'widget')]
+        for entry, bundle in entries:
+            entry.mkdir(parents=True, exist_ok=True)
+            (entry / 'Info.plist').write_bytes(plistlib.dumps({'CFBundleIdentifier': bundle}))
+            (entry / 'embedded.mobileprovision').write_text(bundle)
+        # setUp replaces app_profiles at the device boundary; reload its real
+        # implementation for this fixture-only profile inventory check.
+        real = importlib.util.module_from_spec(spec); spec.loader.exec_module(real)
+        with patch.object(real, 'profile', side_effect=lambda p: {'id': 'TEAM.' + p.read_text()}):
+            result = real.app_profiles(root, ['TEAM.host', 'TEAM.watch', 'TEAM.widget'])
+            self.assertEqual(set(result), {'TEAM.host', 'TEAM.watch', 'TEAM.widget'})
+            with self.assertRaisesRegex(RuntimeError, 'identities'):
+                real.app_profiles(root, ['TEAM.host', 'TEAM.watch'])
+
+    def test_unavailable_paired_watch_does_not_start_a_renewal_build(self):
+        self.config.update(watch={'app': 'Watch/Demo.app', 'device': 'watch', 'bundleId': 'host.extension'})
+        def devices(config, arguments):
+            if config['device'] == 'watch': raise RuntimeError('Watch unavailable')
+            return self.device(config, arguments)
+        with patch.object(refresh, 'device_json', side_effect=devices), self.assertRaisesRegex(RuntimeError, 'Watch unavailable'):
+            refresh.run(self.config, 'refresh')
+        self.assertNotIn(['fake-build'], self.process_calls)
+        self.assertEqual(self.state()['lastSuccess'], 0)
+
+    def test_watch_install_requires_both_actual_versions_before_renewal_success(self):
+        self.config.update(watch={'app': 'Watch/Demo.app', 'device': 'watch', 'bundleId': 'host.extension'})
+        for entry in [self.root / 'app', self.root / 'app/Watch/Demo.app']:
+            entry.mkdir(parents=True, exist_ok=True)
+            (entry / 'Info.plist').write_bytes(plistlib.dumps({'CFBundleVersion': '2'}))
+        calls = []
+        def devices(config, arguments):
+            calls.append((config['device'], arguments))
+            if arguments == ['info', 'apps']:
+                return {'apps': [{'bundleIdentifier': 'host' if config['device'] == 'phone' else 'host.extension',
+                                  'bundleVersion': '2' if config['device'] == 'phone' else 'old'}]}
+            return self.device(config, arguments)
+        with patch.object(refresh, 'device_json', side_effect=devices), self.assertRaisesRegex(RuntimeError, 'every target'):
+            refresh.run(self.config, 'refresh')
+        self.assertEqual(self.state()['lastSuccess'], 0)
+        self.assertEqual([device for device, args in calls if args[0] == 'install'], ['phone', 'watch'])
 
     def test_next_day_is_due_even_with_six_days_remaining(self):
         refresh.run(self.config, 'refresh')

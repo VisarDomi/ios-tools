@@ -59,8 +59,25 @@ def profile(path):
     }
 
 
+def bundle_entries(app):
+    return [app, *sorted({path.parent for path in app.rglob('embedded.mobileprovision') if path.parent != app})]
+
+
+def delivery_targets(config, app):
+    targets = [{'device': config['device'], 'app': app, 'bundle': config['bundleIds'][0], 'platform': 'iPhoneOS'}]
+    watch = config.get('watch')
+    if watch:
+        path = Path(watch['app'])
+        if (path.is_absolute() or '..' in path.parts or len(path.parts) != 2 or path.parts[0] != 'Watch'
+                or path.suffix != '.app' or not watch.get('device') or watch['device'] == config['device']
+                or watch.get('bundleId') not in config['bundleIds'][1:]):
+            raise RuntimeError('Invalid paired Watch delivery target')
+        targets.append({'device': watch['device'], 'app': app / path, 'bundle': watch['bundleId'], 'platform': 'WatchOS'})
+    return targets
+
+
 def app_profiles(app, expected):
-    paths = [app / 'embedded.mobileprovision', *sorted(app.glob('PlugIns/*.appex/embedded.mobileprovision'))]
+    paths = [entry / 'embedded.mobileprovision' for entry in bundle_entries(app)]
     result = {}
     for path in paths:
         bundle = plistlib.loads((path.parent / 'Info.plist').read_bytes())['CFBundleIdentifier']
@@ -192,6 +209,11 @@ def run(config, action, force=False, wireless=False, keep_schedule=False, config
         if lock_state.get('passcodeRequired') is not False or lock_state.get('unlockedSinceBoot') is not True:
             print('Phone locked; no build. Daily renewal remains due for the next check.', flush=True)
             return
+        targets = delivery_targets(config, app)
+        for target in targets[1:]:
+            # An unavailable Watch must not provoke a paid-profile rebuild.
+            catalog = device_json(dict(config, device=target['device']), ['info', 'apps'])
+            if not isinstance(catalog.get('apps'), list): raise RuntimeError('Watch app service is unavailable; no renewal build started')
         before = state['installedProfiles']
         try:
             # Renew profiles once, then reuse a profile already renewed by this batch.
@@ -233,7 +255,14 @@ def run(config, action, force=False, wireless=False, keep_schedule=False, config
             elif not advanced(before, after, time.time()):
                 raise RuntimeError('Profiles did not ALL receive later seven-day deadlines; no renewal claimed')
             subprocess.run(['/usr/bin/codesign', '--verify', '--deep', '--strict', str(app)], check=True)
-            device_json(config, ['install', 'app', str(app)])
+            for target in targets:
+                target_config = dict(config, device=target['device'])
+                device_json(target_config, ['install', 'app', str(target['app'])])
+                if config.get('watch'):
+                    actual = device_json(target_config, ['info', 'apps']).get('apps', [])
+                    expected_version = str(plistlib.loads((target['app'] / 'Info.plist').read_bytes())['CFBundleVersion'])
+                    if not any(row.get('bundleIdentifier') == target['bundle'] and str(row.get('bundleVersion')) == expected_version for row in actual):
+                        raise RuntimeError('Renewal installation version was not verified on every target device')
             completed = time.time()
             state.update(lastSuccess=completed, nextDue=next_due(config, completed), installedProfiles=after, transport=transport, lastError=None)
             save(state_path, state)

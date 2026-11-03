@@ -5,6 +5,7 @@ ios-push filehost
 ios-push gallery-a
 ios-push manga-reader:asura
 ios-push guidance
+ios-push t3-watch
 ```
 
 Run from the app's checkout (worktrees are supported), or use `--source /path/to/checkout`.
@@ -39,6 +40,17 @@ older renewal baseline.
 `--validate-only` builds/verifies without any phone operation. `--force` rebuilds even
 when an exactly matching verified artifact could be reused. The caller still runs the
 appropriate app tests; signing checks do not replace UI or codec verification.
+
+T3 Watch uses the same queue for its iPhone companion, embedded native Watch app,
+and complication. The paired Watch UDID belongs in `watchDevice` in the Mac's
+private `ios-tools.local.json`. All nested profiles, device platforms and App
+Group entitlements are checked. **awaiting_watch** means the phone delivery was
+verified but the Watch installation or its version confirmation is pending.
+The worker releases the shared lock and retries with bounded backoff; other apps
+can proceed. It retains the exact signed checkpoint, avoids reinstalling the
+already verified phone artifact, and approves renewal only after both devices
+are verified. A worker restart or power cut preserves that state. `ios-push logs
+JOB` includes the Watch install log. No product app is launched.
 
 ## Checkpoints and recovery
 

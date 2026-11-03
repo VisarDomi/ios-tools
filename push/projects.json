@@ -1,4 +1,9 @@
 {
+  "t3-watch": {
+    "path": "ai/t3-watch",
+    "declaration": "tools/renewal.py",
+    "aliases": {"t3watch": "t3-watch"}
+  },
   "video-platform": {
     "path": "video/video-platform",
     "prepare": "video",

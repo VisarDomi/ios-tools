@@ -1,5 +1,6 @@
 import json
 import os
+import plistlib
 from pathlib import Path
 import subprocess
 import sys
@@ -130,6 +131,90 @@ class WorkerTests(unittest.TestCase):
         self.assertNotIn('pendingPush', state); self.assertEqual(state['lastSuccess'], previous_success)
         self.assertEqual(state['inputHash'], self.receipt['inputHash'])
         self.assertFalse(any('launch' in str(command) or 'uninstall' in str(command) for command, _ in self.calls))
+
+    def enable_watch(self):
+        common.save(self.tools / 'ios-tools.local.json', {'team': 'TEAM', 'device': 'PHONE', 'watchDevice': 'WATCH'})
+        request = common.load(self.metadata / 'request.json')
+        request['config']['bundleIds'].append('com.test.Demo.watch')
+        request['config']['watch'] = {'app': 'Watch/Demo.app', 'bundleId': 'com.test.Demo.watch', 'device': '__IOS_PUSH_WATCH_DEVICE__'}
+        common.save(self.metadata / 'request.json', request)
+        frozen = common.load(self.metadata / 'ready.json'); frozen['requestHash'] = common.digest(self.metadata / 'request.json')
+        common.save(self.metadata / 'ready.json', frozen)
+        self.config = worker.configuration(request, self.source); common.save(self.metadata / 'config.json', self.config)
+        watch = self.app / 'Watch/Demo.app'; watch.mkdir(parents=True); (watch / 'Demo').write_bytes(b'signed Watch binary')
+        self.profiles['TEAM.com.test.Demo.watch'] = dict(self.profiles['TEAM.com.test.Demo'], id='TEAM.com.test.Demo.watch')
+        self.receipt['appHash'] = worker.refresh.fingerprint(self.app.parent, [self.app.name])
+        common.save(self.metadata / 'build-receipt.json', self.receipt)
+
+    def test_offline_watch_preserves_phone_delivery_and_defers_approval(self):
+        self.enable_watch()
+        with mock.patch.object(worker, 'catalog', side_effect=[[], [{'bundleIdentifier': 'com.test.Demo', 'bundleVersion': '2'}], None]):
+            worker.deliver(self.job)
+        state = common.load(self.metadata / 'state.json')
+        self.assertEqual(state['phase'], 'awaiting_watch'); self.assertIn('phoneDelivery', state)
+        self.assertGreater(state['nextAttempt'], time.time())
+        self.assertEqual(common.load(worker.config_path('demo', 'demo'))['root'], self.old['root'])
+        self.assertIn('pendingPush', common.load(self.state_path))
+        self.assertEqual(sum('install' in command for command, _ in self.calls), 1)
+        with common.locked(worker.SIGNING_LOCK): pass
+
+    def test_watch_recovery_after_restart_does_not_reinstall_or_require_phone(self):
+        self.test_offline_watch_preserves_phone_delivery_and_defers_approval()
+        self.calls.clear()
+        with mock.patch.object(worker, 'catalog', side_effect=[[], [{'bundleIdentifier': 'com.test.Demo.watch', 'bundleVersion': '2'}]]) as catalog:
+            worker.deliver(self.job)
+        self.assertTrue(all(call.args[0]['device'] == 'WATCH' for call in catalog.call_args_list))
+        installs = [command for command, _ in self.calls if 'install' in command]
+        self.assertEqual(len(installs), 1); self.assertIn('WATCH', installs[0])
+        state = common.load(self.metadata / 'state.json')
+        self.assertEqual((state['phase'], state['watchVersion']), ('installed', '2'))
+        self.assertNotIn('pendingPush', common.load(self.state_path))
+        self.assertFalse(any('launch' in command or 'uninstall' in command for command, _ in self.calls))
+
+    def test_wrong_watch_version_never_approves_phone_only_delivery(self):
+        self.enable_watch()
+        with mock.patch.object(worker, 'catalog', side_effect=[[], [{'bundleIdentifier': 'com.test.Demo', 'bundleVersion': '2'}], [], [{'bundleIdentifier': 'com.test.Demo.watch', 'bundleVersion': 'old'}]]):
+            worker.deliver(self.job)
+        self.assertEqual(common.load(self.metadata / 'state.json')['phase'], 'awaiting_watch')
+        self.assertEqual(common.load(worker.config_path('demo', 'demo'))['root'], self.old['root'])
+
+    def test_watch_target_requires_a_distinct_configured_device_and_contained_app(self):
+        self.enable_watch()
+        request = common.load(self.metadata / 'request.json')
+        common.save(self.tools / 'ios-tools.local.json', {'team': 'TEAM', 'device': 'PHONE'})
+        with self.assertRaisesRegex(RuntimeError, 'watchDevice'): worker.configuration(request, self.source)
+        common.save(self.tools / 'ios-tools.local.json', {'team': 'TEAM', 'device': 'PHONE', 'watchDevice': 'PHONE'})
+        with self.assertRaisesRegex(RuntimeError, 'paired Watch'): worker.configuration(request, self.source)
+        common.save(self.tools / 'ios-tools.local.json', {'team': 'TEAM', 'device': 'PHONE', 'watchDevice': 'WATCH'})
+        request['config']['watch']['app'] = '../foreign.app'
+        with self.assertRaisesRegex(RuntimeError, 'paired Watch'): worker.configuration(request, self.source)
+
+    def test_native_watch_verification_requires_its_device_platform_and_app_group(self):
+        self.enable_watch(); self.verify.stop()
+        self.config['watch']['appGroups'] = ['group.test']
+        entries = [(self.app, 'com.test.Demo', 'iPhoneOS'),
+                   (self.app / 'Watch/Demo.app', 'com.test.Demo.watch', 'WatchOS')]
+        for entry, bundle, platform in entries:
+            (entry / 'Info.plist').write_bytes(plistlib.dumps({'CFBundleIdentifier': bundle, 'CFBundleSupportedPlatforms': [platform],
+                'CFBundleVersion': '2', 'CFBundleExecutable': 'Demo'}))
+            (entry / 'embedded.mobileprovision').write_text('fixture profile')
+        watch_device = 'WATCH'; groups = ['group.test']
+        def signed(command, **kwargs):
+            watch = '/Watch/' in str(command[-1]); bundle = entries[int(watch)][1]
+            if command[0] == 'security':
+                return plistlib.dumps({'TeamIdentifier': ['TEAM'], 'ProvisionedDevices': [watch_device if watch else 'PHONE'],
+                    'Entitlements': {'com.apple.security.application-groups': groups if watch else []}})
+            if command[0] == 'codesign':
+                return plistlib.dumps({'application-identifier': 'TEAM.' + bundle,
+                    'com.apple.security.application-groups': groups if watch else []})
+            if command[0] == 'lipo': return 'arm64'
+            raise AssertionError(command)
+        with mock.patch.object(worker.subprocess, 'check_output', side_effect=signed):
+            self.assertEqual(worker.verify_app(self.config, self.app)['version'], '2')
+            watch_device = 'PHONE'
+            with self.assertRaisesRegex(RuntimeError, 'target device'): worker.verify_app(self.config, self.app)
+            watch_device = 'WATCH'; groups = []
+            with self.assertRaisesRegex(RuntimeError, 'App Group'): worker.verify_app(self.config, self.app)
 
     def test_lost_confirmation_stays_pending_and_recovery_finishes_idempotently(self):
         with mock.patch.object(worker, 'catalog', side_effect=[[], None]), self.assertRaises(worker.Retry): worker.deliver(self.job)
@@ -290,6 +375,24 @@ class WorkerTests(unittest.TestCase):
         worker.cleanup_intermediates(config)
         self.assertTrue(self.app.exists()); self.assertTrue((products / 'Protected/input').exists())
         self.assertFalse((products / 'Kit.o').exists())
+
+
+class WatchClientTests(unittest.TestCase):
+    def test_project_tools_declaration_works_from_an_explicit_checkout(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); (root / 'tools').mkdir()
+            listing = {'repo': 't3-watch', 'apps': [{'name': 't3-watch'}]}
+            (root / 'tools/renewal.py').write_text('print(' + repr(json.dumps(listing)) + ')')
+            with mock.patch.object(client, 'projects', return_value={'t3-watch': {'root': str(root), 'declaration': 'tools/renewal.py'}}):
+                repo, project, app = client.choose('t3-watch', source=str(root))
+            self.assertEqual((repo, project['root'], app['name']), ('t3-watch', str(root), 't3-watch'))
+
+    def test_follow_reports_pending_watch_without_waiting_for_physical_access(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); common.save(root / 'jobs/demo/state.json', {'phase': 'awaiting_watch'})
+            with mock.patch.object(client, 'STORE', root), mock.patch.object(client.time, 'sleep') as sleep:
+                with self.assertRaises(SystemExit) as result: client.show('demo', follow=True)
+            self.assertEqual(result.exception.code, 10); sleep.assert_not_called()
 
 
 if __name__ == '__main__': unittest.main()

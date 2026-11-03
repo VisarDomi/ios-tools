@@ -30,7 +30,10 @@ def projects():
 
 
 def declaration(project):
-    script = Path(project['root']) / 'apps/ios/scripts/renewal.py'
+    root = Path(project['root'])
+    name = project.get('declaration') or next((name for name in
+        ['apps/ios/scripts/renewal.py', 'tools/renewal.py'] if (root / name).is_file()), 'apps/ios/scripts/renewal.py')
+    script = root / name
     result = subprocess.run([sys.executable, str(script), '--team', '__IOS_PUSH_TEAM__', '--device', '__IOS_PUSH_DEVICE__'],
                             capture_output=True, text=True, timeout=30, check=True)
     return json.loads(result.stdout)
@@ -45,7 +48,7 @@ def choose(selector, project_name=None, source=None):
         local = declaration(local_project)
     else:
         for candidate in [Path.cwd(), *Path.cwd().parents]:
-            if (candidate / 'apps/ios/scripts/renewal.py').exists():
+            if any((candidate / name).is_file() for name in ['apps/ios/scripts/renewal.py', 'tools/renewal.py']):
                 local_project = {'root': str(candidate)}; local = declaration(local_project); break
     for name, project in registry.items():
         if project_name and name != project_name: continue
@@ -173,9 +176,9 @@ def show(job_id=None, follow=False, as_json=False):
         else:
             for value in values: print(value.get('id', ''), value.get('repo', ''), value.get('app', ''), value.get('phase'), value.get('message', ''), flush=True)
         if not follow: return
-        if all(value.get('phase') in TERMINAL or value.get('phase') == 'awaiting_ota' for value in values):
+        if all(value.get('phase') in TERMINAL or value.get('phase') in {'awaiting_ota', 'awaiting_watch'} for value in values):
             if any(value.get('phase') == 'failed' for value in values): raise SystemExit(1)
-            if any(value.get('phase') == 'awaiting_ota' for value in values): raise SystemExit(10)
+            if any(value.get('phase') in {'awaiting_ota', 'awaiting_watch'} for value in values): raise SystemExit(10)
             return
         time.sleep(5)
 
@@ -197,7 +200,7 @@ def main():
         if ON_MAC:
             import worker
             metadata, _ = worker.paths(identity(args.job))
-            for name in ['build.log', 'install.log']:
+            for name in ['build.log', 'install.log', 'watch-install.log']:
                 path = metadata / name
                 if path.exists(): print(path.read_text(errors='replace')[-16000:])
         else:
