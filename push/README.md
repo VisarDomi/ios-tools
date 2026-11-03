@@ -74,6 +74,21 @@ build-script failure is reported as failed, using the current attempt's log even
 when older attempts are retained. Completed failed-build compiler caches are
 discarded without removing their frozen source, signed apps or diagnostic logs.
 
+## Build cache
+
+Queued Xcode builds enable Apple's local content-addressed compilation cache via
+a generated xcconfig outside the frozen source. The shared cache is under
+`~/Library/Caches/ios-tools/CompilationCache.noindex`, so fresh job paths and
+per-job DerivedData cleanup no longer discard cached compiler outputs. Xcode's
+own pruning targets 2 GiB per CAS store; no cache-cleanup daemon is added. Build
+logs include cache diagnostics, and receipts record compilation seconds.
+
+Release optimization and signing/profile verification stay in force. Terminal
+builds skip IDE indexing. An existing `XCODE_XCCONFIG_FILE` is included before the
+cache settings. Source checkpoints stay immutable; cached compiler outputs still
+produce a freshly verified signed artifact. `--force --validate-only` exercises a
+new checkpoint's compiler cache without installing or approving it for renewal.
+
 ## Checkpoints and recovery
 
 One PC systemd uploader hands complete hash-checked jobs to one Mac GUI LaunchAgent.

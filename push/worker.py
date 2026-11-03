@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import time
+from compilation_cache import build_environment
 
 from common import IDENTITY, TERMINAL, digest, ensure_directory, identity, load, locked, manifest, relative, save, source_hash, sync_directory, update, verify
 
@@ -253,6 +254,7 @@ def build_one(job_id):
     app = source / config['app']
     previous = load(config_path(request['repo'], request['app']))
     reused = False
+    compile_seconds = 0.0
     # Reuse an identical validated queue build, including validation-only runs.
     if not request.get('force'):
         for candidate in sorted((STORE / 'jobs').glob('*'), reverse=True):
@@ -289,13 +291,17 @@ def build_one(job_id):
         environment = dict(os.environ)
         for item in ['SIMULATOR', 'DECODER_PROBE', 'ORIGINAL_CODEC_PROBE']: environment.pop(item, None)
         environment.update(config.get('environment', {}), SIGNING_DESTINATION='generic/platform=iOS')
+        environment = build_environment(environment, metadata, source, MAC_HOME / 'Library/Caches/ios-tools/CompilationCache.noindex')
+        print('Using shared Xcode compilation cache (2 GiB per CAS store)', flush=True)
+        compile_started = time.monotonic()
         subprocess.run(config['build'], cwd=source, env=environment, pass_fds=(int(os.environ['IOS_REFRESH_LOCK_FD']),), check=True)
+        compile_seconds = time.monotonic() - compile_started
     if input_hash(config) != before: raise RuntimeError('Build changed its approved input tree')
     verify_checkpoint(config, frozen)
     details = verify_app(config, app)
     save(metadata / 'build-receipt.json', {'inputHash': before, 'appHash': refresh.fingerprint(app.parent, [app.name]),
                                          'sourceHash': frozen['sourceHash'], 'recipeHash': recipe_hash(config),
-                                         'complete': True, 'reused': reused, **details})
+                                         'complete': True, 'reused': reused, 'compileSeconds': compile_seconds, **details})
     save(metadata / 'config.json', config)
     cleanup_intermediates(config)
 
