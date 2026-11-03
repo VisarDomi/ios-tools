@@ -655,7 +655,7 @@ def main():
     elif args.action == 'status': print(json.dumps(load(paths(args.id)[0] / 'state.json', {})))
     elif args.action == 'logs':
         metadata, _ = paths(args.id)
-        for name in ['build.log', 'install.log', 'watch-install.log']:
+        for name in ['build.log', 'install.log', 'watch-install.log', 'watch-companion-install.log', 'watch-companion-after.log']:
             path = metadata / name
             if path.exists(): print(name + '\n' + '\n'.join(line[:500] for line in path.read_text(errors='replace').splitlines()[-20:]))
 

@@ -200,7 +200,7 @@ def main():
         if ON_MAC:
             import worker
             metadata, _ = worker.paths(identity(args.job))
-            for name in ['build.log', 'install.log', 'watch-install.log']:
+            for name in ['build.log', 'install.log', 'watch-install.log', 'watch-companion-install.log', 'watch-companion-after.log']:
                 path = metadata / name
                 if path.exists(): print(path.read_text(errors='replace')[-16000:])
         else:

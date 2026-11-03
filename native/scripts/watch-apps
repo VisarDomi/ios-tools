@@ -38,10 +38,14 @@ async def operate(args):
     expected = validate_app(args.install, args.watch, args.bundle, args.team) if args.install else None
     progress = lambda stage: print('Watch companion stage: ' + stage, flush=True)
     async with paired_watch(args.phone, args.watch, wifi_only=args.phone_wifi, progress=progress) as watch:
+        if args.install:
+            # watchOS exposes Xcode's streaming conduit, not the AFC upload
+            # service used by InstallationProxyService.install_from_local.
+            from vendor.streaming_zip_conduit import StreamingZipConduitService
+            progress('installing-signed-app-streaming')
+            async with StreamingZipConduitService(watch) as streaming:
+                await asyncio.wait_for(streaming.install(args.install, developer=True), 100)
         async with InstallationProxyService(watch) as service:
-            if args.install:
-                progress('installing-signed-app')
-                await asyncio.wait_for(service.install_from_local(args.install, developer=True), 100)
             progress('reading-installed-app')
             apps = await asyncio.wait_for(service.get_apps(bundle_identifiers=[args.bundle]), 20)
         rows = [{'bundleIdentifier': bundle, 'bundleVersion': str(info.get('CFBundleVersion', '')),

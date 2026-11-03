@@ -1,0 +1,9 @@
+{
+  "repository": "https://github.com/doronz88/pymobiledevice3",
+  "revision": "0758de52b85f1bce04193cd43aa488ae2545e347",
+  "version": "11.25.0",
+  "files": {
+    "streaming_zip_conduit.py": "249213088566a7e89d6ef3b3fd6056bff813247b3d6e5142f9cdd7f6f61cb0ae",
+    "PYMOBILEDEVICE3-LICENSE": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+  }
+}
