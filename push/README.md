@@ -58,6 +58,11 @@ the existing renewal date. Scheduler setup can resume after interruption without
 reinstalling already verified apps, and updates preserve intentionally paused
 existing schedulers.
 
+Load, free-space and shared-guard refusals stay pending and retry. A compiler or
+build-script failure is reported as failed, using the current attempt's log even
+when older attempts are retained. Completed failed-build compiler caches are
+discarded without removing their frozen source, signed apps or diagnostic logs.
+
 ## Checkpoints and recovery
 
 One PC systemd uploader hands complete hash-checked jobs to one Mac GUI LaunchAgent.

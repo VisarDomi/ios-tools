@@ -86,7 +86,10 @@ def prune_completed_caches(config):
 
 def preflight_deferral(log):
     """A guard refusal before its 'Guarded build' start marker is no Swift failure."""
-    text = log.read_text(errors='replace')
+    return preflight_deferral_text(log.read_text(errors='replace'))
+
+
+def preflight_deferral_text(text):
     if 'Guarded build;' in text: return None
     lines = [line for line in text.splitlines() if line.startswith('MAC WORKLOAD STOPPED: ')]
     return lines[-1].removeprefix('MAC WORKLOAD STOPPED: ') if lines else None

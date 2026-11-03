@@ -509,13 +509,17 @@ def run_job(job_id):
     receipt = load(metadata / 'build-receipt.json', {})
     if not receipt.get('complete'):
         update(metadata / 'state.json', 'building', message='Waiting for guarded Mac build admission')
-        with (metadata / 'build.log').open('a') as stream:
+        log_path = metadata / 'build.log'
+        offset = log_path.stat().st_size if log_path.exists() else 0
+        with log_path.open('a') as stream:
             result = subprocess.run([sys.executable, str(TOOLS / 'native/scripts/mac-workload'), 'build', '--wait-for-idle', '300',
                                      '--timeout', '900', '--', sys.executable, str(Path(__file__).resolve()), 'build-one', '--id', job_id],
                                     stdout=stream, stderr=subprocess.STDOUT, timeout=1250)
         if result.returncode:
-            text = (metadata / 'build.log').read_text(errors='replace')[-4000:]
-            if any(item in text for item in ['Another build', 'quiet Mac', 'admission', 'disk admission']): raise Retry('Waiting for shared Mac resources')
+            with log_path.open('rb') as stream:
+                stream.seek(offset); text = stream.read().decode(errors='replace')
+            reason = refresh.preflight_deferral_text(text)
+            if reason: raise Retry('Waiting for shared Mac resources: ' + reason)
             raise RuntimeError('Build failed; see private build.log')
     if (metadata / 'cancelled.json').exists(): update(metadata / 'state.json', 'cancelled'); return
     if request.get('validateOnly'):

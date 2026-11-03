@@ -379,6 +379,25 @@ class WorkerTests(unittest.TestCase):
         self.assertTrue(receipt['complete']); self.assertFalse(receipt['reused'])
         self.assertEqual(receipt['appHash'], worker.refresh.fingerprint(self.app.parent, [self.app.name]))
 
+    def test_queue_guard_deferral_uses_only_the_current_attempt_not_old_build_history(self):
+        receipt = dict(self.receipt, complete=False); common.save(self.metadata / 'build-receipt.json', receipt)
+        (self.metadata / 'build.log').write_text('Guarded build; old attempt\nold completed compiler output\n')
+        def refuse(command, **kwargs):
+            kwargs['stdout'].write('MAC WORKLOAD STOPPED: load 7.49 > 6; less than 12 GiB free\n')
+            return subprocess.CompletedProcess(command, 1)
+        with mock.patch.object(worker.subprocess, 'run', side_effect=refuse), mock.patch.object(worker, 'catalog') as catalog:
+            with self.assertRaisesRegex(worker.Retry, 'load 7.49'): worker.run_job(self.job)
+        catalog.assert_not_called()
+
+    def test_actual_compiler_failure_is_not_retried_as_guard_contention(self):
+        common.save(self.metadata / 'build-receipt.json', dict(self.receipt, complete=False))
+        def fail(command, **kwargs):
+            kwargs['stdout'].write('Guarded build; deadline 900s\nerror: compiler failed\nMAC WORKLOAD STOPPED: command failed\n')
+            return subprocess.CompletedProcess(command, 1)
+        with mock.patch.object(worker.subprocess, 'run', side_effect=fail), mock.patch.object(worker, 'catalog') as catalog:
+            with self.assertRaisesRegex(RuntimeError, 'Build failed'): worker.run_job(self.job)
+        catalog.assert_not_called()
+
     def test_wrong_phone_version_cannot_approve_new_source(self):
         with mock.patch.object(worker, 'catalog', return_value=[{'bundleIdentifier': 'com.test.Demo', 'bundleVersion': 'old'}]), self.assertRaises(worker.Retry):
             worker.deliver(self.job)
