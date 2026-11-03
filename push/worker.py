@@ -243,6 +243,9 @@ def build_one(job_id):
     if digest(metadata / 'request.json') != frozen['requestHash']: raise RuntimeError('Queued build request changed')
     config = configuration(request, source); before = input_hash(config)
     verify_checkpoint(config, frozen)
+    # Retain the validated output/input layout even if a builder fails before
+    # producing its receipt, so completed compiler caches can still be cleaned.
+    save(metadata / 'config.json', config)
     save(metadata / 'build-receipt.json', {'inputHash': before, 'complete': False})
     app = source / config['app']
     previous = load(config_path(request['repo'], request['app']))
@@ -548,7 +551,14 @@ def prune():
                 if state.get('phase') not in TERMINAL: keep.add(metadata.name)
                 elif recent < 2: keep.add(metadata.name); recent += 1
                 config = load(metadata / 'config.json')
-                if config and load(metadata / 'build-receipt.json', {}).get('complete'): cleanup_intermediates(config)
+                if not config and state.get('phase') in TERMINAL:
+                    frozen = load(metadata / 'ready.json', {})
+                    request = load(metadata / 'request.json')
+                    if request and frozen.get('requestHash') == digest(metadata / 'request.json'):
+                        try: config = configuration(request, paths(metadata.name)[1])
+                        except (KeyError, ValueError, RuntimeError): pass
+                if config and (state.get('phase') in TERMINAL or load(metadata / 'build-receipt.json', {}).get('complete')):
+                    cleanup_intermediates(config)
             for directory in CHECKPOINTS.glob('*'):
                 if directory.name not in keep and IDENTITY.fullmatch(directory.name):
                     shutil.rmtree(directory)

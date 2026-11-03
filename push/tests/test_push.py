@@ -334,6 +334,18 @@ class WorkerTests(unittest.TestCase):
         self.assertTrue(self.source.exists())
         self.assertLessEqual(len(list(self.checkpoints.iterdir())), 3)
 
+    def test_failed_build_cache_cleanup_keeps_signed_app_source_and_reports(self):
+        (self.metadata / 'config.json').unlink()
+        common.update(self.metadata / 'state.json', 'failed')
+        cache = self.source / 'build/Intermediates'; cache.mkdir(); (cache / 'objects').write_bytes(b'regenerable compiler data')
+        (self.metadata / 'build.log').write_text('failure after signing')
+        self.receipt['complete'] = False; common.save(self.metadata / 'build-receipt.json', self.receipt)
+        worker.prune()
+        self.assertFalse(cache.exists())
+        self.assertEqual((self.app / 'Demo').read_bytes(), b'signed device binary')
+        self.assertEqual((self.source / 'Sources/view.swift').read_text(), 'reviewed source')
+        self.assertEqual((self.metadata / 'build.log').read_text(), 'failure after signing')
+
     def test_pairing_recovery_runs_outside_the_signing_lock(self):
         self.run.stop()
         def repair(command, **kwargs):
