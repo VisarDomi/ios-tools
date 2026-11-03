@@ -67,7 +67,9 @@ def receive(job_id, repo, app):
     with locked(SIGNING_LOCK):
         status = subprocess.run([sys.executable, str(TOOLS / 'native/scripts/mac-workload'), 'status'], capture_output=True, text=True, timeout=30, check=True)
         status = json.loads(status.stdout)
-        if status.get('booted') or status['metrics']['load'] > 6: raise Retry('Waiting for the active Mac workload')
+        if status.get('booted'): raise Retry('Waiting for the booted simulator to shut down')
+        if status['metrics']['load'] > 6:
+            raise Retry('Waiting for Mac load average to settle (%.2f > 6)' % status['metrics']['load'])
         if status['metrics']['diskGiB'] < 12: raise Retry('Mac disk admission requires 12 GiB free')
         ensure_directory(metadata)
         ensure_directory(source)
@@ -662,4 +664,6 @@ def main():
 
 if __name__ == '__main__':
     try: main()
-    except (Retry, BlockingIOError) as error: print(str(error), file=sys.stderr); raise SystemExit(75)
+    except (Retry, BlockingIOError) as error:
+        print('Waiting for the shared Mac build/install lock' if isinstance(error, BlockingIOError) else str(error), file=sys.stderr)
+        raise SystemExit(75)

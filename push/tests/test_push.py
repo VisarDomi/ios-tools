@@ -75,6 +75,15 @@ class SnapshotTests(unittest.TestCase):
 
 
 class WorkerTests(unittest.TestCase):
+    def test_admission_distinguishes_residual_load_from_a_booted_guest(self):
+        for status, reason in [
+            ({'booted': [], 'metrics': {'load': 12.18, 'diskGiB': 30}}, 'load average to settle'),
+            ({'booted': [{'udid': 'guest'}], 'metrics': {'load': 2, 'diskGiB': 30}}, 'booted simulator'),
+        ]:
+            with self.subTest(status=status), mock.patch.object(worker.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, json.dumps(status))), self.assertRaisesRegex(worker.Retry, reason):
+                worker.receive('not-yet-admitted', 'demo', 'demo')
+        self.assertFalse(worker.paths('not-yet-admitted')[0].exists())
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
         self.base = Path(self.temp.name); self.store = self.base / 'queue'; self.checkpoints = self.base / 'checkpoints'
@@ -480,6 +489,21 @@ class WorkerTests(unittest.TestCase):
         worker.cleanup_intermediates(config)
         self.assertTrue(self.app.exists()); self.assertTrue((products / 'Protected/input').exists())
         self.assertFalse((products / 'Kit.o').exists())
+
+
+class ClientStatusTests(unittest.TestCase):
+    def test_transfer_replaces_a_stale_busy_message(self):
+        with tempfile.TemporaryDirectory() as temporary, mock.patch.object(client, 'STORE', Path(temporary)):
+            job = Path(temporary) / 'jobs' / 'job-1'
+            common.save(job / 'request.json', {'id': 'job-1'})
+            common.save(job / 'state.json', {'phase': 'queued', 'message': 'old busy reason'})
+            def transfer(_):
+                state = common.load(job / 'state.json')
+                self.assertEqual(state['phase'], 'uploading')
+                self.assertEqual(state['message'], 'Transferring the frozen source checkpoint')
+            with mock.patch.object(client, 'transfer', side_effect=transfer), mock.patch.object(client, 'remote', return_value=subprocess.CompletedProcess([], 0, '{}')):
+                client.pump()
+            self.assertEqual(common.load(job / 'state.json')['message'], 'Source transferred; waiting for guarded build')
 
 
 class WatchClientTests(unittest.TestCase):

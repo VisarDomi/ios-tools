@@ -152,9 +152,9 @@ def pump():
             if not request or state.get('transportNextAttempt', 0) > time.time(): continue
             try:
                 if not state.get('uploadComplete'):
-                    update(directory / 'state.json', 'uploading')
+                    update(directory / 'state.json', 'uploading', message='Transferring the frozen source checkpoint')
                     transfer(directory)
-                    update(directory / 'state.json', 'submitted', uploadComplete=True)
+                    update(directory / 'state.json', 'submitted', uploadComplete=True, message='Source transferred; waiting for guarded build')
                 result = remote(['status', '--id', request['id']], timeout=45)
                 current = json.loads(result.stdout)
                 # A transfer acknowledgement is not an installation success.
