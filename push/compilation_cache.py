@@ -22,7 +22,7 @@ def build_environment(environment, metadata, source, cache_root):
     lines += [
         'COMPILATION_CACHE_ENABLE_CACHING = YES',
         'COMPILATION_CACHE_ENABLE_DIAGNOSTIC_REMARKS = YES',
-        'COMPILATION_CACHE_CAS_PATH = ' + quoted(cache_root),
+        'COMPILATION_CACHE_CAS_PATH = ' + str(cache_root),
         'COMPILATION_CACHE_KEEP_CAS_DIRECTORY = YES',
         'COMPILATION_CACHE_LIMIT_SIZE = 2G',
         'SWIFT_ENABLE_PREFIX_MAPPING = YES',
