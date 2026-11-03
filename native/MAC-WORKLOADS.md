@@ -72,8 +72,11 @@ ssh mac 'sudo -n launchctl asuser 501 sudo -n -H -u visar /usr/bin/python3 /User
 ssh mac 'sudo -n launchctl asuser 501 sudo -n -H -u visar /usr/bin/python3 /Users/visar/Developer/ios-tools/native/scripts/mac-workload build --timeout 900 -- /usr/bin/python3 /Users/visar/Developer/guidance/apps/ios/scripts/build.py'
 ```
 
-Before starting, the guard requires load at most 6, normal kernel memory pressure,
-at least 12 GiB free, no running `xcodebuild`, and no booted simulator.
+Before starting, the guard requires normal kernel memory pressure, at least
+12 GiB free, no running `xcodebuild`, and no booted simulator. Simulator admission
+also requires load at most 6. A build with a higher residual load average may
+start after three successive samples show at least 50% CPU idle and a health
+probe below 0.5 seconds; the other checks still apply.
 It waits at most 30 seconds for the existing signing lock, including the inherited descriptor used by
 renewal builders. Signing, compilation and simulator sessions cannot overlap
 when run through it. Keep repository signing locks too.
@@ -89,12 +92,22 @@ high queue load together with a probe over three seconds stops it immediately.
 Large queue counts with normal memory and responsive probes can occur during
 initialization and are recorded rather than treated as a kernel freeze.
 
-The preflight still requires a quiet host before adding work. Builds are capped
+The preflight still requires measured host headroom before adding work. Builds are capped
 at fifteen minutes; simulator sessions default to five and are capped at ten.
 A recorded trial/profile can calibrate queue alert levels, but cannot remove
 memory, disk, responsiveness or deadline checks. These controls contain workload
 failures; they cannot intercept a GPU driver kernel panic.
 Reports are private `~/Library/Caches/ios-app-refresh/workload-*.jsonl` (20 retained).
+
+## Build delivery has priority
+
+Queued app deliveries take priority over simulator QA. An incoming upload records
+its intent before waiting for the shared lock; an interrupted upload's intent
+expires after ten minutes. Runnable queue work prevents a new simulator session.
+If a delivery arrives during a guarded simulator run, the guard stops its owned
+command and performs its normal exact-guest/GUI shutdown before releasing the lock.
+It never starts a compiler alongside a live guest or bypasses a failed cleanup.
+Jobs waiting for a future transport retry do not reserve the Mac indefinitely.
 
 ## Simulator sessions
 

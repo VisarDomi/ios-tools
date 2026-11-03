@@ -64,12 +64,13 @@ def receive(job_id, repo, app):
     metadata, source = paths(job_id)
     if (metadata / 'cancelled.json').exists(): return {'ready': True, 'source': str(source), 'metadata': str(metadata)}
     if (metadata / 'ready.json').exists(): return {'ready': True, 'source': str(source), 'metadata': str(metadata)}
+    ensure_directory(metadata)
+    save(metadata / 'incoming.json', {'at': time.time(), 'repo': repo, 'app': app})
     with locked(SIGNING_LOCK):
         status = subprocess.run([sys.executable, str(TOOLS / 'native/scripts/mac-workload'), 'status'], capture_output=True, text=True, timeout=30, check=True)
         status = json.loads(status.stdout)
         if status.get('booted'): raise Retry('Waiting for the booted simulator to shut down')
-        if status['metrics']['load'] > 6:
-            raise Retry('Waiting for Mac load average to settle (%.2f > 6)' % status['metrics']['load'])
+        if status['metrics'].get('pressure', 1) != 1: raise Retry('Waiting for normal Mac memory pressure')
         if status['metrics']['diskGiB'] < 12: raise Retry('Mac disk admission requires 12 GiB free')
         ensure_directory(metadata)
         ensure_directory(source)

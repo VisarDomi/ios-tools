@@ -55,6 +55,34 @@ class WorkloadTests(unittest.TestCase):
                 with self.assertRaises(m.UnsafeWorkload):m.wait_for_idle(10)
                 sleep.assert_not_called()
 
+    def test_build_admission_uses_three_idle_samples_despite_residual_load(self):
+        sample=dict(HEALTHY,load=100,cpuIdle=85,probeSeconds=.01)
+        with patch.object(m,'devices',return_value=[]),patch.object(m,'metrics',return_value=sample), \
+             patch.object(m.subprocess,'run',return_value=subprocess.CompletedProcess([],1)),patch.object(m.time,'sleep') as sleep:
+            self.assertEqual(m.wait_for_idle(10,kind='build'),[])
+            self.assertEqual(sleep.call_count,2)
+        with self.assertRaises(m.UnsafeWorkload): m.preflight(sample,[])
+
+    def test_build_idle_exception_cannot_bypass_other_resource_checks(self):
+        for sample in [dict(HEALTHY,load=100,cpuIdle=10,probeSeconds=.01),
+                       dict(HEALTHY,load=100,cpuIdle=90,probeSeconds=2),
+                       dict(HEALTHY,load=100,cpuIdle=90,probeSeconds=.01,pressure=2)]:
+            with self.subTest(sample=sample),patch.object(m,'devices',return_value=[]),patch.object(m,'metrics',return_value=sample), \
+                 patch.object(m.subprocess,'run',return_value=subprocess.CompletedProcess([],1)),patch.object(m.time,'monotonic',side_effect=[0,20]), \
+                 self.assertRaises(m.UnsafeWorkload): m.wait_for_idle(0,kind='build')
+
+    def test_simulator_gives_queued_builds_admission_priority(self):
+        args=argparse.Namespace(kind='simulator',device=DEVICE,trial=False,timeout=10,command=['qa'])
+        with patch.object(m,'queued_delivery',return_value='pending-app'),patch.object(m,'devices') as devices, \
+             self.assertRaisesRegex(m.UnsafeWorkload,'deferred to queued'):
+            m.run_workload(args)
+        devices.assert_not_called()
+
+    def test_running_simulator_command_yields_to_new_delivery(self):
+        with (self.root/'yield.jsonl').open('w') as stream,patch.object(m,'metrics',return_value=HEALTHY), \
+             patch.object(m,'queued_delivery',return_value='new-app'),self.assertRaisesRegex(m.UnsafeWorkload,'yielding to queued'):
+            m.monitor([sys.executable,'-c','import time; time.sleep(30)'],time.monotonic()+10,stream,1,'command',yield_to_builds=True)
+
     def test_quarantine_requires_fresh_recorded_matching_driver_trial(self):
         p = dict(simulatorBlockedReason='GPU panic')
         with self.assertRaises(m.UnsafeWorkload):

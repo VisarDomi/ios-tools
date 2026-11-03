@@ -21,6 +21,7 @@ import subprocess
 import sys
 import time
 sys.path.insert(0,str(Path(__file__).resolve().parent))
+from build_queue_priority import queued_delivery
 from apple_tools import tool_path
 from simulator_environment import checked_wasm_overrides,intel_wasm_overrides
 
@@ -157,9 +158,9 @@ def devices():
     return [item for group in result['devices'].values() for item in group]
 
 
-def preflight(sample, booted, xcode_busy=False):
+def preflight(sample, booted, xcode_busy=False, allow_stale_load=False):
     reasons = []
-    if sample['load'] > 6:
+    if sample['load'] > 6 and not allow_stale_load:
         reasons.append('load %.2f > 6; let the Mac settle' % sample['load'])
     if sample['pressure'] != 1:
         reasons.append('memory pressure is not normal')
@@ -173,26 +174,35 @@ def preflight(sample, booted, xcode_busy=False):
         raise UnsafeWorkload('; '.join(reasons))
 
 
-def wait_for_idle(wait=0):
-    """Bounded admission wait, never a reboot/retry loop and never raises limits."""
-    end=time.monotonic()+max(0,min(wait,300))
+def wait_for_idle(wait=0, kind='simulator'):
+    """Builds can prove CPU headroom instead of waiting for a lagging load average."""
+    end=time.monotonic()+max(8 if kind=='build' else 0,min(wait,300))
     announced=False
+    quiet_samples=0
     while True:
         known=devices()
         sample=metrics()
+        if kind=='simulator' and queued_delivery():
+            raise UnsafeWorkload('Simulator deferred to queued app delivery')
         busy=subprocess.run(['/usr/bin/pgrep','-x','xcodebuild'],stdout=subprocess.DEVNULL).returncode==0
         # Do not wait for/take over another person's workload or GUI.
         if any(x['state']!='Shutdown' for x in known) or busy or sample['diskGiB']<12 or sample['pressure']>=4:
             preflight(sample,[x['udid'] for x in known if x['state']!='Shutdown'],busy)
         try:
-            preflight(sample,[],busy)
+            idle=sample.get('cpuIdle')
+            quiet=(kind=='build' and idle is not None and idle>=50 and sample.get('probeSeconds',float('inf'))<.5
+                   and sample['pressure']==1 and sample['diskGiB']>=12)
+            quiet_samples=quiet_samples+1 if quiet else 0
+            preflight(sample,[],busy,allow_stale_load=quiet_samples>=3)
+            if sample['load']>6:
+                print('Admitting build after three idle CPU samples; residual load %.2f, CPU idle %.1f%%'%(sample['load'],idle),flush=True)
             return known
         except UnsafeWorkload:
             if time.monotonic()>=end:raise
             if not announced:
                 print('Waiting up to %ss for a quiet Mac; no guest or compiler has started'%wait,flush=True)
                 announced=True
-            time.sleep(min(5,max(0,end-time.monotonic())))
+            time.sleep(min(2 if kind=='build' else 5,max(0,end-time.monotonic())))
 
 
 def simulator_policy(settings, trial, current_coalescing=None, now=None, current_renderstandby=None):
@@ -323,7 +333,7 @@ def pressure_failure(sample, previous, now, limits=None):
     return None, since
 
 
-def monitor(command, deadline, log, fd, phase, limits=None, extra_env=None, crash_watch=None):
+def monitor(command, deadline, log, fd, phase, limits=None, extra_env=None, crash_watch=None, yield_to_builds=False):
     env = dict(os.environ, IOS_REFRESH_LOCK_FD=str(fd), IOS_WORKLOAD_ACTIVE=str(os.getpid()))
     env.update(extra_env or {})
     process = subprocess.Popen(command, env=env, pass_fds=(fd,), start_new_session=True)
@@ -335,6 +345,9 @@ def monitor(command, deadline, log, fd, phase, limits=None, extra_env=None, cras
             log.write(json.dumps(dict(phase=phase, at=time.time(), **sample)) + '\n')
             log.flush()
             reason, since = pressure_failure(sample, since, now, limits)
+            if yield_to_builds:
+                pending=queued_delivery()
+                if pending: reason='Simulator yielding to queued app delivery '+pending
             if crash_watch is not None:reason=crash_watch.failure() or reason
             if reason or now >= deadline:
                 raise UnsafeWorkload(reason or 'workload deadline expired')
@@ -383,6 +396,7 @@ def run_workload(args):
     if os.environ.get('IOS_WORKLOAD_ACTIVE'):
         raise UnsafeWorkload('Nested workloads are not allowed; build before booting the simulator')
     if args.kind == 'simulator':
+        if queued_delivery(): raise UnsafeWorkload('Simulator deferred to queued app delivery')
         settings=policy()
         check_panic_reports(settings)
         simulator_policy(settings, args.trial, metal_coalescing(),current_renderstandby=render_standby(settings))
@@ -393,7 +407,7 @@ def run_workload(args):
     mode = wasm_mode(args,policy())
     limits = trial_limits(policy(), args.trial, args.kind)
     with signing_lock() as fd:
-        known = wait_for_idle(getattr(args,'wait_for_idle',0))
+        known = wait_for_idle(getattr(args,'wait_for_idle',0),kind=args.kind)
         if args.kind=='simulator':check_panic_reports(policy())
         if args.kind=='simulator' and getattr(args,'visible',False) and subprocess.run(['/usr/bin/pgrep','-x','Simulator'],stdout=subprocess.DEVNULL).returncode==0:
             raise UnsafeWorkload('Simulator.app opened during admission wait; refusing to take over')
@@ -424,14 +438,15 @@ def run_workload(args):
                     boot = [tool_path('simctl'), 'boot', args.device]
                     if platform.machine() == 'x86_64':
                         boot.append('--arch=x86_64')
-                    monitor(boot, deadline, log, fd, 'boot', limits, crash_watch=crash_watch)
+                    monitor(boot, deadline, log, fd, 'boot', limits, crash_watch=crash_watch, yield_to_builds=True)
                     if getattr(args,'visible',False):
                         gui_started = True
                         subprocess.run(['/usr/bin/open','-a','Simulator','--args','-CurrentDeviceUDID',args.device],check=True,timeout=15)
-                    monitor([tool_path('simctl'), 'bootstatus', args.device, '-b'], deadline, log, fd, 'bootstatus', limits, crash_watch=crash_watch)
+                    monitor([tool_path('simctl'), 'bootstatus', args.device, '-b'], deadline, log, fd, 'bootstatus', limits, crash_watch=crash_watch, yield_to_builds=True)
                 monitor(bounded_jobs(args.command) if args.kind == 'build' else args.command,
                         deadline, log, fd, 'command', limits,
-                        intel_wasm_overrides() if mode=='compat' else (checked_wasm_overrides() if mode=='checked' else None),crash_watch=crash_watch)
+                        intel_wasm_overrides() if mode=='compat' else (checked_wasm_overrides() if mode=='checked' else None),crash_watch=crash_watch,
+                        yield_to_builds=args.kind=='simulator')
         finally:
             cleaned = not boot_attempted
             try:

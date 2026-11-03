@@ -75,14 +75,20 @@ class SnapshotTests(unittest.TestCase):
 
 
 class WorkerTests(unittest.TestCase):
-    def test_admission_distinguishes_residual_load_from_a_booted_guest(self):
+    def test_upload_admission_waits_for_guest_or_pressure_but_not_old_load(self):
         for status, reason in [
-            ({'booted': [], 'metrics': {'load': 12.18, 'diskGiB': 30}}, 'load average to settle'),
+            ({'booted': [], 'metrics': {'load': 12.18, 'diskGiB': 30, 'pressure': 2}}, 'memory pressure'),
             ({'booted': [{'udid': 'guest'}], 'metrics': {'load': 2, 'diskGiB': 30}}, 'booted simulator'),
         ]:
             with self.subTest(status=status), mock.patch.object(worker.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, json.dumps(status))), self.assertRaisesRegex(worker.Retry, reason):
                 worker.receive('not-yet-admitted', 'demo', 'demo')
-        self.assertFalse(worker.paths('not-yet-admitted')[0].exists())
+        self.assertTrue((worker.paths('not-yet-admitted')[0]/'incoming.json').exists())
+        self.assertFalse(worker.paths('not-yet-admitted')[1].exists())
+        status={'booted': [], 'metrics': {'load': 120, 'diskGiB': 30, 'pressure': 1}}
+        with mock.patch.object(worker.subprocess,'run',return_value=subprocess.CompletedProcess([],0,json.dumps(status))):
+            result=worker.receive('new-source','demo','demo')
+        self.assertFalse(result['ready'])
+        self.assertEqual(common.load(worker.paths('new-source')[0]/'state.json')['phase'],'receiving')
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
