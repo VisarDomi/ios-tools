@@ -327,6 +327,26 @@ class RenewalTests(unittest.TestCase):
         self.assertEqual(refresh.prune_completed_caches(dict(self.config, root=str(frozen))), [])
         self.assertTrue((cache / 'pending').exists())
 
+    def test_optional_cache_cleanup_error_does_not_undo_confirmed_installation(self):
+        with patch.object(refresh, 'prune_completed_caches', side_effect=ValueError('malformed unrelated registration')):
+            refresh.run(self.config, 'refresh')
+        self.assertEqual(self.state()['lastSuccess'], 100000)
+        self.assertIsNone(self.state()['lastError'])
+
+    def test_pending_delivery_and_symlinked_cache_are_preserved(self):
+        derived = self.root / 'build/DerivedData'
+        derived.mkdir(parents=True); (derived / 'cache').write_text('keep until delivery settles')
+        state = self.state(); state['pendingPush'] = {'id': 'pending'}; refresh.save(self.state_path, state)
+        self.assertEqual(refresh.prune_completed_caches(self.config), [])
+        self.assertTrue(derived.exists())
+        state.pop('pendingPush'); refresh.save(self.state_path, state)
+        import shutil
+        shutil.rmtree(derived)
+        outside = self.root / 'outside'; outside.mkdir(); (outside / 'cache').write_text('not ours')
+        derived.symlink_to(outside, target_is_directory=True)
+        self.assertEqual(refresh.prune_completed_caches(self.config), [])
+        self.assertTrue((outside / 'cache').exists())
+
     def test_calendar_month_clamps_at_month_end(self):
         import datetime as dt
         start = dt.datetime(2026, 1, 31, tzinfo=dt.timezone.utc).timestamp()

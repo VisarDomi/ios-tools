@@ -328,7 +328,7 @@ def run(config, action, force=False, wireless=False, keep_schedule=False, config
             try:
                 removed = prune_completed_caches(config)
                 if removed: print('Removed completed compiler caches: ' + ', '.join(removed), flush=True)
-            except OSError as error:
+            except (OSError, ValueError, KeyError) as error:
                 print('Compiler cache cleanup deferred: ' + str(error), flush=True)
         except BaseException:
             restore_cache(stash, cache)
