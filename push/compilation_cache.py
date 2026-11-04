@@ -27,6 +27,8 @@ def build_environment(environment, metadata, source, cache_root):
         'COMPILATION_CACHE_LIMIT_SIZE = 2G',
         'SWIFT_ENABLE_PREFIX_MAPPING = YES',
         'CLANG_ENABLE_PREFIX_MAPPING = YES',
+        'SWIFT_OTHER_PREFIX_MAPPINGS = $(inherited) ' + quoted(str(source.resolve()) + '=/^src'),
+        'CLANG_OTHER_PREFIX_MAPPINGS = $(inherited) ' + quoted(str(source.resolve()) + '=/^src'),
         'COMPILER_INDEX_STORE_ENABLE = NO',
     ]
     atomic_bytes(config, ('\n'.join(lines) + '\n').encode())
