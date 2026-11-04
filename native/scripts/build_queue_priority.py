@@ -15,6 +15,11 @@ def queued_delivery(now=None):
             state = json.loads((job / 'state.json').read_text()) if (job / 'state.json').exists() else {}
             if state.get('phase') in TERMINAL or (job / 'cancelled.json').exists(): continue
             if (job / 'ready.json').exists():
+                # A package already offered by OTA has no pending compiler or
+                # publication work. Confirmation retries must not starve QA.
+                if state.get('otaPublished') and (job / 'build-receipt.json').exists():
+                    receipt = json.loads((job / 'build-receipt.json').read_text())
+                    if receipt.get('complete'): continue
                 if state.get('nextAttempt', 0) <= now: return job.name
             elif (job / 'incoming.json').exists():
                 incoming = json.loads((job / 'incoming.json').read_text())

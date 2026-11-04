@@ -10,6 +10,16 @@ import build_queue_priority as queue
 
 
 class QueuePriorityTests(unittest.TestCase):
+    def test_published_ota_confirmation_is_secondary_but_required_rebuild_is_primary(self):
+        with tempfile.TemporaryDirectory() as temporary,patch.object(queue,'STORE',Path(temporary)):
+            job=Path(temporary)/'jobs'/'published';job.mkdir(parents=True)
+            (job/'ready.json').write_text('{}')
+            (job/'state.json').write_text(json.dumps({'phase':'waiting_mac','otaPublished':True}))
+            receipt=job/'build-receipt.json';receipt.write_text(json.dumps({'complete':True}))
+            self.assertIsNone(queue.queued_delivery(now=1000))
+            receipt.write_text(json.dumps({'complete':False}))
+            self.assertEqual(queue.queued_delivery(now=1000),'published')
+
     def test_runnable_deliveries_win_but_terminal_and_future_retries_do_not(self):
         with tempfile.TemporaryDirectory() as temporary,patch.object(queue,'STORE',Path(temporary)):
             job=Path(temporary)/'jobs'/'app';job.mkdir(parents=True)
