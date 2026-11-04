@@ -482,8 +482,10 @@ def deliver(job_id, allow_ota=False):
         validate_receipt(config, receipt, app)
         phone_proof = {'appHash': receipt['appHash'], 'device': config['device'], 'version': receipt['version']}
         phone_done = bool(config.get('watch') and load(metadata / 'state.json', {}).get('phoneDelivery') == phone_proof)
-        before = [] if phone_done else catalog(config, metadata / 'phone-before.json')
-        if before is None and not allow_ota: raise RecoverTransport()
+        ota_requested = load(metadata / 'delivery-mode.json', {}).get('mode') == 'ota'
+        unpublished_ota = ota_requested and not load(metadata / 'state.json', {}).get('otaPublished')
+        before = [] if phone_done else (None if unpublished_ota else catalog(config, metadata / 'phone-before.json'))
+        if before is None and not allow_ota and not ota_requested: raise RecoverTransport()
         with locked(metadata / 'control.lock', wait=5):
             if (metadata / 'cancelled.json').exists(): update(metadata / 'state.json', 'cancelled'); return
             state_path, state = pending_state(request, config)
@@ -595,7 +597,15 @@ def prune():
 
 def control(job_id, action):
     metadata, source = paths(job_id); state = load(metadata / 'state.json', {})
-    if action == 'cancel':
+    if action == 'ota':
+        ensure_directory(metadata)
+        with locked(metadata / 'control.lock', wait=5):
+            state = load(metadata / 'state.json', {})
+            if state.get('phase') in TERMINAL: raise RuntimeError('This delivery is already closed')
+            save(metadata / 'delivery-mode.json', {'mode': 'ota', 'at': time.time()})
+            update(metadata / 'state.json', state.get('phase', 'receiving'), id=job_id, nextAttempt=0,
+                   message='OTA publication requested for this delivery')
+    elif action == 'cancel':
         metadata.mkdir(parents=True, exist_ok=True, mode=0o700)
         with locked(metadata / 'control.lock', wait=5):
             state = load(metadata / 'state.json', {})
@@ -621,12 +631,16 @@ def control(job_id, action):
 
 def work():
     with locked(STORE / 'worker.lock'):
+        due = []
         for metadata in sorted((STORE / 'jobs').glob('*')):
             try: state = load(metadata / 'state.json', {})
             except (OSError, ValueError):
                 save(metadata / 'state.json', {'id': metadata.name, 'phase': 'failed', 'message': 'Unreadable queue state; inspect and retry the frozen checkpoint'})
                 continue
             if not (metadata / 'ready.json').exists() or state.get('phase') in TERMINAL or state.get('nextAttempt', 0) > time.time(): continue
+            due.append((bool(state.get('otaPublished') or state.get('phase') == 'awaiting_watch'), metadata, state))
+        # Fresh source/build/publication work precedes retries for packages already sent.
+        for _retry, metadata, state in sorted(due, key=lambda item: (item[0], item[1].name)):
             try: run_job(metadata.name)
             except Rebuild as error:
                 attempts = state.get('rebuildAttempts', 0) + 1
@@ -645,13 +659,13 @@ def work():
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['receive', 'ready', 'work', 'build-one', 'status', 'logs', 'install-authority', 'retry', 'cancel'])
+    parser.add_argument('action', choices=['receive', 'ready', 'work', 'build-one', 'status', 'logs', 'install-authority', 'retry', 'cancel', 'ota'])
     parser.add_argument('--id'); parser.add_argument('--repo'); parser.add_argument('--app'); parser.add_argument('--bundle')
     args = parser.parse_args()
     if args.action == 'receive': print(json.dumps(receive(identity(args.id), identity(args.repo), identity(args.app))))
     elif args.action == 'ready': ready(identity(args.id)); print('ready')
     elif args.action == 'build-one': build_one(identity(args.id))
-    elif args.action in {'retry', 'cancel'}: control(identity(args.id), args.action)
+    elif args.action in {'retry', 'cancel', 'ota'}: control(identity(args.id), args.action)
     elif args.action == 'work':
         try: work()
         except BlockingIOError: pass

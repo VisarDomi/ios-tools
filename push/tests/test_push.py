@@ -323,6 +323,28 @@ class WorkerTests(unittest.TestCase):
         self.assertIn('pendingPush', common.load(self.state_path))
         self.assertEqual(self.calls[-1][1]['env']['IOS_PUSH_JOB_ID'], self.job)
 
+    def test_explicit_ota_skips_native_discovery_without_changing_frozen_source(self):
+        before = (self.metadata / 'request.json').read_bytes()
+        worker.control(self.job, 'ota')
+        self.assertEqual((self.metadata / 'request.json').read_bytes(), before)
+        self.run.stop()
+        with mock.patch.object(worker.subprocess,'run',return_value=subprocess.CompletedProcess([],10)), \
+             mock.patch.object(worker,'catalog',side_effect=AssertionError('No local device request for explicit OTA')):
+            worker.deliver(self.job)
+        self.assertEqual(common.load(self.metadata/'state.json')['phase'],'awaiting_ota')
+        self.assertIn('pendingPush',common.load(self.state_path))
+        self.assertEqual(common.load(worker.config_path('demo','demo'))['root'],self.old['root'])
+
+    def test_new_builds_precede_already_published_transport_retries(self):
+        common.update(self.metadata/'state.json','awaiting_ota',otaPublished=True,nextAttempt=0)
+        new=self.store/'jobs'/'z-new';new.mkdir(parents=True)
+        common.save(new/'ready.json',{})
+        common.save(new/'state.json',{'phase':'queued'})
+        order=[]
+        with mock.patch.object(worker,'run_job',side_effect=order.append),mock.patch.object(worker,'prune'):
+            worker.work()
+        self.assertEqual(order,['z-new',self.job])
+
     def test_changed_source_and_request_never_reach_the_phone(self):
         (self.source / 'Sources/view.swift').write_text('unexpected source')
         with mock.patch.object(worker, 'catalog') as catalog, self.assertRaises(RuntimeError): worker.deliver(self.job)

@@ -206,7 +206,7 @@ def main():
         else:
             result = remote(['logs', '--id', identity(args.job)], timeout=30)
             print(result.stdout, end='')
-    elif args.action in {'cancel', 'retry'}:
+    elif args.action in {'cancel', 'retry', 'ota'}:
         job_id = identity(args.job)
         if ON_MAC:
             import worker

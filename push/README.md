@@ -23,6 +23,7 @@ ios-push status JOB --follow
 ios-push logs JOB
 ios-push retry JOB
 ios-push cancel JOB
+ios-push ota JOB
 ```
 
 Following is optional; stopping the follower never stops the job. Agents should submit,
@@ -36,6 +37,12 @@ installer because direct installation was unavailable. Pass on
 when the authenticated phone returns. Once installation/publication might have happened,
 finish or supersede the delivery with a newer push instead of cancelling it into an
 older renewal baseline.
+
+`ios-push ota JOB` requests OTA publication for an already queued delivery,
+including one whose source is still uploading. It preserves the frozen source
+and bypasses local phone discovery for its initial publication. Later checks
+can still confirm delivery when the phone is reachable. New builds/publications
+run before retries for already-published OTA packages.
 
 `--validate-only` builds/verifies without any phone operation. `--force` rebuilds even
 when an exactly matching verified artifact could be reused. The caller still runs the
