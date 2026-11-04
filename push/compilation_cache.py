@@ -4,7 +4,7 @@ import json
 from common import atomic_bytes, ensure_directory
 
 
-def build_environment(environment, metadata, source, cache_root):
+def build_environment(environment, metadata, source, cache_root, *, product=None, app_name=None):
     result = dict(environment)
     metadata, source, cache_root = map(Path, (metadata, source, cache_root))
     ensure_directory(cache_root)
@@ -19,6 +19,14 @@ def build_environment(environment, metadata, source, cache_root):
         if not original.is_absolute(): original = source / original
         if original.resolve() == config.resolve(): raise ValueError('Recursive xcconfig include')
         lines.append('#include ' + quoted(original))
+    mappings = [(source.resolve(), '/^src')]
+    if product is not None:
+        mappings.append(((source / Path(product).parent).resolve(), '/^products'))
+    if app_name:
+        mappings.append(((source / 'build/DerivedData' / app_name).resolve(), '/^derived'))
+    # More-specific paths must be considered before the frozen source root.
+    mappings.sort(key=lambda pair: len(str(pair[0])), reverse=True)
+    prefix_maps = ' '.join(quoted(str(path) + '=' + virtual) for path, virtual in mappings)
     lines += [
         'COMPILATION_CACHE_ENABLE_CACHING = YES',
         'COMPILATION_CACHE_ENABLE_DIAGNOSTIC_REMARKS = YES',
@@ -27,8 +35,8 @@ def build_environment(environment, metadata, source, cache_root):
         'COMPILATION_CACHE_LIMIT_SIZE = 2G',
         'SWIFT_ENABLE_PREFIX_MAPPING = YES',
         'CLANG_ENABLE_PREFIX_MAPPING = YES',
-        'SWIFT_OTHER_PREFIX_MAPPINGS = $(inherited) ' + quoted(str(source.resolve()) + '=/^src'),
-        'CLANG_OTHER_PREFIX_MAPPINGS = $(inherited) ' + quoted(str(source.resolve()) + '=/^src'),
+        'SWIFT_OTHER_PREFIX_MAPPINGS = $(inherited) ' + prefix_maps,
+        'CLANG_OTHER_PREFIX_MAPPINGS = $(inherited) ' + prefix_maps,
         'COMPILER_INDEX_STORE_ENABLE = NO',
     ]
     atomic_bytes(config, ('\n'.join(lines) + '\n').encode())

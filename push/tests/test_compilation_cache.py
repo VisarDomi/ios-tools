@@ -7,6 +7,20 @@ from compilation_cache import build_environment
 
 
 class CompilationCacheTests(unittest.TestCase):
+    def test_provider_output_and_derived_paths_share_virtual_cache_names(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for provider in ['asura', 'lua']:
+                source = root / provider
+                env = build_environment({}, root / (provider+'-metadata'), source, root/'cache',
+                                        product='build/'+provider+'.paid/Release-iphoneos/App.app', app_name=provider)
+                text = Path(env['XCODE_XCCONFIG_FILE']).read_text()
+                derived = str(source/'build/DerivedData'/provider)+'=/^derived'
+                products = str(source/'build'/ (provider+'.paid')/'Release-iphoneos')+'=/^products'
+                self.assertIn(derived, text)
+                self.assertIn(products, text)
+                self.assertLess(text.index(derived),text.index(str(source)+'=/^src'))
+
     def test_frozen_jobs_share_a_bounded_cache_without_changing_source_or_optimisation(self):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary);source=root/'source';source.mkdir()

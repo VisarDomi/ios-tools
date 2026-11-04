@@ -291,7 +291,8 @@ def build_one(job_id):
         environment = dict(os.environ)
         for item in ['SIMULATOR', 'DECODER_PROBE', 'ORIGINAL_CODEC_PROBE']: environment.pop(item, None)
         environment.update(config.get('environment', {}), SIGNING_DESTINATION='generic/platform=iOS')
-        environment = build_environment(environment, metadata, source, MAC_HOME / 'Library/Caches/ios-tools/CompilationCache.noindex')
+        environment = build_environment(environment, metadata, source, MAC_HOME / 'Library/Caches/ios-tools/CompilationCache.noindex',
+                                        product=config['app'], app_name=config['name'])
         print('Using shared Xcode compilation cache (2 GiB per CAS store)', flush=True)
         compile_started = time.monotonic()
         subprocess.run(config['build'], cwd=source, env=environment, pass_fds=(int(os.environ['IOS_REFRESH_LOCK_FD']),), check=True)
