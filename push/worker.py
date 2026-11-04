@@ -603,7 +603,8 @@ def control(job_id, action):
             state = load(metadata / 'state.json', {})
             if state.get('phase') in TERMINAL: raise RuntimeError('This delivery is already closed')
             save(metadata / 'delivery-mode.json', {'mode': 'ota', 'at': time.time()})
-            update(metadata / 'state.json', state.get('phase', 'receiving'), id=job_id, nextAttempt=0,
+            update(metadata / 'state.json', state.get('phase', 'receiving'), id=job_id,
+                   nextAttempt=state.get('nextAttempt', 0) if state.get('otaPublished') else 0,
                    message='OTA publication requested for this delivery')
     elif action == 'cancel':
         metadata.mkdir(parents=True, exist_ok=True, mode=0o700)
