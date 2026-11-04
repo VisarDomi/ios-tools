@@ -111,6 +111,28 @@ Jobs waiting for a future transport retry do not reserve the Mac indefinitely.
 
 ## Simulator sessions
 
+### Build and diagnose the Intel fixture efficiently
+
+Routine QA builds on this Mac need only `ARCHS=x86_64 ONLY_ACTIVE_ARCH=YES`;
+do not compile an unused arm64 simulator slice. Physical-phone builds remain
+arm64. Use Release optimization for CPU comparisons and record work counts as
+well as elapsed/process CPU time. Keep instrumentation out of the product target.
+
+If simulator installation stalls before the app launches, collect the simctl,
+CoreSimulatorService and guest installd/lsd stacks inside the existing bounded
+session. Do not attribute pre-launch host work to the app or keep extending its
+timeout. End the owned session normally. With all guests shut down, no pending
+delivery and the shared lock held, an evidence-preserving restart of the exact
+current-user CoreSimulatorService is an available bounded recovery; it does not
+erase a guest or replace a runtime. Record whether it actually helps.
+
+The November 4 reader trial used an exact-revision x86_64-only fixture after one
+idle-service restart and passed installation, a 50,000-page CPU scenario, image
+geometry, zoom and continuous cached chapter scrolling. Startup remained slow;
+a host `diskimagesiod` sample showed LZFSE decompression before the app launched.
+This distinguishes runtime startup overhead from reader CPU work; one passing
+trial does not establish the sole cause of the earlier installer stalls.
+
 ### Reuse the shared devices
 
 Routine QA uses one initialized iPhone and one initialized Watch, with only one
