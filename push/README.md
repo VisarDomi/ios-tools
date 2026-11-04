@@ -90,6 +90,11 @@ per-job DerivedData cleanup no longer discard cached compiler outputs. Xcode's
 own pruning targets 2 GiB per CAS store; no cache-cleanup daemon is added. Build
 logs include cache diagnostics, and receipts record compilation seconds.
 
+Sources that import AppIntents retain real Swift paths: Xcode's metadata
+extractor cannot resolve the cache's virtual source aliases. The shared cache
+and Clang path normalization remain enabled; only Swift path normalization is
+omitted for those apps so complication and shortcut metadata can be generated.
+
 Release optimization and signing/profile verification stay in force. Terminal
 builds skip IDE indexing. An existing `XCODE_XCCONFIG_FILE` is included before the
 cache settings. Source checkpoints stay immutable; cached compiler outputs still

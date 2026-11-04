@@ -7,6 +7,21 @@ from compilation_cache import build_environment
 
 
 class CompilationCacheTests(unittest.TestCase):
+    def test_app_intents_keep_real_swift_sources_for_metadata_extraction(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); source = root/'source'
+            widget = source/'Sources/Widgets/Refresh.swift'
+            widget.parent.mkdir(parents=True)
+            widget.write_text('import AppIntents\nstruct Refresh: AppIntent {}\n')
+            env = build_environment({}, root/'metadata', source, root/'cache')
+            text = Path(env['XCODE_XCCONFIG_FILE']).read_text()
+            self.assertIn('SWIFT_ENABLE_PREFIX_MAPPING = NO\n', text)
+            self.assertIn('SWIFT_OTHER_PREFIX_MAPPINGS = $(inherited)\n', text)
+            self.assertIn('COMPILATION_CACHE_ENABLE_CACHING = YES\n', text)
+            self.assertIn('CLANG_ENABLE_PREFIX_MAPPING = YES\n', text)
+            self.assertIn('CLANG_OTHER_PREFIX_MAPPINGS = $(inherited) "'+str(source)+'=/^src"', text)
+            self.assertEqual(widget.read_text(),'import AppIntents\nstruct Refresh: AppIntent {}\n')
+
     def test_provider_output_and_derived_paths_share_virtual_cache_names(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

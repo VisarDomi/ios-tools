@@ -1,7 +1,22 @@
 """Xcode's bounded content-addressed cache survives per-delivery DerivedData cleanup."""
 from pathlib import Path
 import json
+import os
+import re
 from common import atomic_bytes, ensure_directory
+
+
+def requires_swift_source_paths(source):
+    # Apple's App Intents extractor matches compiler constant values against
+    # real source files and has no option to reverse our virtual prefix maps.
+    for folder, directories, files in os.walk(source):
+        directories[:] = [name for name in directories if name not in {'.git', '.local', '.build', 'build', 'DerivedData', 'node_modules'}]
+        for name in files:
+            if name.endswith('.swift'):
+                text = (Path(folder) / name).read_text(errors='replace')
+                if re.search(r'(?m)^\s*(?:@\w+\s+)*import\s+(?:\w+\s+)?AppIntents\b', text):
+                    return True
+    return False
 
 
 def build_environment(environment, metadata, source, cache_root, *, product=None, app_name=None):
@@ -27,15 +42,16 @@ def build_environment(environment, metadata, source, cache_root, *, product=None
     # More-specific paths must be considered before the frozen source root.
     mappings.sort(key=lambda pair: len(str(pair[0])), reverse=True)
     prefix_maps = ' '.join(quoted(str(path) + '=' + virtual) for path, virtual in mappings)
+    preserve_swift_paths = requires_swift_source_paths(source)
     lines += [
         'COMPILATION_CACHE_ENABLE_CACHING = YES',
         'COMPILATION_CACHE_ENABLE_DIAGNOSTIC_REMARKS = YES',
         'COMPILATION_CACHE_CAS_PATH = ' + str(cache_root),
         'COMPILATION_CACHE_KEEP_CAS_DIRECTORY = YES',
         'COMPILATION_CACHE_LIMIT_SIZE = 2G',
-        'SWIFT_ENABLE_PREFIX_MAPPING = YES',
+        'SWIFT_ENABLE_PREFIX_MAPPING = ' + ('NO' if preserve_swift_paths else 'YES'),
         'CLANG_ENABLE_PREFIX_MAPPING = YES',
-        'SWIFT_OTHER_PREFIX_MAPPINGS = $(inherited) ' + prefix_maps,
+        'SWIFT_OTHER_PREFIX_MAPPINGS = $(inherited)' + ('' if preserve_swift_paths else ' ' + prefix_maps),
         'CLANG_OTHER_PREFIX_MAPPINGS = $(inherited) ' + prefix_maps,
         'COMPILER_INDEX_STORE_ENABLE = NO',
     ]
