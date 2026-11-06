@@ -126,6 +126,18 @@ delivery and the shared lock held, an evidence-preserving restart of the exact
 current-user CoreSimulatorService is an available bounded recovery; it does not
 erase a guest or replace a runtime. Record whether it actually helps.
 
+The November 6 Manga Reader check first stalled in installation with its old
+120-second script budget. With no booted guest, one exact, verified user-owned
+CoreSimulator service PID was sampled and sent SIGTERM; XPC relaunched it on
+demand. This service had no fixed `gui/501/com.apple.CoreSimulator.CoreSimulatorService`
+launchctl label. Do not guess a label, use `killall`, or stop it while another
+workload is active. The corrected 240-second install budget and that bounded
+idle recovery were followed by successful reader checks, including a later
+build 27 run without another service reset. Both test apps/data were uninstalled,
+the shared guest/owned GUI closed, and disposable QA build products removed.
+This is recovery evidence, not a claim that the Intel simulator's cold startup
+or installation delays are permanently solved.
+
 The November 4 reader trial used an exact-revision x86_64-only fixture after one
 idle-service restart and passed installation, a 50,000-page CPU scenario, image
 geometry, zoom and continuous cached chapter scrolling. Startup remained slow;
