@@ -524,6 +524,23 @@ def deliver(job_id, allow_ota=False):
                **watch_result)
 
 
+def build_errors(output):
+    """Keep the compiler's cause even when Xcode's traceback fills the log tail."""
+    markers = ('error:', 'Undefined symbols', 'ld: ', 'BUILD FAILED')
+    errors = []
+    for line in output.splitlines():
+        line = line.strip()
+        if any(marker in line for marker in markers) and line not in errors:
+            errors.append(line[:500])
+            if len(errors) == 5: break
+    return errors
+
+
+def log_excerpt(output):
+    tail = [line[:500] for line in output.splitlines()[-20:]]
+    return '\n'.join([line for line in build_errors(output) if line not in tail] + tail)
+
+
 def run_job(job_id):
     metadata, source = paths(job_id); request = request_for(metadata); state = load(metadata / 'state.json', {})
     if state.get('phase') in TERMINAL or (metadata / 'cancelled.json').exists(): return
@@ -546,7 +563,9 @@ def run_job(job_id):
                 stream.seek(offset); text = stream.read().decode(errors='replace')
             reason = refresh.preflight_deferral_text(text)
             if reason: raise Retry('Waiting for shared Mac resources: ' + reason)
-            raise RuntimeError('Build failed; see private build.log')
+            errors = build_errors(text)
+            detail = errors[0] if errors else 'see private build.log'
+            raise RuntimeError('Build failed: ' + detail)
     if (metadata / 'cancelled.json').exists(): update(metadata / 'state.json', 'cancelled'); return
     if request.get('validateOnly'):
         with locked(SIGNING_LOCK):
@@ -682,7 +701,7 @@ def main():
         metadata, _ = paths(args.id)
         for name in ['build.log', 'install.log', 'watch-install.log', 'watch-companion-install.log', 'watch-companion-after.log']:
             path = metadata / name
-            if path.exists(): print(name + '\n' + '\n'.join(line[:500] for line in path.read_text(errors='replace').splitlines()[-20:]))
+            if path.exists(): print(name + '\n' + log_excerpt(path.read_text(errors='replace')))
 
 
 if __name__ == '__main__':

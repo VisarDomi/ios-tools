@@ -77,8 +77,10 @@ Free-space, current-resource and shared-guard refusals stay pending and retry.
 Queued delivery has priority over simulator QA: new sessions defer and an active
 guarded guest yields through its normal cleanup. Source upload does not wait for
 an obsolete load average; compilation still proves actual CPU/memory headroom. A compiler or
-build-script failure is reported as failed, using the current attempt's log even
-when older attempts are retained. Completed failed-build compiler caches are
+build-script failure is reported as failed with its first compiler diagnostic,
+using the current attempt's log even when older attempts are retained. `logs`
+also includes early compiler errors before the log tail, so an Xcode traceback
+cannot hide the cause. Completed failed-build compiler caches are
 discarded without removing their frozen source, signed apps or diagnostic logs.
 
 ## Build cache

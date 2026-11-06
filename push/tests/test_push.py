@@ -465,8 +465,16 @@ class WorkerTests(unittest.TestCase):
             kwargs['stdout'].write('Guarded build; deadline 900s\nerror: compiler failed\nMAC WORKLOAD STOPPED: command failed\n')
             return subprocess.CompletedProcess(command, 1)
         with mock.patch.object(worker.subprocess, 'run', side_effect=fail), mock.patch.object(worker, 'catalog') as catalog:
-            with self.assertRaisesRegex(RuntimeError, 'Build failed'): worker.run_job(self.job)
+            with self.assertRaisesRegex(RuntimeError, 'Build failed: error: compiler failed'): worker.run_job(self.job)
         catalog.assert_not_called()
+
+    def test_log_excerpt_keeps_compiler_error_before_a_long_xcode_traceback(self):
+        error = '/^src/MangaReader/SiteTransfers.swift:43:9: error: passing closure risks data races'
+        output = error + '\n' + 'unrelated compiler output\n' * 100 + 'BUILD FAILED\n'
+        excerpt = worker.log_excerpt(output)
+        self.assertIn(error, excerpt)
+        self.assertEqual(excerpt.count(error), 1)
+        self.assertLess(len(excerpt.splitlines()), 27)
 
     def test_wrong_phone_version_cannot_approve_new_source(self):
         with mock.patch.object(worker, 'catalog', return_value=[{'bundleIdentifier': 'com.test.Demo', 'bundleVersion': 'old'}]), self.assertRaises(worker.Retry):
