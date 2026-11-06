@@ -13,6 +13,7 @@ import subprocess
 import sys
 import time
 from compilation_cache import build_environment
+import build_workspace
 
 from common import IDENTITY, TERMINAL, digest, ensure_directory, identity, load, locked, manifest, relative, save, source_hash, sync_directory, update, verify
 
@@ -288,15 +289,28 @@ def build_one(job_id):
         update(metadata / 'state.json', 'building', message='Compiling the frozen source checkpoint')
         if any(app.is_relative_to(source / item) for item in config['inputs']): raise RuntimeError('Build output overlaps its frozen inputs')
         if app.exists(): shutil.rmtree(app)
+        compile_source, compile_config = source, config
+        if load(TOOLS / 'push/projects.json', {}).get(request['repo'], {}).get('persistentBuildCache'):
+            compile_source = build_workspace.prepare(source, frozen['files'],
+                MAC_HOME / 'Library/Caches/ios-tools/BuildWorkspaces' / identity(request['repo']) / 'source')
+            compile_config = configuration(request, compile_source)
+            verify_checkpoint(compile_config, frozen)
+            compile_app = compile_source / compile_config['app']
+            if compile_app.exists(): shutil.rmtree(compile_app)
+            print('Using verified stable compiler workspace; frozen checkpoint remains authoritative', flush=True)
         environment = dict(os.environ)
         for item in ['SIMULATOR', 'DECODER_PROBE', 'ORIGINAL_CODEC_PROBE']: environment.pop(item, None)
-        environment.update(config.get('environment', {}), SIGNING_DESTINATION='generic/platform=iOS')
-        environment = build_environment(environment, metadata, source, MAC_HOME / 'Library/Caches/ios-tools/CompilationCache.noindex',
+        environment.update(compile_config.get('environment', {}), SIGNING_DESTINATION='generic/platform=iOS')
+        environment = build_environment(environment, metadata, compile_source, MAC_HOME / 'Library/Caches/ios-tools/CompilationCache.noindex',
                                         product=config['app'], app_name=config['name'])
         print('Using shared Xcode compilation cache (2 GiB per CAS store)', flush=True)
         compile_started = time.monotonic()
-        subprocess.run(config['build'], cwd=source, env=environment, pass_fds=(int(os.environ['IOS_REFRESH_LOCK_FD']),), check=True)
+        subprocess.run(compile_config['build'], cwd=compile_source, env=environment, pass_fds=(int(os.environ['IOS_REFRESH_LOCK_FD']),), check=True)
         compile_seconds = time.monotonic() - compile_started
+        if compile_source != source:
+            verify_checkpoint(compile_config, frozen)
+            clone(compile_source / compile_config['app'], app)
+            build_workspace.trim(compile_source, config['name'])
     if input_hash(config) != before: raise RuntimeError('Build changed its approved input tree')
     verify_checkpoint(config, frozen)
     details = verify_app(config, app)
@@ -595,11 +609,26 @@ def prune():
                 state = load(root / config.get('stateDir', 'build/refresh') / 'state.json', {})
                 if state.get('pendingPush'): keep.add(state['pendingPush']['id'])
             jobs = sorted((STORE / 'jobs').glob('*'), reverse=True)
+            pending_builds = set()
+            for metadata in jobs:
+                state = load(metadata / 'state.json', {})
+                request = load(metadata / 'request.json', {})
+                frozen = load(metadata / 'ready.json', {})
+                if state.get('phase') not in TERMINAL and frozen.get('sourceHash'):
+                    pending_builds.add((request.get('repo'), request.get('app'), frozen['sourceHash']))
+            retained_builds = set()
+            for metadata in jobs:
+                request = load(metadata / 'request.json', {})
+                receipt = load(metadata / 'build-receipt.json', {})
+                key = (request.get('repo'), request.get('app'), receipt.get('sourceHash'))
+                if receipt.get('complete') and key in pending_builds and key not in retained_builds:
+                    keep.add(metadata.name)
+                    retained_builds.add(key)
             recent = 0
             for metadata in jobs:
                 state = load(metadata / 'state.json', {})
                 if state.get('phase') not in TERMINAL: keep.add(metadata.name)
-                elif recent < 2: keep.add(metadata.name); recent += 1
+                elif metadata.name not in keep and recent < 2: keep.add(metadata.name); recent += 1
                 config = load(metadata / 'config.json')
                 if not config and state.get('phase') in TERMINAL:
                     frozen = load(metadata / 'ready.json', {})

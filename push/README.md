@@ -92,6 +92,15 @@ per-job DerivedData cleanup no longer discard cached compiler outputs. Xcode's
 own pruning targets 2 GiB per CAS store; no cache-cleanup daemon is added. Build
 logs include cache diagnostics, and receipts record compilation seconds.
 
+Manga Reader builds also use a stable, regenerable compiler workspace, capped at
+2 GiB of retained compiler data. Each job still freezes its own source. The
+worker copies changed inputs into the workspace, preserves unchanged timestamps,
+verifies the full tree before and after compilation, then copies the verified
+signed app back into that job's checkpoint. Stable paths let subsequent builds
+reuse Xcode's dependency database and compiler outputs after small edits. Cache
+repair and pruning happen under the existing shared guard; interrupted copies
+are reconciled on the next build. Other projects retain their current policy.
+
 Sources that import AppIntents retain real Swift paths: Xcode's metadata
 extractor cannot resolve the cache's virtual source aliases. The shared cache
 and Clang path normalization remain enabled; only Swift path normalization is
@@ -128,7 +137,9 @@ and preserves the monthly schedule where profiles permit. Mac-assigned queue seq
 numbers prevent PC/Mac clock skew from letting an older push supersede a newer one.
 
 All approved/pending roots and two recent unreferenced trials are retained; obsolete
-Mac checkpoints and completed compiler caches are pruned. Metadata/private logs live
+Mac checkpoints and completed compiler caches are pruned. Approved roots do not
+consume the two unreferenced trial slots, and a pending build protects its newest
+matching verified signed artifact so validation need not be compiled again. Metadata/private logs live
 under `Library/Application Support/ios-tools/push` on the Mac and
 `.local/share/ios-tools/push` on the PC.
 

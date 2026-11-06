@@ -17,7 +17,8 @@
     }
   },
   "manga-reader": {
-    "path": "manga/manga-reader"
+    "path": "manga/manga-reader",
+    "persistentBuildCache": true
   },
   "gallery-reader": {
     "path": "manga/gallery-reader",

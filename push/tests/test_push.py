@@ -416,6 +416,37 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual((self.source / 'Sources/view.swift').read_text(), 'reviewed source')
         self.assertEqual((self.metadata / 'build.log').read_text(), 'failure after signing')
 
+    def test_approved_roots_do_not_use_the_two_unreferenced_trial_slots(self):
+        common.save(worker.config_path('demo', 'demo'), self.config)
+        common.update(self.metadata / 'state.json', 'installed')
+        for number in range(2):
+            metadata, source = worker.paths('z-approved-' + str(number)); source.mkdir(parents=True)
+            config = dict(self.config, root=str(source))
+            common.save(worker.config_path('demo', 'approved-' + str(number)), config)
+            common.save(metadata / 'state.json', {'phase': 'installed'})
+            common.save(metadata / 'config.json', config)
+        trials = []
+        for number in range(2):
+            metadata, source = worker.paths('a-trial-' + str(number)); source.mkdir(parents=True)
+            common.save(metadata / 'state.json', {'phase': 'validated'}); trials.append(source)
+        worker.prune()
+        self.assertTrue(all(source.exists() for source in trials))
+        self.assertTrue(self.source.exists())
+
+    def test_pending_delivery_protects_its_matching_validated_artifact(self):
+        common.update(self.metadata / 'state.json', 'validated')
+        common.save(self.metadata / 'build-receipt.json', dict(self.receipt, sourceHash=self.request['sourceHash']))
+        pending, source = worker.paths('zz-pending'); source.mkdir(parents=True)
+        common.save(pending / 'state.json', {'phase': 'queued'})
+        common.save(pending / 'request.json', {'repo': 'demo', 'app': 'demo'})
+        common.save(pending / 'ready.json', {'sourceHash': self.request['sourceHash']})
+        for number in range(2):
+            metadata, recent = worker.paths('z-recent-' + str(number)); recent.mkdir(parents=True)
+            common.save(metadata / 'state.json', {'phase': 'failed'})
+        worker.prune()
+        self.assertTrue(self.app.exists(), 'Do not delete the signed bytes a pending delivery can reuse')
+        self.assertTrue(source.exists())
+
     def test_pairing_recovery_runs_outside_the_signing_lock(self):
         self.run.stop()
         def repair(command, **kwargs):
@@ -458,6 +489,35 @@ class WorkerTests(unittest.TestCase):
         with mock.patch.object(worker.subprocess, 'run', side_effect=refuse), mock.patch.object(worker, 'catalog') as catalog:
             with self.assertRaisesRegex(worker.Retry, 'load 7.49'): worker.run_job(self.job)
         catalog.assert_not_called()
+
+    def test_stable_compiler_workspace_keeps_the_frozen_checkpoint_authoritative(self):
+        common.save(self.tools / 'push/projects.json', {'demo': {'persistentBuildCache': True}})
+        lock = (self.base / 'signing.lock').open('a'); self.addCleanup(lock.close)
+        def compile(command, **kwargs):
+            if 'cwd' not in kwargs: return subprocess.CompletedProcess(command, 1)
+            working = Path(kwargs['cwd'])
+            self.assertNotEqual(working, self.source)
+            self.assertEqual((working / 'Sources/view.swift').read_text(), 'reviewed source')
+            app = working / self.config['app']; app.mkdir(parents=True, exist_ok=True)
+            (app / 'Demo').write_bytes(b'compiled from stable verified inputs')
+            return subprocess.CompletedProcess(command, 0)
+        with mock.patch.dict(os.environ, {'IOS_WORKLOAD_ACTIVE': '123', 'IOS_REFRESH_LOCK_FD': str(lock.fileno())}), mock.patch.object(worker.subprocess, 'run', side_effect=compile):
+            worker.build_one(self.job)
+        self.assertEqual((self.source / 'Sources/view.swift').read_text(), 'reviewed source')
+        self.assertEqual((self.app / 'Demo').read_bytes(), b'compiled from stable verified inputs')
+        self.assertTrue(common.load(self.metadata / 'build-receipt.json')['complete'])
+
+    def test_compiler_cannot_change_workspace_inputs_and_publish_an_artifact(self):
+        common.save(self.tools / 'push/projects.json', {'demo': {'persistentBuildCache': True}})
+        lock = (self.base / 'signing.lock').open('a'); self.addCleanup(lock.close)
+        def mutate(command, **kwargs):
+            (Path(kwargs['cwd']) / 'Sources/view.swift').write_text('changed during compilation')
+            return subprocess.CompletedProcess(command, 0)
+        with mock.patch.dict(os.environ, {'IOS_WORKLOAD_ACTIVE': '123', 'IOS_REFRESH_LOCK_FD': str(lock.fileno())}), mock.patch.object(worker.subprocess, 'run', side_effect=mutate):
+            with self.assertRaisesRegex(RuntimeError, 'Frozen source changed'):
+                worker.build_one(self.job)
+        self.assertEqual((self.source / 'Sources/view.swift').read_text(), 'reviewed source')
+        self.assertFalse(common.load(self.metadata / 'build-receipt.json')['complete'])
 
     def test_actual_compiler_failure_is_not_retried_as_guard_contention(self):
         common.save(self.metadata / 'build-receipt.json', dict(self.receipt, complete=False))
