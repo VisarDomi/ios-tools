@@ -84,11 +84,11 @@
         "resolving",
         "preparing",
         "ready",
-        "recovering",
+        "recovering(wasReady)",
         "ended",
-        "failed"
+        "failed(wasReady)"
       ],
-      "invariant": "seek completion after pause; stale media completions; terminal EOF",
+      "invariant": "User intent is independent of automatic activation; recovery preserves readiness history and clock; stale EOF cannot finish a new seek/replay.",
       "persistence": "Transient task/gesture phases restart from existing durable user state and committed media; process-local operation IDs are never persisted.",
       "implementation": "explicit phase/ownership model"
     },
