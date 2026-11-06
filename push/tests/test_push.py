@@ -470,9 +470,10 @@ class WorkerTests(unittest.TestCase):
 
     def test_log_excerpt_keeps_compiler_error_before_a_long_xcode_traceback(self):
         error = '/^src/MangaReader/SiteTransfers.swift:43:9: error: passing closure risks data races'
-        output = error + '\n' + 'unrelated compiler output\n' * 100 + 'BUILD FAILED\n'
+        output = 'ld: warning: ignoring duplicate libraries\n' + error + '\n' + 'unrelated compiler output\n' * 100 + 'BUILD FAILED\n'
         excerpt = worker.log_excerpt(output)
         self.assertIn(error, excerpt)
+        self.assertEqual(worker.build_errors(output)[0], error)
         self.assertEqual(excerpt.count(error), 1)
         self.assertLess(len(excerpt.splitlines()), 27)
 

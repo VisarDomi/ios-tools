@@ -530,6 +530,7 @@ def build_errors(output):
     errors = []
     for line in output.splitlines():
         line = line.strip()
+        if 'warning:' in line and 'error:' not in line: continue
         if any(marker in line for marker in markers) and line not in errors:
             errors.append(line[:500])
             if len(errors) == 5: break
