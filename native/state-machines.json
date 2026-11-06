@@ -139,15 +139,11 @@
       "machine": "carousel interaction",
       "path": "video/video-platform/apps/ios/VideoApp/ViewerInteractionState.swift",
       "states": [
-        "rest",
-        "contact",
-        "dragging",
-        "decelerating",
-        "minimum",
-        "pinching",
-        "magnified"
+        "contact(up/down)",
+        "motion(rest/dragging/decelerating)",
+        "zoom(minimum/pinching/magnified)"
       ],
-      "invariant": "rest/contact only current; zoom disables carousel without snapping",
+      "invariant": "Contact and motion overlap; retouching momentum does not hide neighbours. Only validated settling or zoom changes carousel visibility; preserve pre-refactor callback semantics.",
       "persistence": "Transient task/gesture phases restart from existing durable user state and committed media; process-local operation IDs are never persisted.",
       "implementation": "explicit phase/ownership model"
     },
