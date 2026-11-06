@@ -63,6 +63,25 @@ native tunnel. See [the queue workflow](../push/README.md) before using it direc
 - **Never uninstall an app to update it**: install over the same bundle ID (uninstalling
   loses the data and the sessions).
 
+## State transitions in the media/reader apps
+
+The video, manga and gallery cohort uses explicit lifecycle and work ownership
+models. [state-machines.json](state-machines.json) maps the 38 runtime workflows,
+state owners and invariants; it includes existing structured queues as well as
+newly extracted machines. Facts such as a muted preference, known dimensions or
+a scroll offset stay data, rather than becoming artificial workflow states.
+
+`OperationState` revokes replaced/cancelled results, `CoalescedWork` joins repeated
+planning requests, and `SharedWorkState` gives each caller its own transfer lease.
+`LifecycleState` distinguishes transient inactivity from backgrounding;
+`TransferOwnership` prevents delayed handoffs from overtaking foreground reclaim.
+User intent, backend readiness and terminal states are separate axes. Persisted
+intent/checkpoints remain the recovery authority; live task IDs are transient.
+
+The changed Kit is vendored into the four audited media/reader repositories as
+one delivered cohort. Other projects keep their approved vendor until their own
+coordinated update; do not silently change their renewal inputs for this rollout.
+
 ## NativeKit
 
 UIKit, built in code, UIScene, iOS 26, Swift 6 with strict concurrency (video-platform builds

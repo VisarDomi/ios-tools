@@ -1,0 +1,605 @@
+{
+  "scope": {
+    "videoApps": 6,
+    "mangaApps": 7,
+    "onlineGalleryApps": 2,
+    "offlineGalleryApps": 1,
+    "excluded": "Third-party engine/OS internals; booleans that are independent facts or preferences are not workflow machines.",
+    "definition": "App-owned workflows with competing events or async owners; independent facts/preferences and SDK/third-party internals are not converted into artificial enums."
+  },
+  "workflows": [
+    {
+      "family": "shared",
+      "machine": "application lifecycle",
+      "path": "ios-tools/native/Kit/Sources/KitLifecycle/LifecycleState.swift",
+      "states": [
+        "launching",
+        "active",
+        "inactive",
+        "background"
+      ],
+      "invariant": "duplicate/out-of-order notifications; real initial state; async handoff lifetime",
+      "persistence": "Transient task/gesture phases restart from existing durable user state and committed media; process-local operation IDs are never persisted.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "shared",
+      "machine": "background transfer ownership",
+      "path": "ios-tools/native/Kit/Sources/KitLifecycle/BackgroundTransfers.swift",
+      "states": [
+        "foreground",
+        "handingOff",
+        "background",
+        "reclaiming"
+      ],
+      "invariant": "stale handoff/reclaim and duplicate submitted paths",
+      "persistence": "Transient task/gesture phases restart from existing durable user state and committed media; process-local operation IDs are never persisted.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "shared",
+      "machine": "task result ownership",
+      "path": "ios-tools/native/Kit/Sources/KitCore/OperationState.swift",
+      "states": [
+        "idle",
+        "running",
+        "finished"
+      ],
+      "invariant": "old callback cannot finish a replacement",
+      "persistence": "Transient task/gesture phases restart from existing durable user state and committed media; process-local operation IDs are never persisted.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "shared",
+      "machine": "coalesced work",
+      "path": "ios-tools/native/Kit/Sources/KitCore/OperationState.swift",
+      "states": [
+        "idle",
+        "scheduled",
+        "running(pending)"
+      ],
+      "invariant": "coalesce requests and await actual completion",
+      "persistence": "Transient task/gesture phases restart from existing durable user state and committed media; process-local operation IDs are never persisted.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "shared",
+      "machine": "shared transfer leases",
+      "path": "ios-tools/native/Kit/Sources/KitCore/SharedWorkState.swift",
+      "states": [
+        "accepting(owners)",
+        "completed",
+        "cancelled"
+      ],
+      "invariant": "one cancelled caller cannot cancel other owners",
+      "persistence": "Transient task/gesture phases restart from existing durable user state and committed media; process-local operation IDs are never persisted.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "video",
+      "machine": "playback readiness and intent",
+      "path": "video/video-platform/apps/ios/VideoApp/VideoPlaybackState.swift",
+      "states": [
+        "empty",
+        "resolving",
+        "preparing",
+        "ready",
+        "recovering",
+        "ended",
+        "failed"
+      ],
+      "invariant": "seek completion after pause; stale media completions; terminal EOF",
+      "persistence": "Transient task/gesture phases restart from existing durable user state and committed media; process-local operation IDs are never persisted.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "video",
+      "machine": "seek chasing",
+      "path": "video/video-platform/apps/ios/VideoApp/ChasingSeek.swift",
+      "states": [
+        "idle",
+        "waiting",
+        "running(current,latest)"
+      ],
+      "invariant": "superseded seek callbacks and rejected seek readiness",
+      "persistence": "Transient task/gesture phases restart from existing durable user state and committed media; process-local operation IDs are never persisted.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "video",
+      "machine": "decoder lifecycle",
+      "path": "video/video-platform/apps/ios/VideoApp/DecoderLifecycle.swift",
+      "states": [
+        "opening",
+        "ready",
+        "ended",
+        "failed(wasReady)",
+        "stopping",
+        "stopped"
+      ],
+      "invariant": "late decoder events reopen EOF; error clock must retain last time",
+      "persistence": "Transient task/gesture phases restart from existing durable user state and committed media; process-local operation IDs are never persisted.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "video",
+      "machine": "video output restoration",
+      "path": "video/video-platform/apps/ios/VideoApp/DecoderLifecycle.swift",
+      "states": [
+        "enabled",
+        "disabled",
+        "awaitingForeground"
+      ],
+      "invariant": "late output restoration cannot undo backgrounding",
+      "persistence": "Existing navigation, list anchor, playback checkpoint and reader position formats retained. Transient animation/output phases are rebuilt; cancellation never replaces a committed position with a temporary zero.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "video",
+      "machine": "carousel interaction",
+      "path": "video/video-platform/apps/ios/VideoApp/ViewerInteractionState.swift",
+      "states": [
+        "rest",
+        "contact",
+        "dragging",
+        "decelerating",
+        "minimum",
+        "pinching",
+        "magnified"
+      ],
+      "invariant": "rest/contact only current; zoom disables carousel without snapping",
+      "persistence": "Transient task/gesture phases restart from existing durable user state and committed media; process-local operation IDs are never persisted.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "video",
+      "machine": "viewer presentation",
+      "path": "video/video-platform/apps/ios/VideoApp/ViewerInteractionState.swift",
+      "states": [
+        "prepared",
+        "loading",
+        "revealed",
+        "closed"
+      ],
+      "invariant": "late reveal after closing",
+      "persistence": "Transient task/gesture phases restart from existing durable user state and committed media; process-local operation IDs are never persisted.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "video",
+      "machine": "local revision feed",
+      "path": "video/video-platform/apps/ios/VideoApp/LocalList.swift",
+      "states": [
+        "idle",
+        "running",
+        "finished"
+      ],
+      "invariant": "result and teardown ownership across reload/pause",
+      "persistence": "Transient task/gesture phases restart from existing durable user state and committed media; process-local operation IDs are never persisted.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "video",
+      "machine": "Vault refresh publication",
+      "path": "video/video-platform/apps/ios/VideoApp/VaultList.swift",
+      "states": [
+        "idle",
+        "running",
+        "finished"
+      ],
+      "invariant": "cancelled detached list merge must not replace newer refresh",
+      "persistence": "Transient task/gesture phases restart from existing durable user state and committed media; process-local operation IDs are never persisted.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "video",
+      "machine": "TsLive session renewal",
+      "path": "video/video-platform/apps/ios/VideoApp/TsLive.swift",
+      "states": [
+        "idle",
+        "renewing",
+        "cooldown"
+      ],
+      "invariant": "single rotating-token owner; cooldown and expiry remain separate",
+      "persistence": "Existing durable cookie jar and phone-only rotating-token family; pending desktop-login receipt remains durable and idempotent. Live tasks are rebuilt after restart; no token copying or sign-out added.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "video",
+      "machine": "TsLive stream authorization",
+      "path": "video/video-platform/apps/ios/VideoApp/TsLive.swift",
+      "states": [
+        "missing",
+        "usable(header,expires)",
+        "idle",
+        "authorizing",
+        "stopped",
+        "running"
+      ],
+      "invariant": "cached expiring token and one task; no sign-out on outage",
+      "persistence": "Existing durable cookie jar and phone-only rotating-token family; pending desktop-login receipt remains durable and idempotent. Live tasks are rebuilt after restart; no token copying or sign-out added.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "video",
+      "machine": "TsLive list and desktop login",
+      "path": "video/video-platform/apps/ios/VideoApp/TsLiveList.swift",
+      "states": [
+        "idle",
+        "running",
+        "finished",
+        "connecting",
+        "cooldown",
+        "durable pending receipt"
+      ],
+      "invariant": "generation/cancellation, durable login handoff",
+      "persistence": "Existing durable cookie jar and phone-only rotating-token family; pending desktop-login receipt remains durable and idempotent. Live tasks are rebuilt after restart; no token copying or sign-out added.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "video",
+      "machine": "list/viewer restore and deferred rows",
+      "path": "video/video-platform/apps/ios/VideoApp/VideoList.swift",
+      "states": [
+        "awaiting(anchor)",
+        "restored",
+        "absent",
+        "scheduled",
+        "ready",
+        "deferred snapshot"
+      ],
+      "invariant": "no snap or scroll waits; checkpoint, spare preparation, returned selection",
+      "persistence": "Existing navigation, list anchor, playback checkpoint and reader position formats retained. Transient animation/output phases are rebuilt; cancellation never replaces a committed position with a temporary zero.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "manga",
+      "machine": "catalog/planner",
+      "path": "manga/manga-reader/apps/ios/MangaReader/Library.swift",
+      "states": [
+        "idle",
+        "scheduled",
+        "running(pending)"
+      ],
+      "invariant": "joining a running plan must await it before handoff",
+      "persistence": "Transient task/gesture phases restart from existing durable user state and committed media; process-local operation IDs are never persisted.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "manga",
+      "machine": "native transfer queue",
+      "path": "manga/manga-reader/apps/ios/MangaReader/SiteTransfers.swift",
+      "states": [
+        "foreground",
+        "background",
+        "disconnected",
+        "discovering",
+        "connected",
+        "idle",
+        "admitting",
+        "transferring",
+        "completing"
+      ],
+      "invariant": "foreground callbacks must not enable OS queue; no re-download on newer handoff",
+      "persistence": "Existing background-images.json, background URLSession task descriptions and RequestLimiter journal retain pending work, admitted reservations, cooldowns and recovery across relaunch; legacy descriptions still decode.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "manga",
+      "machine": "media retry scheduling",
+      "path": "manga/manga-reader/apps/ios/MangaReader/RetrySchedule.swift",
+      "states": [
+        "idle",
+        "waiting(until,id)"
+      ],
+      "invariant": "a newly earlier retry must replace the later wake",
+      "persistence": "Transient task/gesture phases restart from existing durable user state and committed media; process-local operation IDs are never persisted.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "manga",
+      "machine": "cover warming",
+      "path": "manga/manga-reader/apps/ios/MangaReader/CoverImages.swift",
+      "states": [
+        "idle",
+        "running",
+        "finished",
+        "available",
+        "saturated",
+        "memoryPressure"
+      ],
+      "invariant": "cancel obsolete decode ownership and preserve pressure gate",
+      "persistence": "Transient task/gesture phases restart from existing durable user state and committed media; process-local operation IDs are never persisted.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "manga",
+      "machine": "reader continuation",
+      "path": "manga/manga-reader/apps/ios/MangaReader/ReaderScreen.swift",
+      "states": [
+        "waiting(until)",
+        "loading",
+        "loaded",
+        "unavailable(until)",
+        "failed(until)"
+      ],
+      "invariant": "existing enum; list loading, initial publication and retry timers",
+      "persistence": "Transient task/gesture phases restart from existing durable user state and committed media; process-local operation IDs are never persisted.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "manga",
+      "machine": "page retention",
+      "path": "manga/manga-reader/apps/ios/MangaReader/PageRetention.swift",
+      "states": [
+        "permanentCover",
+        "required",
+        "retired(until)",
+        "evictable"
+      ],
+      "invariant": "durable 24-hour grace; covers permanent; touched current/next",
+      "persistence": "Existing retention journal preserves required touched-series current/next and original retirement deadlines across restart; retired pages get 24 hours, covers/progress remain permanent.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "manga",
+      "machine": "metadata admission and media reader barrier",
+      "path": "manga/manga-reader/apps/ios/MangaReader/Downloads.swift",
+      "states": [
+        "inactive",
+        "metadata(selection)",
+        "pages(selection)",
+        "queued",
+        "running",
+        "finished"
+      ],
+      "invariant": "reader priority, foreground/background work and cancellation",
+      "persistence": "Transient task/gesture phases restart from existing durable user state and committed media; process-local operation IDs are never persisted.",
+      "implementation": "existing structured owner retained"
+    },
+    {
+      "family": "manga",
+      "machine": "provider quota/cooldown",
+      "path": "manga/manga-reader/apps/ios/MangaReader/Site.swift",
+      "states": [
+        "eligible",
+        "pacing deadline",
+        "rolling-window deadline",
+        "server cooldown",
+        "reduced ceiling",
+        "recovering ceiling"
+      ],
+      "invariant": "persisted window, cooldown, recovery and reservation",
+      "persistence": "Existing background-images.json, background URLSession task descriptions and RequestLimiter journal retain pending work, admitted reservations, cooldowns and recovery across relaunch; legacy descriptions still decode.",
+      "implementation": "existing structured owner retained"
+    },
+    {
+      "family": "gallery online",
+      "machine": "list/strip/reader prefetch",
+      "path": "manga/gallery-reader/apps/ios/GalleryReader/Prefetch.swift",
+      "states": [
+        "idle",
+        "running",
+        "finished"
+      ],
+      "invariant": "old reader completion cannot unblock list during new reader work",
+      "persistence": "Transient task/gesture phases restart from existing durable user state and committed media; process-local operation IDs are never persisted.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "gallery online",
+      "machine": "image caller leases",
+      "path": "manga/gallery-reader/apps/ios/GalleryReader/Library.swift",
+      "states": [
+        "accepting(owners)",
+        "completed",
+        "cancelled"
+      ],
+      "invariant": "shared ownership and promotion",
+      "persistence": "Transient task/gesture phases restart from existing durable user state and committed media; process-local operation IDs are never persisted.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "gallery online",
+      "machine": "image admission and throttling",
+      "path": "manga/gallery-reader/apps/ios/GalleryReader/ImageTransferGate.swift",
+      "states": [
+        "ready",
+        "cooldown(until,strikes)",
+        "probing(strikes)",
+        "queued",
+        "active"
+      ],
+      "invariant": "waiting/active/promotion/cooldown",
+      "persistence": "Original/thumbnail cooldown journals are outside the image cache. Retry deadlines and strike history survive relaunch; waiting tasks are recreated from reader/list demand.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "gallery online",
+      "machine": "search/list pagination",
+      "path": "manga/gallery-reader/apps/ios/GalleryReader/ListScreen.swift",
+      "states": [
+        "kept",
+        "refreshing",
+        "available",
+        "failed",
+        "idle",
+        "running",
+        "finished"
+      ],
+      "invariant": "kept/searching/current/loadingMore/deferred snapshot",
+      "persistence": "Transient task/gesture phases restart from existing durable user state and committed media; process-local operation IDs are never persisted.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "gallery online",
+      "machine": "favorites sync and backup",
+      "path": "ios-tools/native/Kit/Sources/KitBackup/PCBackup.swift",
+      "states": [
+        "idle",
+        "scheduled",
+        "running(pending)",
+        "uploading",
+        "identity changed",
+        "retry deadline"
+      ],
+      "invariant": "scheduled/sending/pending, retry and migration",
+      "persistence": "Favorites and backup identity/revision remain durable. Failed sync retains pending state and retries with backoff; launch schedules the current durable favorites. Stale acknowledgements/conflicts cannot replace a newly chosen identity.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "gallery offline",
+      "machine": "store bootstrap",
+      "path": "manga/gallery-downloader/apps/ios/GalleryReader/GalleryStore.swift",
+      "states": [
+        "unopened",
+        "opening",
+        "ready"
+      ],
+      "invariant": "failed task retry and transactional header publication",
+      "persistence": "Existing catalog/index/manifests/progress/view-state files and background .pages session remain the recovery authority. Bootstrap publishes only a fully validated index; completed media bytes commit before progress. Live leases are reconstructed.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "gallery offline",
+      "machine": "startup recovery",
+      "path": "manga/gallery-downloader/apps/ios/GalleryReader/AppController.swift",
+      "states": [
+        "waiting",
+        "opening",
+        "ready"
+      ],
+      "invariant": "retry startup on connectivity instead of marking failed load ready",
+      "persistence": "Existing catalog/index/manifests/progress/view-state files and background .pages session remain the recovery authority. Bootstrap publishes only a fully validated index; completed media bytes commit before progress. Live leases are reconstructed.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "gallery offline",
+      "machine": "per-revision media transfer",
+      "path": "manga/gallery-downloader/apps/ios/GalleryReader/GalleryStore.swift",
+      "states": [
+        "accepting(owners)",
+        "completed",
+        "cancelled"
+      ],
+      "invariant": "revision-keyed work, per-caller cancellation, one commit, stale cleanup guards",
+      "persistence": "Existing catalog/index/manifests/progress/view-state files and background .pages session remain the recovery authority. Bootstrap publishes only a fully validated index; completed media bytes commit before progress. Live leases are reconstructed.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "gallery offline",
+      "machine": "background ownership",
+      "path": "manga/gallery-downloader/apps/ios/GalleryReader/BackgroundDownloads.swift",
+      "states": [
+        "foreground",
+        "handingOff",
+        "background",
+        "reclaiming"
+      ],
+      "invariant": "preserve legacy descriptions, serialize task creation and reclaim",
+      "persistence": "Existing catalog/index/manifests/progress/view-state files and background .pages session remain the recovery authority. Bootstrap publishes only a fully validated index; completed media bytes commit before progress. Live leases are reconstructed.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "gallery offline",
+      "machine": "catalog sync/download/warm",
+      "path": "manga/gallery-downloader/apps/ios/GalleryReader/GalleryStore.swift",
+      "states": [
+        "idle",
+        "running",
+        "finished"
+      ],
+      "invariant": "independent jobs and blocked/failed work",
+      "persistence": "Existing catalog/index/manifests/progress/view-state files and background .pages session remain the recovery authority. Bootstrap publishes only a fully validated index; completed media bytes commit before progress. Live leases are reconstructed.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "shared",
+      "machine": "image decode pipeline",
+      "path": "ios-tools/native/Kit/Sources/KitImages/ImagePipeline.swift",
+      "states": [
+        "queued",
+        "running(ahead)",
+        "cancelled(ahead)",
+        "finished",
+        "inactive",
+        "frames(budget,remaining,deadline)"
+      ],
+      "invariant": "queued/loading/decoding/ready/caller cancellation",
+      "persistence": "Transient task/gesture phases restart from existing durable user state and committed media; process-local operation IDs are never persisted.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "shared",
+      "machine": "reader gestures and geometry",
+      "path": "ios-tools/native/Kit/Sources/KitReader/StripReaderView.swift",
+      "states": [
+        "contact up/down",
+        "scroll rest/dragging/decelerating",
+        "pinch rest/pinching",
+        "pending geometry/image updates"
+      ],
+      "invariant": "pinch-held geometry, free scroll, pending decodes",
+      "persistence": "Transient task/gesture phases restart from existing durable user state and committed media; process-local operation IDs are never persisted.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "shared",
+      "machine": "navigation and restoration",
+      "path": "ios-tools/native/Kit/Sources/KitNavigation/LiveNavigation.swift",
+      "states": [
+        "idle",
+        "requested",
+        "interactive",
+        "finishing",
+        "saved stack",
+        "live stack"
+      ],
+      "invariant": "forward interactive completion/cancel, warm and saved stacks",
+      "persistence": "Existing navigation, list anchor, playback checkpoint and reader position formats retained. Transient animation/output phases are rebuilt; cancellation never replaces a committed position with a temporary zero.",
+      "implementation": "explicit phase/ownership model"
+    }
+  ],
+  "invariants": [
+    "Free scrolling never snaps or waits for scroll-end to load content.",
+    "Zoom disables video carousel; only current video is visible at rest.",
+    "VOD neighbours are paused; TsLive live neighbours remain muted.",
+    "Cancellation revokes only its owner; stale completions cannot publish or clear replacement work.",
+    "Manga current+next belongs only to touched series; retirement grace is 24 hours; covers and progress persist.",
+    "EOF, failure, stopping and paused intent remain distinct.",
+    "Foreground/background handoff has one authoritative owner.",
+    "Updates preserve bundle identities, credentials, source bytes and committed data."
+  ],
+  "reviewedStructuredOwners": [
+    {
+      "path": "manga/manga-reader/apps/ios/MangaReader/Downloads.swift",
+      "owner": "MetadataQueue / ChapterSource",
+      "representation": "Reader barrier and task maps; absence means idle, a stored task is the sole shared owner; successful immutable metadata is committed separately."
+    },
+    {
+      "path": "manga/gallery-reader/apps/ios/GalleryReader/Library.swift",
+      "owner": "DetailsCache",
+      "representation": "One metadata task per gallery; durable immutable results survive process restart."
+    },
+    {
+      "path": "manga/gallery-reader/apps/ios/GalleryReader/Providers.swift",
+      "owner": "GGCache",
+      "representation": "One coalesced route refresh task; ready table has an expiry, independent of download ownership."
+    },
+    {
+      "path": "video/video-platform/apps/ios/VideoApp/ViewerOverlay.swift",
+      "owner": "Download-list membership",
+      "representation": "Existing ListState enum plus generation rejection; rename/block/scrub flags each describe independent binary facts."
+    },
+    {
+      "path": "video/video-platform/apps/ios/VideoApp/ViewerSession.swift",
+      "owner": "Audio session",
+      "representation": "Serialized audio queue, session generation and explicit begin/end; mute preference and Now Playing publication are independent facts."
+    },
+    {
+      "path": "video/video-platform/apps/ios/VideoApp/ViewerPC.swift",
+      "owner": "Edit transactions",
+      "representation": "Mutations capture recording identity; replacement application preserves the current visible identity/position. Existing retry/transaction contract retained."
+    }
+  ]
+}
