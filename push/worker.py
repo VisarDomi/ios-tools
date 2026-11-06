@@ -292,7 +292,8 @@ def build_one(job_id):
         compile_source, compile_config = source, config
         if load(TOOLS / 'push/projects.json', {}).get(request['repo'], {}).get('persistentBuildCache'):
             compile_source = build_workspace.prepare(source, frozen['files'],
-                MAC_HOME / 'Library/Caches/ios-tools/BuildWorkspaces' / identity(request['repo']) / 'source')
+                MAC_HOME / 'Library/Caches/ios-tools/BuildWorkspaces' / identity(request['repo']) / 'source',
+                input_directories=[name for name in config['inputs'] if (source / name).is_dir()])
             compile_config = configuration(request, compile_source)
             verify_checkpoint(compile_config, frozen)
             compile_app = compile_source / compile_config['app']

@@ -8,7 +8,7 @@ from common import digest, ensure_directory, relative
 GENERATED = {'build', '.build', '.swiftpm', 'xcuserdata', '__pycache__'}
 
 
-def prepare(source, files, destination):
+def prepare(source, files, destination, input_directories=()):
     source, destination = Path(source), Path(destination)
     ensure_directory(destination)
     if destination.is_symlink(): raise RuntimeError('Build workspace cannot be a symlink')
@@ -45,6 +45,8 @@ def prepare(source, files, destination):
             os.replace(temporary, target)
         finally:
             Path(temporary).unlink(missing_ok=True)
+    for name in input_directories:
+        ensure_directory(destination / relative(name))
     return destination
 
 

@@ -47,6 +47,11 @@ class BuildWorkspaceTests(unittest.TestCase):
             build_workspace.prepare(self.source, files, self.workspace)
         self.assertFalse((self.workspace / 'Sources/code.swift').exists())
 
+    def test_empty_declared_resource_directories_remain_available(self):
+        (self.source / 'Native').mkdir()
+        build_workspace.prepare(self.source, self.files(), self.workspace, input_directories=['Sources', 'Native'])
+        self.assertTrue((self.workspace / 'Native').is_dir())
+
     def test_cache_budget_prunes_only_regenerable_compiler_outputs(self):
         build_workspace.prepare(self.source, self.files(), self.workspace)
         for name in ['older', 'current']:
