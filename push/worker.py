@@ -541,7 +541,8 @@ def deliver(job_id, allow_ota=False):
 
 def build_errors(output):
     """Keep the compiler's cause even when Xcode's traceback fills the log tail."""
-    markers = ('error:', 'Undefined symbols', 'ld: ', 'BUILD FAILED')
+    markers = ('error:', 'Undefined symbols', 'ld: ', 'bad_optional_access',
+               'Please submit a bug report', 'Command SwiftCompile failed', 'BUILD FAILED')
     errors = []
     for line in output.splitlines():
         line = line.strip()

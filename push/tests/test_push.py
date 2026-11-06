@@ -537,6 +537,12 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(excerpt.count(error), 1)
         self.assertLess(len(excerpt.splitlines()), 27)
 
+    def test_log_excerpt_keeps_a_swift_crash_when_no_source_error_was_emitted(self):
+        crash = 'bad_optional_access was thrown in -fno-exceptions modePlease submit a bug report'
+        output = crash + '\n' + 'compiler backtrace\n' * 100 + 'Command SwiftCompile failed with a nonzero exit code\nBUILD FAILED\n'
+        self.assertEqual(worker.build_errors(output)[0], crash)
+        self.assertIn(crash, worker.log_excerpt(output))
+
     def test_wrong_phone_version_cannot_approve_new_source(self):
         with mock.patch.object(worker, 'catalog', return_value=[{'bundleIdentifier': 'com.test.Demo', 'bundleVersion': 'old'}]), self.assertRaises(worker.Retry):
             worker.deliver(self.job)
