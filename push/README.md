@@ -101,6 +101,13 @@ reuse Xcode's dependency database and compiler outputs after small edits. Cache
 repair and pruning happen under the existing shared guard; interrupted copies
 are reconciled on the next build. Other projects retain their current policy.
 
+A November 6 signed Lua validation on the Intel Mac verified both cache paths:
+a cold build took 158.9 s; a real edit took 104.1 s and compiled only the app
+module; an unchanged forced Xcode pass took 19.4 s with no Swift compilations;
+and an ordinary identical submission reused its signed app with 0 compilation
+seconds. These are build-stage measurements, excluding queue/upload/install time.
+A Swift edit still recompiles that release module with whole-module optimization.
+
 Sources that import AppIntents retain real Swift paths: Xcode's metadata
 extractor cannot resolve the cache's virtual source aliases. The shared cache
 and Clang path normalization remain enabled; only Swift path normalization is
