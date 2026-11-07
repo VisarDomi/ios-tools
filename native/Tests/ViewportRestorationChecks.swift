@@ -114,12 +114,13 @@ final class ViewportRestorationChecks: UIViewController, StripReaderDelegate {
         list.contentInsetAdjustmentBehavior = .never; list.contentSize = CGSize(width: size.width, height: 5_000)
         let y = 700.375
         list.contentOffset.y = y
+        let capturedY = list.contentOffset.y
         let row = CGRect(x: 0, y: y + size.height / 2 + 37, width: size.width, height: 300)
         let anchor = ScrollAnchoring.anchor(in: list, items: [("row", row)])!
         let savedAnchor = try JSONDecoder().decode(ScrollAnchor.self, from: JSONEncoder().encode(anchor))
         list.contentOffset.y = 0
         ScrollAnchoring.restore(savedAnchor, in: list, frame: CGRect(x: row.minX, y: row.minY, width: row.width, height: 500))
-        try near(Double(list.contentOffset.y), y, "header/gap exact list anchor")
+        try near(Double(list.contentOffset.y), Double(capturedY), "header/gap exact list anchor")
         report["listAnchor"] = ["offset": list.contentOffset.y, "fraction": savedAnchor.fraction, "pixelOffset": savedAnchor.offset!]
 
         let root = CaptureScreen("root"), child = CaptureScreen("child")
