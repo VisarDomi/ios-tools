@@ -14,9 +14,12 @@ final class ViewportRestorationChecks: UIViewController, StripReaderDelegate {
     private var report: [String: Any] = ["complete": false]
     private var started = false
     private var cachedImage: URL?
+    private var visual: StripReaderView?
     override func viewDidLoad() {
         super.viewDidLoad(); view.backgroundColor = .black
-        TestHooks.shared.register("viewport-restoration-state") { [self] _ in report }
+        TestHooks.shared.register("viewport-restoration-state") { [self] _ in
+            var value = report; value["visual"] = visual?.state ?? [:]; return value
+        }
         TestHooks.shared.start()
     }
     override func viewDidAppear(_ animated: Bool) {
@@ -104,6 +107,7 @@ final class ViewportRestorationChecks: UIViewController, StripReaderDelegate {
         legacy.setAspect(1.0/3, at: 1)
         try samePicture(legacyFrame, legacy.state, "image arrival after legacy restore")
         report["legacyGeometry"] = legacy.state
+        visual = legacy
         cachedImage = nil // Keep the checked page visible for the fixture screenshot.
 
         let list = UIScrollView(frame: CGRect(origin: .zero, size: size))
