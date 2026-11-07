@@ -113,6 +113,13 @@ and an ordinary identical submission reused its signed app with 0 compilation
 seconds. These are build-stage measurements, excluding queue/upload/install time.
 A Swift edit still recompiles that release module with whole-module optimization.
 
+A November 7 FileHost validation on the same Intel Mac measured 758.4 s for the
+first retained-workspace build, 46.5 s for an unchanged forced Xcode build with
+zero Swift compilations, and 90.7 s for an app-only edit. The edit compiled only
+the app module; AetherEngine and NativeKit remained skipped. All three signed
+validation jobs verified without installing or changing the phone app. These
+measurements cover the build stage, excluding source capture/upload/queue time.
+
 Sources that import AppIntents retain real Swift paths: Xcode's metadata
 extractor cannot resolve the cache's virtual source aliases. The shared cache
 and Clang path normalization remain enabled; only Swift path normalization is
