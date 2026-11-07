@@ -63,3 +63,25 @@ class BuildWorkspaceTests(unittest.TestCase):
         self.assertTrue((self.workspace / 'build/DerivedData/current/object').exists())
         self.assertEqual((self.workspace / 'Sources/code.swift').read_text(), self.code.read_text())
         self.assertEqual(signed.read_bytes(), b'signed checkpoint')
+
+    def test_filehost_policy_is_scoped_to_its_own_provider(self):
+        project={'persistentBuildCache':{'apps':['filehost-local'],'cacheRoots':['build/filehost/native','build/filehost/DerivedData']}}
+        self.assertIsNone(build_workspace.policy(project,'fmp4-local'))
+        self.assertTrue(build_workspace.policy(project,'filehost-local')['perApp'])
+        self.assertFalse(build_workspace.policy({'persistentBuildCache':True},'lua')['perApp'])
+        with self.assertRaises(ValueError):build_workspace.policy({'persistentBuildCache':{'apps':['filehost-local'],'cacheRoots':['Sources']}},'filehost-local')
+
+    def test_provider_layout_budget_excludes_large_frozen_inputs(self):
+        self.workspace.mkdir(parents=True);(self.workspace/'source-binary').write_bytes(b'x'*100)
+        for name in ['native','DerivedData']:
+            p=self.workspace/'build/filehost'/name/'object';p.parent.mkdir(parents=True);p.write_bytes(b'x'*16)
+        removed=build_workspace.trim(self.workspace,'filehost-local',maximum=30,cache_roots=['build/filehost/native','build/filehost/DerivedData'])
+        self.assertEqual(removed,['build/filehost/native'])
+        self.assertTrue((self.workspace/'build/filehost/DerivedData/object').exists())
+        self.assertTrue((self.workspace/'source-binary').exists())
+
+    def test_provider_cache_cannot_follow_an_external_parent_link(self):
+        outside=self.root/'outside';outside.mkdir();(outside/'file').write_text('owner data')
+        (self.workspace/'build').mkdir(parents=True);(self.workspace/'build/filehost').symlink_to(outside,target_is_directory=True)
+        with self.assertRaises(ValueError):build_workspace.trim(self.workspace,'filehost-local',cache_roots=['build/filehost/DerivedData'])
+        self.assertEqual((outside/'file').read_text(),'owner data')

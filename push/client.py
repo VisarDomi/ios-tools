@@ -186,7 +186,7 @@ def show(job_id=None, follow=False, as_json=False):
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', nargs='?', default='status', help='app, project:app, list, status, logs, or pump')
+    parser.add_argument('action', nargs='?', default='status', help='app, project:app, list, status, logs, cache, or pump')
     parser.add_argument('job', nargs='?')
     parser.add_argument('--project'); parser.add_argument('--source')
     parser.add_argument('--follow', action='store_true'); parser.add_argument('--json', action='store_true')
@@ -218,6 +218,16 @@ def main():
             remote([args.action, '--id', job_id])
             current = json.loads(remote(['status', '--id', job_id]).stdout)
             if current: save(STORE / 'jobs' / job_id / 'state.json', current)
+    elif args.action == 'cache':
+        if ON_MAC:
+            import worker
+            data = worker.cache_health.status(worker.STORE)
+        else: data = json.loads(remote(['cache-status'], timeout=30).stdout)
+        if args.json: print(json.dumps(data, indent=2))
+        else:
+            for row in data['apps']:
+                print(row['repo']+':'+row['app'], row['health'], str(round(row['compileSeconds'], 1))+'s',
+                      str(row['hits'])+'/'+str(row['cacheableTasks'])+' cache hits', '; '.join(row['warnings']))
     elif args.action == 'list':
         for name, project in projects().items():
             try:

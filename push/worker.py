@@ -14,6 +14,7 @@ import sys
 import time
 from compilation_cache import build_environment
 import build_workspace
+import cache_health
 
 from common import IDENTITY, TERMINAL, digest, ensure_directory, identity, load, locked, manifest, relative, save, source_hash, sync_directory, update, verify
 
@@ -256,6 +257,10 @@ def build_one(job_id):
     previous = load(config_path(request['repo'], request['app']))
     reused = False
     compile_seconds = 0.0
+    strategy = 'verified-artifact'
+    cache_log = metadata / 'build.log'
+    cache_offset = cache_log.stat().st_size if cache_log.exists() else 0
+    evicted = []
     # Reuse an identical validated queue build, including validation-only runs.
     if not request.get('force'):
         for candidate in sorted((STORE / 'jobs').glob('*'), reverse=True):
@@ -290,9 +295,17 @@ def build_one(job_id):
         if any(app.is_relative_to(source / item) for item in config['inputs']): raise RuntimeError('Build output overlaps its frozen inputs')
         if app.exists(): shutil.rmtree(app)
         compile_source, compile_config = source, config
-        if load(TOOLS / 'push/projects.json', {}).get(request['repo'], {}).get('persistentBuildCache'):
-            compile_source = build_workspace.prepare(source, frozen['files'],
-                MAC_HOME / 'Library/Caches/ios-tools/BuildWorkspaces' / identity(request['repo']) / 'source',
+        strategy = 'cas'
+        cache_policy = build_workspace.policy(load(TOOLS / 'push/projects.json', {}).get(request['repo'], {}), config['name'])
+        if cache_policy:
+            strategy = 'stable-workspace+cas'
+            workspace = MAC_HOME / 'Library/Caches/ios-tools/BuildWorkspaces' / identity(request['repo'])
+            if cache_policy['perApp']: workspace = workspace / identity(config['name'])
+            workspace = workspace / 'source'
+            # Initial APFS cloning shares large unchanged decoder inputs while
+            # keeping mutable build outputs on distinct inodes.
+            if not workspace.exists(): clone(source, workspace)
+            compile_source = build_workspace.prepare(source, frozen['files'], workspace,
                 input_directories=[name for name in config['inputs'] if (source / name).is_dir()])
             compile_config = configuration(request, compile_source)
             verify_checkpoint(compile_config, frozen)
@@ -306,12 +319,18 @@ def build_one(job_id):
                                         product=config['app'], app_name=config['name'])
         print('Using shared Xcode compilation cache (2 GiB per CAS store)', flush=True)
         compile_started = time.monotonic()
-        subprocess.run(compile_config['build'], cwd=compile_source, env=environment, pass_fds=(int(os.environ['IOS_REFRESH_LOCK_FD']),), check=True)
+        try:
+            subprocess.run(compile_config['build'], cwd=compile_source, env=environment, pass_fds=(int(os.environ['IOS_REFRESH_LOCK_FD']),), check=True)
+        except BaseException:
+            text = cache_log.read_bytes()[cache_offset:].decode(errors='replace') if cache_log.exists() else ''
+            cache_health.record(STORE, metadata, request, frozen['files'], text, seconds=time.monotonic()-compile_started,
+                                strategy=strategy, toolchain=cache_health.toolchain_signature(environment), success=False)
+            raise
         compile_seconds = time.monotonic() - compile_started
         if compile_source != source:
             verify_checkpoint(compile_config, frozen)
             clone(compile_source / compile_config['app'], app)
-            build_workspace.trim(compile_source, config['name'])
+            evicted = build_workspace.trim(compile_source, config['name'], maximum=cache_policy['maximumBytes'], cache_roots=cache_policy['cacheRoots'])
     if input_hash(config) != before: raise RuntimeError('Build changed its approved input tree')
     verify_checkpoint(config, frozen)
     details = verify_app(config, app)
@@ -319,6 +338,13 @@ def build_one(job_id):
                                          'sourceHash': frozen['sourceHash'], 'recipeHash': recipe_hash(config),
                                          'complete': True, 'reused': reused, 'compileSeconds': compile_seconds, **details})
     save(metadata / 'config.json', config)
+    text = cache_log.read_bytes()[cache_offset:].decode(errors='replace') if cache_log.exists() else ''
+    report = cache_health.record(STORE, metadata, request, frozen['files'], text, seconds=compile_seconds,
+                                 strategy=strategy, toolchain=cache_health.toolchain_signature(os.environ),
+                                 success=True, reused=reused, evicted=evicted)
+    update(metadata / 'state.json', 'building', cacheHealth=report['health'], cacheWarnings=report['warnings'],
+           compileSeconds=compile_seconds)
+    for warning in report['warnings']: print('CACHE REGRESSION: ' + warning, flush=True)
     cleanup_intermediates(config)
 
 
@@ -711,7 +737,7 @@ def work():
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['receive', 'ready', 'work', 'build-one', 'status', 'logs', 'install-authority', 'retry', 'cancel', 'ota'])
+    parser.add_argument('action', choices=['receive', 'ready', 'work', 'build-one', 'status', 'logs', 'install-authority', 'retry', 'cancel', 'ota', 'cache-status'])
     parser.add_argument('--id'); parser.add_argument('--repo'); parser.add_argument('--app'); parser.add_argument('--bundle')
     args = parser.parse_args()
     if args.action == 'receive': print(json.dumps(receive(identity(args.id), identity(args.repo), identity(args.app))))
@@ -728,10 +754,11 @@ def main():
             pending = load(Path(config['root']) / config.get('stateDir', 'build/refresh') / 'state.json', {}).get('pendingPush')
             if pending and pending['id'] != os.environ.get('IOS_PUSH_JOB_ID'):
                 raise Retry('Queued push ' + pending['id'] + ' owns this app; use ios-push status')
+    elif args.action == 'cache-status': print(json.dumps(cache_health.status(STORE)))
     elif args.action == 'status': print(json.dumps(load(paths(args.id)[0] / 'state.json', {})))
     elif args.action == 'logs':
         metadata, _ = paths(args.id)
-        for name in ['build.log', 'install.log', 'watch-install.log', 'watch-companion-install.log', 'watch-companion-after.log']:
+        for name in ['cache-report.json', 'build.log', 'install.log', 'watch-install.log', 'watch-companion-install.log', 'watch-companion-after.log']:
             path = metadata / name
             if path.exists(): print(name + '\n' + log_excerpt(path.read_text(errors='replace')))
 

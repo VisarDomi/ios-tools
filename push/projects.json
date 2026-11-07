@@ -2,7 +2,9 @@
   "t3-watch": {
     "path": "ai/t3-watch",
     "declaration": "tools/renewal.py",
-    "aliases": {"t3watch": "t3-watch"}
+    "aliases": {
+      "t3watch": "t3-watch"
+    }
   },
   "video-platform": {
     "path": "video/video-platform",
@@ -14,6 +16,16 @@
       "tslive": "tslive-live",
       "tslive-local": "tslive-local",
       "vault": "vault"
+    },
+    "persistentBuildCache": {
+      "apps": [
+        "filehost-local"
+      ],
+      "maximumBytes": 2147483648,
+      "cacheRoots": [
+        "build/filehost/native",
+        "build/filehost/DerivedData"
+      ]
     }
   },
   "manga-reader": {

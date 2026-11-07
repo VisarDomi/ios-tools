@@ -8,6 +8,23 @@ from common import digest, ensure_directory, relative
 GENERATED = {'build', '.build', '.swiftpm', 'xcuserdata', '__pycache__'}
 
 
+def policy(project, app):
+    """Resolve opt-in compiler retention, keeping providers in separate workspaces."""
+    value = project.get('persistentBuildCache')
+    if not value: return None
+    if value is True:
+        return {'perApp': False, 'maximumBytes': 2 << 30, 'cacheRoots': None}
+    if not isinstance(value, dict): raise ValueError('Invalid persistent compiler-cache policy')
+    if app not in value.get('apps', []): return None
+    maximum = value.get('maximumBytes', 2 << 30)
+    if not isinstance(maximum, int) or maximum <= 0: raise ValueError('Invalid compiler-cache budget')
+    roots = value.get('cacheRoots')
+    if not roots: raise ValueError('Compiler-cache roots must be explicit')
+    for name in roots:
+        if relative(name).parts[0] != 'build': raise ValueError('Compiler cache must be under generated build/')
+    return {'perApp': True, 'maximumBytes': maximum, 'cacheRoots': roots}
+
+
 def prepare(source, files, destination, input_directories=()):
     source, destination = Path(source), Path(destination)
     ensure_directory(destination)
@@ -50,22 +67,34 @@ def prepare(source, files, destination, input_directories=()):
     return destination
 
 
-def trim(source, current_app, maximum=2 << 30):
-    """Bound regenerable compiler data; never remove sources or signed checkpoints."""
+def trim(source, current_app, maximum=2 << 30, cache_roots=None):
+    """Bound generated compiler data only; sources and frozen artifacts are excluded."""
     source = Path(source)
-    derived = source / 'build/DerivedData'
-    if not derived.is_dir() or derived.is_symlink(): return
+    if cache_roots is None:
+        derived = source / 'build/DerivedData'
+        candidates = list(derived.iterdir()) if derived.is_dir() and not derived.is_symlink() else []
+        candidates = sorted((p for p in candidates if p.is_dir() and not p.is_symlink()),
+                            key=lambda p: (p.name == current_app, p.stat().st_mtime))
+    else:
+        candidates = []
+        for name in cache_roots:
+            part = relative(name)
+            if part.parts[0] != 'build': raise ValueError('Compiler cache must be under generated build/')
+            path = source / part
+            if not path.resolve().is_relative_to(source.resolve()): raise ValueError('Compiler cache leaves its workspace')
+            if path.is_dir() and not path.is_symlink(): candidates.append(path)
     def size():
         total = 0
-        for folder, directories, files in os.walk(source, followlinks=False):
-            directories[:] = [name for name in directories if not (Path(folder) / name).is_symlink()]
-            for name in files:
-                try: total += (Path(folder) / name).lstat().st_size
-                except FileNotFoundError: pass
+        for candidate in candidates:
+            if not candidate.exists(): continue
+            for folder, directories, files in os.walk(candidate, followlinks=False):
+                directories[:] = [name for name in directories if not (Path(folder) / name).is_symlink()]
+                for name in files:
+                    try: total += (Path(folder) / name).lstat().st_size
+                    except FileNotFoundError: pass
         return total
-    if size() <= maximum: return
-    candidates = sorted((p for p in derived.iterdir() if p.is_dir() and not p.is_symlink()),
-                        key=lambda p: (p.name == current_app, p.stat().st_mtime))
+    removed = []
     for path in candidates:
-        shutil.rmtree(path)
         if size() <= maximum: break
+        shutil.rmtree(path); removed.append(str(path.relative_to(source)))
+    return removed

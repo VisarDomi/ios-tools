@@ -21,6 +21,8 @@ signing, installation and approval then run independently of the terminal/thread
 ios-push status JOB
 ios-push status JOB --follow
 ios-push logs JOB
+ios-push cache
+ios-push cache --json
 ios-push retry JOB
 ios-push cancel JOB
 ios-push ota JOB
@@ -92,14 +94,17 @@ per-job DerivedData cleanup no longer discard cached compiler outputs. Xcode's
 own pruning targets 2 GiB per CAS store; no cache-cleanup daemon is added. Build
 logs include cache diagnostics, and receipts record compilation seconds.
 
-Manga Reader builds also use a stable, regenerable compiler workspace, capped at
-2 GiB of retained compiler data. Each job still freezes its own source. The
+Manga Reader and FileHost builds also use stable, regenerable compiler workspaces,
+each capped at 2 GiB of retained compiler data. FileHost has its own provider workspace;
+other video providers keep their existing build policy. Each job still freezes its own source. The
 worker copies changed inputs into the workspace, preserves unchanged timestamps,
 verifies the full tree before and after compilation, then copies the verified
 signed app back into that job's checkpoint. Stable paths let subsequent builds
 reuse Xcode's dependency database and compiler outputs after small edits. Cache
 repair and pruning happen under the existing shared guard; interrupted copies
-are reconciled on the next build. Other projects retain their current policy.
+are reconciled on the next build. Large frozen decoder inputs are initially cloned
+on APFS; cache eviction counts generated compiler data and preserves source inputs.
+Other projects retain their current policy.
 
 A November 6 signed Lua validation on the Intel Mac verified both cache paths:
 a cold build took 158.9 s; a real edit took 104.1 s and compiled only the app
@@ -112,6 +117,18 @@ Sources that import AppIntents retain real Swift paths: Xcode's metadata
 extractor cannot resolve the cache's virtual source aliases. The shared cache
 and Clang path normalization remain enabled; only Swift path normalization is
 omitted for those apps so complication and shortcut metadata can be generated.
+
+Every queue build records `cache-report.json`: aggregate hits, per-module misses,
+compile time, artifact reuse and generated-cache eviction. `ios-push cache` shows
+latest health for each app; `--json` includes a bounded history of twenty builds.
+Reports compare declared module inputs and toolchain identity. An unchanged
+module that recompiles produces a `CACHE REGRESSION` warning in the build log and
+`cacheWarnings` in job status. Skipped modules retain their comparison baseline;
+artifact reuse and failed builds cannot erase it. SDK changes and known eviction
+are reported without treating the next cold compile as an unexplained regression.
+This monitoring runs in the existing worker and survives normal restarts; no
+additional polling service or cleanup daemon is installed. Frozen-source,
+signing and installation checks remain authoritative.
 
 Release optimization and signing/profile verification stay in force. Terminal
 builds skip IDE indexing. An existing `XCODE_XCCONFIG_FILE` is included before the

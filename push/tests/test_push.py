@@ -507,10 +507,29 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual((self.app / 'Demo').read_bytes(), b'compiled from stable verified inputs')
         self.assertTrue(common.load(self.metadata / 'build-receipt.json')['complete'])
 
+    def test_per_provider_workspace_does_not_share_another_apps_mutable_build_tree(self):
+        common.save(self.tools / 'push/projects.json', {'demo': {'persistentBuildCache': {
+            'apps': ['demo'], 'cacheRoots': ['build/DerivedData'], 'maximumBytes': 2 << 30}}})
+        lock = (self.base / 'signing.lock').open('a'); self.addCleanup(lock.close)
+        def compile(command, **kwargs):
+            if 'cwd' not in kwargs: return subprocess.CompletedProcess(command, 1)
+            working = Path(kwargs['cwd'])
+            self.assertEqual(working, self.base / 'Library/Caches/ios-tools/BuildWorkspaces/demo/demo/source')
+            app = working / self.config['app']; app.mkdir(parents=True, exist_ok=True)
+            (app / 'Demo').write_bytes(b'provider-isolated artifact')
+            return subprocess.CompletedProcess(command, 0)
+        with mock.patch.dict(os.environ, {'IOS_WORKLOAD_ACTIVE': '123', 'IOS_REFRESH_LOCK_FD': str(lock.fileno())}), mock.patch.object(worker.subprocess, 'run', side_effect=compile):
+            worker.build_one(self.job)
+        report = common.load(self.metadata / 'cache-report.json')
+        self.assertEqual(report['strategy'], 'stable-workspace+cas')
+        self.assertTrue(report['success'])
+        self.assertEqual((self.app / 'Demo').read_bytes(), b'provider-isolated artifact')
+
     def test_compiler_cannot_change_workspace_inputs_and_publish_an_artifact(self):
         common.save(self.tools / 'push/projects.json', {'demo': {'persistentBuildCache': True}})
         lock = (self.base / 'signing.lock').open('a'); self.addCleanup(lock.close)
         def mutate(command, **kwargs):
+            if 'cwd' not in kwargs: return subprocess.CompletedProcess(command, 1)
             (Path(kwargs['cwd']) / 'Sources/view.swift').write_text('changed during compilation')
             return subprocess.CompletedProcess(command, 0)
         with mock.patch.dict(os.environ, {'IOS_WORKLOAD_ACTIVE': '123', 'IOS_REFRESH_LOCK_FD': str(lock.fileno())}), mock.patch.object(worker.subprocess, 'run', side_effect=mutate):
