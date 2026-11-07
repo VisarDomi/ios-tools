@@ -123,6 +123,17 @@ final class ViewportRestorationChecks: UIViewController, StripReaderDelegate {
         try near(Double(list.contentOffset.y), Double(capturedY), "header/gap exact list anchor")
         report["listAnchor"] = ["offset": list.contentOffset.y, "fraction": savedAnchor.fraction, "pixelOffset": savedAnchor.offset!]
 
+        let thumbnails = ThumbnailStripView(pipeline: pipeline)
+        thumbnails.setKeys((0..<20).map { "thumbnail-\($0)" }, offset: 537)
+        try near(Double(thumbnails.offset), 537, "pending thumbnail offset")
+        thumbnails.frame = CGRect(x: 0, y: 0, width: size.width, height: 300)
+        thumbnails.setNeedsLayout(); thumbnails.layoutIfNeeded()
+        try near(Double(thumbnails.collectionView.contentOffset.x), 537, "thumbnail first layout")
+        thumbnails.collectionView.contentOffset.x = 623
+        thumbnails.setNeedsLayout(); thumbnails.layoutIfNeeded()
+        try near(Double(thumbnails.offset), 623, "thumbnail movement supersedes restore")
+        report["thumbnailOffset"] = thumbnails.offset
+
         let root = CaptureScreen("root"), child = CaptureScreen("child")
         let navigationFile = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("viewport-navigation.json")
         try? FileManager.default.removeItem(at: navigationFile)

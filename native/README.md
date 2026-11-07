@@ -48,6 +48,8 @@ native tunnel. See [the queue workflow](../push/README.md) before using it direc
   gesture. Do not replace it with provisional startup geometry or add faster save timers.
   Reader snapshots retain zoom/pan, page geometry and legal document margins; same-width
   list anchors retain the exact pixel distance, with fractional fallback across widths.
+  Thumbnail strips keep their requested sideways offset pending until their collection
+  has real bounds and has laid out its items; applying it to a zero-sized collection loses it.
 - **Relaunch to the exact screen, first frame included** (cold and warm). Kept data is read
   before the first frame; images already on the phone decode before it
   (`ImagePipeline.beginRestore`); lists go straight to their anchor
