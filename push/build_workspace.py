@@ -8,6 +8,13 @@ from common import digest, ensure_directory, relative
 GENERATED = {'build', '.build', '.swiftpm', 'xcuserdata', '__pycache__'}
 
 
+def cache_path(name):
+    part = relative(name)
+    if part.parts[0] != 'build' and part.parts[:3] != ('apps', 'ios', 'build'):
+        raise ValueError('Compiler cache must be under generated build/')
+    return part
+
+
 def policy(project, app):
     """Resolve opt-in compiler retention, keeping providers in separate workspaces."""
     value = project.get('persistentBuildCache')
@@ -21,7 +28,7 @@ def policy(project, app):
     roots = value.get('cacheRoots')
     if not roots: raise ValueError('Compiler-cache roots must be explicit')
     for name in roots:
-        if relative(name).parts[0] != 'build': raise ValueError('Compiler cache must be under generated build/')
+        cache_path(name)
     return {'perApp': True, 'maximumBytes': maximum, 'cacheRoots': roots}
 
 
@@ -78,8 +85,7 @@ def trim(source, current_app, maximum=2 << 30, cache_roots=None):
     else:
         candidates = []
         for name in cache_roots:
-            part = relative(name)
-            if part.parts[0] != 'build': raise ValueError('Compiler cache must be under generated build/')
+            part = cache_path(name)
             path = source / part
             if not path.resolve().is_relative_to(source.resolve()): raise ValueError('Compiler cache leaves its workspace')
             if path.is_dir() and not path.is_symlink(): candidates.append(path)

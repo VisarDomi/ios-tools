@@ -41,7 +41,16 @@
     "prepare": "gallery"
   },
   "gallery-downloader": {
-    "path": "manga/gallery-downloader"
+    "path": "manga/gallery-downloader",
+    "persistentBuildCache": {
+      "apps": [
+        "gallery"
+      ],
+      "cacheRoots": [
+        "apps/ios/build/DerivedData"
+      ],
+      "maximumBytes": 2147483648
+    }
   },
   "trader": {
     "path": "trading/trader"

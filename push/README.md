@@ -94,7 +94,7 @@ per-job DerivedData cleanup no longer discard cached compiler outputs. Xcode's
 own pruning targets 2 GiB per CAS store; no cache-cleanup daemon is added. Build
 logs include cache diagnostics, and receipts record compilation seconds.
 
-Manga Reader and FileHost builds also use stable, regenerable compiler workspaces,
+Manga Reader, offline Gallery Reader and FileHost builds also use stable, regenerable compiler workspaces,
 each capped at 2 GiB of retained compiler data. FileHost has its own provider workspace;
 other video providers keep their existing build policy. Each job still freezes its own source. The
 worker copies changed inputs into the workspace, preserves unchanged timestamps,

@@ -85,3 +85,19 @@ class BuildWorkspaceTests(unittest.TestCase):
         (self.workspace/'build').mkdir(parents=True);(self.workspace/'build/filehost').symlink_to(outside,target_is_directory=True)
         with self.assertRaises(ValueError):build_workspace.trim(self.workspace,'filehost-local',cache_roots=['build/filehost/DerivedData'])
         self.assertEqual((outside/'file').read_text(),'owner data')
+
+    def test_repository_rooted_ios_cache_preserves_sources_and_signed_checkpoints(self):
+        project={'persistentBuildCache':{'apps':['gallery'],'cacheRoots':['apps/ios/build/DerivedData']}}
+        selected=build_workspace.policy(project,'gallery')
+        cache=self.workspace/'apps/ios/build/DerivedData/object';cache.parent.mkdir(parents=True);cache.write_bytes(b'x'*32)
+        source=self.workspace/'apps/ios/GalleryReader/source.swift';source.parent.mkdir();source.write_text('source')
+        signed=self.root/'signed.app';signed.write_bytes(b'signed')
+        self.assertEqual(build_workspace.trim(self.workspace,'gallery',maximum=16,cache_roots=selected['cacheRoots']),['apps/ios/build/DerivedData'])
+        self.assertEqual(source.read_text(),'source');self.assertEqual(signed.read_bytes(),b'signed')
+        with self.assertRaises(ValueError):build_workspace.cache_path('apps/ios/GalleryReader')
+
+    def test_nested_ios_cache_cannot_follow_external_parent(self):
+        outside=self.root/'outside';outside.mkdir();(outside/'owner').write_text('keep')
+        self.workspace.mkdir(parents=True);(self.workspace/'apps').symlink_to(outside,target_is_directory=True)
+        with self.assertRaises(ValueError):build_workspace.trim(self.workspace,'gallery',cache_roots=['apps/ios/build/DerivedData'])
+        self.assertEqual((outside/'owner').read_text(),'keep')
