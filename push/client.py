@@ -226,8 +226,16 @@ def main():
         if args.json: print(json.dumps(data, indent=2))
         else:
             for row in data['apps']:
+                modules = row.get('modules', {})
+                scheduled = sum(value['scheduled'] for value in modules.values())
+                detail = ('verified artifact reused' if row.get('artifactReused') else
+                          str(scheduled)+' modules scheduled; '+str(len(modules)-scheduled)+' skipped')
+                if row['cacheableTasks']:
+                    detail += '; '+str(row['hits'])+'/'+str(row['cacheableTasks'])+' task hits'
+                misses = sum(value['misses'] for value in modules.values())
+                if misses: detail += '; '+str(misses)+' cache misses'
                 print(row['repo']+':'+row['app'], row['health'], str(round(row['compileSeconds'], 1))+'s',
-                      str(row['hits'])+'/'+str(row['cacheableTasks'])+' cache hits', '; '.join(row['warnings']))
+                      detail, '; '.join(row['warnings']))
     elif args.action == 'list':
         for name, project in projects().items():
             try:
