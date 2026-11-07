@@ -38,6 +38,18 @@ class CacheHealthTests(unittest.TestCase):
         before=cache_health.toolchain_signature(environment)
         compiler.write_bytes(b'compiler-two-updated')
         self.assertNotEqual(cache_health.toolchain_signature(environment),before)
+    def test_repository_rooted_kit_changes_are_not_reported_as_unchanged(self):
+        self.files={'apps/ios/Kit/Sources/KitReader/StripReaderView.swift':'reader1',
+                    'apps/ios/GalleryReader/ReaderScreen.swift':'ui1'}
+        miss="note: Local cache miss for key: llvmcas://abc (in target 'KitReader' from project 'NativeKit')"
+        self.record(miss)
+        self.files['apps/ios/Kit/Sources/KitReader/StripReaderView.swift']='reader2'
+        self.assertEqual(self.record(miss)['warnings'],[])
+        self.files['apps/ios/GalleryReader/ReaderScreen.swift']='ui2'
+        self.assertEqual(self.record(miss)['warnings'],['Unchanged module recompiled: KitReader'])
+    def test_unknown_layout_falls_back_to_all_declared_inputs(self):
+        first=cache_health.module_inputs('KitReader',{'vendor/reader.swift':'one'})
+        self.assertNotEqual(first,cache_health.module_inputs('KitReader',{'vendor/reader.swift':'two'}))
     def test_artifact_reuse_does_not_erase_compiler_baseline(self):
         miss="note: Local cache miss for key: llvmcas://abc (in target 'AetherEngine' from project 'AetherEngine')"
         self.record(miss);self.record('',reused=True)

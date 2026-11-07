@@ -32,7 +32,14 @@ def module_inputs(module, files):
         prefixes, names = ['Kit/Sources/'], {'Kit/Package.swift'}
     else:
         return source_hash(files)
-    return source_hash({n: h for n, h in files.items() if n in names or any(n.startswith(p) for p in prefixes)})
+    selected = {}
+    for name, value in files.items():
+        local = name[len('apps/ios/'):] if name.startswith('apps/ios/') else name
+        if local in names or any(local.startswith(prefix) for prefix in prefixes):
+            selected[name] = value
+    # Some recipes freeze the repository root, others apps/ios itself. Never
+    # compare an empty dependency set as evidence that a module was unchanged.
+    return source_hash(selected or files)
 
 
 def analyse(output, files):
