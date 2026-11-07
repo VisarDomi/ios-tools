@@ -311,7 +311,7 @@
     {
       "family": "manga",
       "machine": "reader continuation",
-      "path": "manga/manga-reader/apps/ios/MangaReader/ReaderScreen.swift",
+      "path": "manga/manga-reader/apps/ios/MangaReader/ReadingSession.swift",
       "states": [
         "waiting(until)",
         "loading",
@@ -459,7 +459,7 @@
     {
       "family": "gallery offline",
       "machine": "startup recovery",
-      "path": "manga/gallery-downloader/apps/ios/GalleryReader/AppController.swift",
+      "path": "manga/gallery-downloader/apps/ios/GalleryReader/GalleryLibrary.swift",
       "states": [
         "waiting",
         "opening",
@@ -610,6 +610,10 @@
       "path": "video/video-platform/apps/ios/VideoApp/ViewerPC.swift",
       "owner": "Edit transactions",
       "representation": "Mutations capture recording identity; replacement application preserves the current visible identity/position. Existing retry/transaction contract retained."
+    },
+    {
+      "path": "manga/gallery-downloader/apps/ios/GalleryReader/ViewPositions.swift",
+      "ownership": "First-frame position mirror, ordered actor persistence and lifecycle completion join; navigation owns capture-before-commit ordering."
     }
   ]
 }

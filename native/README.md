@@ -89,6 +89,19 @@ The changed Kit is vendored into the four audited media/reader repositories as
 one delivered cohort. Other projects keep their approved vendor until their own
 coordinated update; do not silently change their renewal inputs for this rollout.
 
+## Module contracts
+
+A navigation controller with a CheckpointStore owns lifecycle capture, route serialization,
+dependent synchronous flushes and the joined async write lease. Apps supply one state owner,
+rather than repeating save ordering in lifecycle callbacks. Existing callers without a store
+retain manual checkpoint behavior.
+
+StripReaderView takes a PageGeometry policy at construction: adaptive geometry keeps the
+existing gallery behavior; measured geometry publishes exact manga boxes with no guessed
+placeholder. Its scroll view, mutable page storage and renderer tuning are private in product
+builds. Simulator-only access supports the existing gesture/geometry checks. StripPosition.at
+rebases an index while retaining every viewport field.
+
 ## NativeKit
 
 UIKit, built in code, UIScene, iOS 26, Swift 6 with strict concurrency (video-platform builds

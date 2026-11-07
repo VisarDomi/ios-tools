@@ -38,7 +38,7 @@ final class ViewportRestorationChecks: UIViewController, StripReaderDelegate {
         (0..<12).map { StripPage(key: "\(prefix)-\($0)", aspect: [0.5, 0.8, 0.35][$0 % 3]) }
     }
     private func strip(_ prefix: String, size: CGSize, position: StripPosition, layout: Bool = true) -> StripReaderView {
-        let strip = StripReaderView(pipeline: pipeline); strip.delegate = self; strip.locksPageDimensions = true
+        let strip = StripReaderView(pipeline: pipeline, geometry: .measured); strip.delegate = self
         view.addSubview(strip)
         strip.setPages(pages(prefix), position: position)
         strip.frame = CGRect(origin: .zero, size: size)
@@ -63,7 +63,7 @@ final class ViewportRestorationChecks: UIViewController, StripReaderDelegate {
         try require(size.width > 0 && size.height > 0, "Fixture is not attached to a viewport")
         let wanted = StripPosition(index: 4, fraction: 0.631247891, zoom: ZoomState(scale: 2.375, x: 0.673812345), aspect: 0.8)
         let early = strip("early", size: size, position: wanted, layout: false)
-        try require(early.scrollView.bounds.height == 0, "Fixture must reproduce the outer-frame/inner-frame ordering")
+        try require(early.testScrollView.bounds.height == 0, "Fixture must reproduce the outer-frame/inner-frame ordering")
         early.append([StripPage(key: "early-tail", aspect: 0.5)])
         try require(early.savedPosition == wanted && early.currentPosition == nil, "A provisional viewport consumed or overwrote the requested restoration")
         early.setNeedsLayout(); early.layoutIfNeeded()
@@ -82,7 +82,7 @@ final class ViewportRestorationChecks: UIViewController, StripReaderDelegate {
         try samePicture(baseline, restored.state, "repeated viewport roundtrip")
         report["roundtrip"] = restored.state
         for end in [false, true] {
-            restored.scrollView.contentOffset.y = end ? max(0, restored.scrollView.contentSize.height - restored.scrollView.bounds.height) : 0
+            restored.testScrollView.contentOffset.y = end ? max(0, restored.testScrollView.contentSize.height - restored.testScrollView.bounds.height) : 0
             let boundary = restored.savedPosition!
             try require(boundary.point != nil, "Zoomed document margin must not be clamped into a page")
             let copy = strip("boundary", size: size, position: boundary)
@@ -137,7 +137,8 @@ final class ViewportRestorationChecks: UIViewController, StripReaderDelegate {
         let root = CaptureScreen("root"), child = CaptureScreen("child")
         let navigationFile = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("viewport-navigation.json")
         try? FileManager.default.removeItem(at: navigationFile)
-        let nav = LiveNavigationController(file: navigationFile, factory: { _, _ in nil }, root: root)
+        let dependencies = CaptureStore { child.capturedPoint }
+        let nav = LiveNavigationController(file: navigationFile, factory: { _, _ in nil }, root: root, stateStore: dependencies)
         root.visiblePoint = 123.375
         nav.open(child, animated: false)
         try near(root.capturedPoint, 123.375, "departure capture")
@@ -147,6 +148,7 @@ final class ViewportRestorationChecks: UIViewController, StripReaderDelegate {
         let stack = try DurableFile.readJSON(SavedStack.self, from: navigationFile)!
         let points = try stack.back.map { try JSONDecoder().decode(Double.self, from: $0.state!) }
         try require(points == [123.375,456.8125], "Durable capture used stale or hidden viewport values: \(points)")
+        try require(dependencies.calls == 1 && dependencies.point == 456.8125, "Navigation must commit dependencies after capturing the current screen")
         report["boundaryCapture"] = points
     }
     func strip(_ strip: StripReaderView, sourceFor index: Int) -> ImageSource {
@@ -167,5 +169,13 @@ private final class CaptureScreen: UIViewController, LiveScreen {
     var route: Data { Data(name.utf8) }
     func captureState() { capturedPoint = visiblePoint }
     func savedState() -> Data? { try? JSONEncoder().encode(capturedPoint) }
+}
+@MainActor
+private final class CaptureStore: CheckpointStore {
+    private let capture: () -> Double
+    var calls = 0
+    var point = 0.0
+    init(_ capture: @escaping () -> Double) { self.capture = capture }
+    func flush() { calls += 1; point = capture() }
 }
 #endif
