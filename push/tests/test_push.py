@@ -663,6 +663,17 @@ class ClientStatusTests(unittest.TestCase):
 
 
 class WatchClientTests(unittest.TestCase):
+    def test_root_scripts_declaration_works_from_checkout_and_explicit_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); (root / 'scripts').mkdir()
+            listing = {'repo': 'custom-twitter', 'apps': [{'name': 'twitter'}]}
+            (root / 'scripts/renewal.py').write_text('print(' + repr(json.dumps(listing)) + ')')
+            with mock.patch.object(client, 'projects', return_value={'custom-twitter': {'root': str(root), 'declaration': 'scripts/renewal.py'}}):
+                for source in [str(root), None]:
+                    with mock.patch.object(client.Path, 'cwd', return_value=root):
+                        repo, project, app = client.choose('twitter', source=source)
+                    self.assertEqual((repo, project['root'], app['name']), ('custom-twitter', str(root), 'twitter'))
+
     def test_project_tools_declaration_works_from_an_explicit_checkout(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory); (root / 'tools').mkdir()

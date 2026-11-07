@@ -1,4 +1,8 @@
 {
+  "custom-twitter": {
+    "path": "custom-twitter",
+    "declaration": "scripts/renewal.py"
+  },
   "t3-watch": {
     "path": "ai/t3-watch",
     "declaration": "tools/renewal.py",

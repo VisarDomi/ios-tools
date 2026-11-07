@@ -32,7 +32,7 @@ def projects():
 def declaration(project):
     root = Path(project['root'])
     name = project.get('declaration') or next((name for name in
-        ['apps/ios/scripts/renewal.py', 'tools/renewal.py'] if (root / name).is_file()), 'apps/ios/scripts/renewal.py')
+        ['apps/ios/scripts/renewal.py', 'tools/renewal.py', 'scripts/renewal.py'] if (root / name).is_file()), 'apps/ios/scripts/renewal.py')
     script = root / name
     result = subprocess.run([sys.executable, str(script), '--team', '__IOS_PUSH_TEAM__', '--device', '__IOS_PUSH_DEVICE__'],
                             capture_output=True, text=True, timeout=30, check=True)
@@ -48,7 +48,7 @@ def choose(selector, project_name=None, source=None):
         local = declaration(local_project)
     else:
         for candidate in [Path.cwd(), *Path.cwd().parents]:
-            if any((candidate / name).is_file() for name in ['apps/ios/scripts/renewal.py', 'tools/renewal.py']):
+            if any((candidate / name).is_file() for name in ['apps/ios/scripts/renewal.py', 'tools/renewal.py', 'scripts/renewal.py']):
                 local_project = {'root': str(candidate)}; local = declaration(local_project); break
     for name, project in registry.items():
         if project_name and name != project_name: continue
