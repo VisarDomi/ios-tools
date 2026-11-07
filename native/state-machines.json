@@ -533,10 +533,12 @@
         "contact up/down",
         "scroll rest/dragging/decelerating",
         "pinch rest/pinching",
-        "pending geometry/image updates"
+        "pending geometry/image updates",
+        "restoration ready/pending(position)/applying(position)",
+        "geometry ready/updating"
       ],
-      "invariant": "pinch-held geometry, free scroll, pending decodes",
-      "persistence": "Transient task/gesture phases restart from existing durable user state and committed media; process-local operation IDs are never persisted.",
+      "invariant": "Pinch-held geometry and free scroll; restoration applies only after real inner/outer viewport layout, and nested geometry updates cannot publish provisional positions.",
+      "persistence": "Durable page/fraction, zoom/pan, page aspect and legal document-margin point survive restart. Pending saved positions remain authoritative until applied or superseded by a user gesture.",
       "implementation": "explicit phase/ownership model"
     },
     {
@@ -551,8 +553,20 @@
         "saved stack",
         "live stack"
       ],
-      "invariant": "forward interactive completion/cancel, warm and saved stacks",
+      "invariant": "Capture the departing/current screen before encoding, including navigation and lifecycle boundaries; hidden screens do not overwrite current progress.",
       "persistence": "Existing navigation, list anchor, playback checkpoint and reader position formats retained. Transient animation/output phases are rebuilt; cancellation never replaces a committed position with a temporary zero.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
+      "family": "shared",
+      "machine": "thumbnail placement",
+      "path": "ios-tools/native/Kit/Sources/KitLists/ThumbnailStripView.swift",
+      "states": [
+        "ready",
+        "pending(offset)"
+      ],
+      "invariant": "A saved sideways offset stays pending until collection bounds and item layout are usable; ordinary scrolling does not reapply it, and a new drag supersedes it.",
+      "persistence": "The pending or live offset is captured in the existing gallery list state at navigation/lifecycle boundaries; the transient placement phase is rebuilt from that saved offset.",
       "implementation": "explicit phase/ownership model"
     }
   ],

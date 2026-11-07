@@ -73,7 +73,7 @@ native tunnel. See [the queue workflow](../push/README.md) before using it direc
 ## State transitions in the media/reader apps
 
 The video, manga and gallery cohort uses explicit lifecycle and work ownership
-models. [state-machines.json](state-machines.json) maps the 38 runtime workflows,
+models. [state-machines.json](state-machines.json) maps the 39 runtime workflows,
 state owners and invariants; it includes existing structured queues as well as
 newly extracted machines. Facts such as a muted preference, known dimensions or
 a scroll offset stay data, rather than becoming artificial workflow states.
