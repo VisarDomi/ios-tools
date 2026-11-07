@@ -64,6 +64,7 @@ def record(store, metadata, request, files, output, *, seconds, strategy, toolch
             if old and old['inputHash'] == current['inputHash'] and current['misses']:
                 warnings.append('Unchanged module recompiled: ' + module)
     report = dict(metrics, job=request['id'], repo=request['repo'], app=request['app'], at=time.time(),
+                  buildKind=request.get('kind', 'push'),
                   compileSeconds=seconds, strategy=strategy, toolchain=toolchain, success=success,
                   artifactReused=reused, evicted=list(evicted), warnings=warnings,
                   health='regression' if warnings else ('ok' if success else 'build-failed'))

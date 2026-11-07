@@ -335,6 +335,10 @@ def run(config, action, force=False, wireless=False, keep_schedule=False, config
             if sys.platform == 'darwin':
                 if not guard.exists():
                     raise RuntimeError('Shared Mac workload guard is missing; sync ios-tools before renewal')
+                checkpoints = Path.home() / 'Developer/ios-push/checkpoints'
+                if config_path is not None and root.name == 'source' and root.parent.parent == checkpoints:
+                    command = [sys.executable, str(guard.parents[2] / 'push/worker.py'),
+                               'renewal-build', '--config', str(config_path)]
                 command = [sys.executable, str(guard), 'build', '--timeout', '900', '--', *command]
             with (state_dir / 'build.log').open('w') as log:
                 result = subprocess.run(command, cwd=root, env=environment,

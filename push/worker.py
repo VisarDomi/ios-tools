@@ -11,6 +11,7 @@ import plistlib
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from compilation_cache import build_environment
 import build_workspace
@@ -242,6 +243,120 @@ def verify_app(config, app):
     return {'bundle': info['CFBundleIdentifier'], 'version': str(info['CFBundleVersion']), 'profiles': profiles}
 
 
+def recover_product(app):
+    """Finish a signed-product publication interrupted between directory renames."""
+    backup = app.with_name(app.name + '.cache-previous')
+    if backup.exists():
+        if app.exists(): shutil.rmtree(backup)
+        else: os.replace(backup, app)
+        sync_directory(app.parent)
+
+
+def publish_product(source, app):
+    # Preserve the previous signed product until the complete replacement exists.
+    recover_product(app)
+    staged = app.with_name(app.name + '.cache-next')
+    if staged.exists(): shutil.rmtree(staged)
+    clone(source, staged)
+    backup = app.with_name(app.name + '.cache-previous')
+    if app.exists():
+        os.replace(app, backup)
+        sync_directory(app.parent)
+    try:
+        os.replace(staged, app)
+        sync_directory(app.parent)
+    finally:
+        recover_product(app)
+
+
+def compile_checkpoint(config, frozen, request, metadata, cache_log, cache_offset=0):
+    """One guarded compiler/cache path for pushes and approved monthly renewals."""
+    source = Path(config['root']); app = source / config['app']
+    recover_product(app)
+    evicted = []
+    compile_source, compile_config = source, config
+    strategy = 'cas'
+    cache_policy = build_workspace.policy(load(TOOLS / 'push/projects.json', {}).get(request['repo'], {}), config['name'])
+    if cache_policy:
+        strategy = 'stable-workspace+cas'
+        workspace = MAC_HOME / 'Library/Caches/ios-tools/BuildWorkspaces' / identity(request['repo'])
+        if cache_policy['perApp']: workspace = workspace / identity(config['name'])
+        workspace = workspace / 'source'
+        # Initial APFS cloning shares large unchanged decoder inputs while
+        # keeping mutable build outputs on distinct inodes.
+        if not workspace.exists(): clone(source, workspace)
+        compile_source = build_workspace.prepare(source, frozen['files'], workspace,
+            input_directories=[name for name in config['inputs'] if (source / name).is_dir()])
+        compile_config = configuration(request, compile_source)
+        verify_checkpoint(compile_config, frozen)
+        compile_app = compile_source / compile_config['app']
+        if compile_app.exists(): shutil.rmtree(compile_app)
+        print('Using verified stable compiler workspace; frozen checkpoint remains authoritative', flush=True)
+    environment = dict(os.environ)
+    for item in ['SIMULATOR', 'DECODER_PROBE', 'ORIGINAL_CODEC_PROBE']: environment.pop(item, None)
+    environment.update(compile_config.get('environment', {}), SIGNING_DESTINATION='generic/platform=iOS')
+    environment = build_environment(environment, metadata, compile_source, MAC_HOME / 'Library/Caches/ios-tools/CompilationCache.noindex',
+                                    product=config['app'], app_name=config['name'])
+    print('Using shared Xcode compilation cache (2 GiB per CAS store)', flush=True)
+    compile_started = time.monotonic()
+    try:
+        subprocess.run(compile_config['build'], cwd=compile_source, env=environment, pass_fds=(int(os.environ['IOS_REFRESH_LOCK_FD']),), check=True)
+    except BaseException:
+        text = cache_log.read_bytes()[cache_offset:].decode(errors='replace') if cache_log.exists() else ''
+        cache_health.record(STORE, metadata, request, frozen['files'], text, seconds=time.monotonic()-compile_started,
+                            strategy=strategy, toolchain=cache_health.toolchain_signature(environment), success=False)
+        raise
+    compile_seconds = time.monotonic() - compile_started
+    if compile_source != source:
+        verify_checkpoint(compile_config, frozen)
+        publish_product(compile_source / compile_config['app'], app)
+        evicted = build_workspace.trim(compile_source, config['name'], maximum=cache_policy['maximumBytes'], cache_roots=cache_policy['cacheRoots'])
+    return compile_seconds, strategy, evicted
+
+
+def renewal_build(registration, validate_only=False):
+    if not os.environ.get('IOS_WORKLOAD_ACTIVE') or not os.environ.get('IOS_REFRESH_LOCK_FD'):
+        raise RuntimeError('The shared workload guard must own a renewal build')
+    config = load(registration); source = Path(config['root']).resolve()
+    if source.parent.parent != CHECKPOINTS.resolve() or source.name != 'source':
+        raise RuntimeError('Cached renewal requires an approved queue checkpoint')
+    original_metadata, expected_source = paths(source.parent.name)
+    if source != expected_source.resolve(): raise RuntimeError('Unexpected renewal checkpoint')
+    request = request_for(original_metadata); frozen = load(original_metadata / 'ready.json')
+    if digest(original_metadata / 'request.json') != frozen['requestHash']:
+        raise RuntimeError('Approved renewal request changed')
+    if recipe_hash(config) != recipe_hash(configuration(request, source)):
+        raise RuntimeError('Renewal recipe differs from the approved checkpoint')
+    state = load(Path(config['stateDir']) / 'state.json', {})
+    if state.get('pendingPush') or state.get('inputHash') != input_hash(config):
+        raise RuntimeError('Renewal inputs are not currently approved')
+    verify_checkpoint(config, frozen)
+    metadata = Path(config['stateDir'])
+    scratch = None
+    request = dict(request, id='renewal-' + time.strftime('%Y%m%dT%H%M%SZ', time.gmtime()),
+                   kind='renewal-validation' if validate_only else 'renewal')
+    try:
+        if validate_only:
+            metadata = metadata / 'cache-validation'
+            ensure_directory(metadata)
+            scratch = Path(tempfile.mkdtemp(prefix='renewal-source-', dir=metadata)) / 'source'
+            if scratch.is_relative_to(source): raise RuntimeError('Validation must be outside approved source')
+            clone(source, scratch)
+            config = configuration(request, scratch)
+        log = metadata / 'build.log'
+        # The caller redirects the build to this log, just as the scheduler does.
+        seconds, strategy, evicted = compile_checkpoint(config, frozen, request, metadata, log)
+        verify_checkpoint(config, frozen)
+        verify_app(config, Path(config['root']) / config['app'])
+        report = cache_health.record(STORE, metadata, request, frozen['files'],
+            log.read_text(errors='replace') if log.exists() else '', seconds=seconds,
+            strategy=strategy, toolchain=cache_health.toolchain_signature(os.environ), success=True, evicted=evicted)
+        for warning in report['warnings']: print('CACHE REGRESSION: ' + warning, flush=True)
+        print('Cached renewal build verified; no installation or renewal approval performed by this command', flush=True)
+    finally:
+        if scratch: shutil.rmtree(scratch.parent)
+
+
 def build_one(job_id):
     if not os.environ.get('IOS_WORKLOAD_ACTIVE') or not os.environ.get('IOS_REFRESH_LOCK_FD'):
         raise RuntimeError('The shared workload guard must own a push build')
@@ -294,43 +409,7 @@ def build_one(job_id):
         update(metadata / 'state.json', 'building', message='Compiling the frozen source checkpoint')
         if any(app.is_relative_to(source / item) for item in config['inputs']): raise RuntimeError('Build output overlaps its frozen inputs')
         if app.exists(): shutil.rmtree(app)
-        compile_source, compile_config = source, config
-        strategy = 'cas'
-        cache_policy = build_workspace.policy(load(TOOLS / 'push/projects.json', {}).get(request['repo'], {}), config['name'])
-        if cache_policy:
-            strategy = 'stable-workspace+cas'
-            workspace = MAC_HOME / 'Library/Caches/ios-tools/BuildWorkspaces' / identity(request['repo'])
-            if cache_policy['perApp']: workspace = workspace / identity(config['name'])
-            workspace = workspace / 'source'
-            # Initial APFS cloning shares large unchanged decoder inputs while
-            # keeping mutable build outputs on distinct inodes.
-            if not workspace.exists(): clone(source, workspace)
-            compile_source = build_workspace.prepare(source, frozen['files'], workspace,
-                input_directories=[name for name in config['inputs'] if (source / name).is_dir()])
-            compile_config = configuration(request, compile_source)
-            verify_checkpoint(compile_config, frozen)
-            compile_app = compile_source / compile_config['app']
-            if compile_app.exists(): shutil.rmtree(compile_app)
-            print('Using verified stable compiler workspace; frozen checkpoint remains authoritative', flush=True)
-        environment = dict(os.environ)
-        for item in ['SIMULATOR', 'DECODER_PROBE', 'ORIGINAL_CODEC_PROBE']: environment.pop(item, None)
-        environment.update(compile_config.get('environment', {}), SIGNING_DESTINATION='generic/platform=iOS')
-        environment = build_environment(environment, metadata, compile_source, MAC_HOME / 'Library/Caches/ios-tools/CompilationCache.noindex',
-                                        product=config['app'], app_name=config['name'])
-        print('Using shared Xcode compilation cache (2 GiB per CAS store)', flush=True)
-        compile_started = time.monotonic()
-        try:
-            subprocess.run(compile_config['build'], cwd=compile_source, env=environment, pass_fds=(int(os.environ['IOS_REFRESH_LOCK_FD']),), check=True)
-        except BaseException:
-            text = cache_log.read_bytes()[cache_offset:].decode(errors='replace') if cache_log.exists() else ''
-            cache_health.record(STORE, metadata, request, frozen['files'], text, seconds=time.monotonic()-compile_started,
-                                strategy=strategy, toolchain=cache_health.toolchain_signature(environment), success=False)
-            raise
-        compile_seconds = time.monotonic() - compile_started
-        if compile_source != source:
-            verify_checkpoint(compile_config, frozen)
-            clone(compile_source / compile_config['app'], app)
-            evicted = build_workspace.trim(compile_source, config['name'], maximum=cache_policy['maximumBytes'], cache_roots=cache_policy['cacheRoots'])
+        compile_seconds, strategy, evicted = compile_checkpoint(config, frozen, request, metadata, cache_log, cache_offset)
     if input_hash(config) != before: raise RuntimeError('Build changed its approved input tree')
     verify_checkpoint(config, frozen)
     details = verify_app(config, app)
@@ -737,12 +816,14 @@ def work():
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['receive', 'ready', 'work', 'build-one', 'status', 'logs', 'install-authority', 'retry', 'cancel', 'ota', 'cache-status'])
+    parser.add_argument('action', choices=['receive', 'ready', 'work', 'build-one', 'renewal-build', 'status', 'logs', 'install-authority', 'retry', 'cancel', 'ota', 'cache-status'])
     parser.add_argument('--id'); parser.add_argument('--repo'); parser.add_argument('--app'); parser.add_argument('--bundle')
+    parser.add_argument('--config'); parser.add_argument('--validate-only', action='store_true')
     args = parser.parse_args()
     if args.action == 'receive': print(json.dumps(receive(identity(args.id), identity(args.repo), identity(args.app))))
     elif args.action == 'ready': ready(identity(args.id)); print('ready')
     elif args.action == 'build-one': build_one(identity(args.id))
+    elif args.action == 'renewal-build': renewal_build(args.config, args.validate_only)
     elif args.action in {'retry', 'cancel', 'ota'}: control(identity(args.id), args.action)
     elif args.action == 'work':
         try: work()

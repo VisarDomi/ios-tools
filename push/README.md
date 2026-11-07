@@ -125,7 +125,13 @@ extractor cannot resolve the cache's virtual source aliases. The shared cache
 and Clang path normalization remain enabled; only Swift path normalization is
 omitted for those apps so complication and shortcut metadata can be generated.
 
-Every queue build records `cache-report.json`: aggregate hits, per-module misses,
+Queue builds and monthly renewals of queue-approved checkpoints use the same
+guarded compilation/cache helper. Renewals retain their existing profile rotation,
+approval, installation checks and calendar schedule. A completed replacement app
+is staged before the previous signed output is replaced; an interrupted directory
+publication recovers on the next admitted build.
+
+Each records `cache-report.json`: aggregate hits, per-module misses,
 compile time, artifact reuse and generated-cache eviction. `ios-push cache` shows
 latest health for each app; `--json` includes a bounded history of twenty builds.
 Reports compare declared module inputs and toolchain identity. An unchanged
@@ -136,6 +142,11 @@ are reported without treating the next cold compile as an unexplained regression
 This monitoring runs in the existing worker and survives normal restarts; no
 additional polling service or cleanup daemon is installed. Frozen-source,
 signing and installation checks remain authoritative.
+Renewal reports identify `buildKind: renewal` and live beside the scheduler's
+normal `build.log`; they also appear in `ios-push cache`. Cache-only renewal
+validation builds a disposable clone and changes neither the approved signed
+artifact nor installed profiles, renewal state or device data. Older registrations
+that do not point to a queue checkpoint keep their existing builder.
 
 Release optimization and signing/profile verification stay in force. Terminal
 builds skip IDE indexing. An existing `XCODE_XCCONFIG_FILE` is included before the

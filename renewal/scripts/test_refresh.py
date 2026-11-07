@@ -87,6 +87,21 @@ class RenewalTests(unittest.TestCase):
         self.assertTrue(command[1].endswith('native/scripts/mac-workload'))
         self.assertEqual(command[-1], 'fake-build')
 
+    def test_approved_queue_checkpoint_renewal_uses_shared_cached_builder(self):
+        source=self.root/'Developer/ios-push/checkpoints/job/source'
+        source.mkdir(parents=True);(source/'source').write_text('approved runtime')
+        self.config.update(root=str(source),stateDir=str(self.state_path.parent))
+        registration=self.root/'registration.json';refresh.save(registration,self.config)
+        refresh.save(self.state_path,dict(inputHash=refresh.fingerprint(source,['source']),
+                                        installedProfiles=self.before,lastSuccess=0))
+        with patch.object(refresh.sys,'platform','darwin'):
+            refresh.run(self.config,'refresh',config_path=registration)
+        command=next(c for c in self.process_calls if 'build' in c and '--timeout' in c)
+        self.assertIn('renewal-build',command)
+        self.assertTrue(command[command.index('renewal-build')-1].endswith('push/worker.py'))
+        self.assertEqual(command[-2:],['--config',str(registration)])
+        self.assertEqual(self.state()['lastSuccess'],100000)
+
     def test_recursive_profiles_include_watch_and_its_complication(self):
         root = self.root / 'ProfileHost.app'
         entries = [(root, 'host'), (root / 'Watch/Watch.app', 'watch'),

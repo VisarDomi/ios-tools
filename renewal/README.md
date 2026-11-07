@@ -154,6 +154,15 @@ and the existing scheduler retries on its next check. `lastDeferred` and the act
 per-app `build.log` preserve the reason. A guard stop after compilation starts is
 still a failed build; all guard thresholds and signing/workload locks stay intact.
 
+Apps approved from an ios-push checkpoint compile through the push worker's same
+cache helper, inside the inherited workload/signing lock. FileHost and Manga Reader
+reuse their bounded stable workspaces; the remaining projects use the shared CAS
+policy. The frozen request, recipe and source are verified before and after work.
+The monthly profile advancement and actual installation checks below still decide
+renewal success. `cache-report.json` beside `build.log` records compilation work;
+the existing `ios-push cache` command includes renewal reports. There is no extra
+scheduler. Legacy mutable registrations retain their existing builder.
+
 After a confirmed successful renewal, the runner removes disposable `DerivedData`
 directories only under that mutable app repository's `build/`, while holding the
 shared signing lock. It protects every registered approved input, signed app and

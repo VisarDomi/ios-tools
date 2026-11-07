@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import plistlib
 from pathlib import Path
 import subprocess
@@ -134,6 +135,39 @@ class WorkerTests(unittest.TestCase):
         self.profile_patch = mock.patch.object(worker.refresh, 'app_profiles', return_value=self.profiles); self.profile_patch.start(); self.addCleanup(self.profile_patch.stop)
         self.companion_patch = mock.patch.object(worker.refresh, 'companion_apps', return_value=None)
         self.companion_patch.start(); self.addCleanup(self.companion_patch.stop)
+
+    def test_renewal_cache_validation_preserves_approved_product_and_state(self):
+        common.save(worker.config_path('demo','demo'),self.config)
+        common.save(self.state_path,dict(inputHash=worker.input_hash(self.config),lastSuccess=123,
+                                         installedProfiles=self.profiles))
+        before=self.app.joinpath('Demo').read_bytes();state=common.load(self.state_path)
+        def clone(source,destination):
+            destination.parent.mkdir(parents=True,exist_ok=True)
+            shutil.copytree(source,destination)
+        def compile(config,*_):
+            self.assertNotEqual(Path(config['root']),self.source)
+            (Path(config['root'])/config['app']/'Demo').write_bytes(b'rebuilt preview')
+            return 1.0,'stable-workspace+cas',[]
+        with mock.patch.dict(os.environ,IOS_WORKLOAD_ACTIVE='1',IOS_REFRESH_LOCK_FD='0'), \
+             mock.patch.object(worker,'clone',side_effect=clone), \
+             mock.patch.object(worker,'compile_checkpoint',side_effect=compile):
+            worker.renewal_build(worker.config_path('demo','demo'),validate_only=True)
+        self.assertEqual(self.app.joinpath('Demo').read_bytes(),before)
+        self.assertEqual(common.load(self.state_path),state)
+        self.assertEqual(common.load(worker.config_path('demo','demo')),self.config)
+        self.assertEqual(common.load(self.metadata/'build-receipt.json'),self.receipt)
+        self.assertFalse(list((self.state_path.parent/'cache-validation').glob('renewal-source-*')))
+        self.assertEqual(common.load(self.state_path.parent/'cache-validation/cache-report.json')['buildKind'],'renewal-validation')
+        self.assertFalse(any('install' in str(c) or 'devicectl' in str(c) for c,_ in self.calls))
+
+    def test_renewal_cache_rejects_pending_push_before_compilation(self):
+        common.save(worker.config_path('demo','demo'),self.config)
+        common.save(self.state_path,dict(inputHash=worker.input_hash(self.config),pendingPush={'id':'new'}))
+        with mock.patch.dict(os.environ,IOS_WORKLOAD_ACTIVE='1',IOS_REFRESH_LOCK_FD='0'), \
+             mock.patch.object(worker,'compile_checkpoint') as compile:
+            with self.assertRaisesRegex(RuntimeError,'not currently approved'):
+                worker.renewal_build(worker.config_path('demo','demo'))
+            compile.assert_not_called()
 
     def test_install_confirmation_moves_only_this_app_to_its_frozen_checkpoint(self):
         sibling = dict(self.old, name='other', bundleIds=['com.test.Other'])
