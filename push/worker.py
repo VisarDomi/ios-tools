@@ -369,6 +369,7 @@ def build_one(job_id):
     save(metadata / 'config.json', config)
     save(metadata / 'build-receipt.json', {'inputHash': before, 'complete': False})
     app = source / config['app']
+    recover_product(app)
     previous = load(config_path(request['repo'], request['app']))
     reused = False
     compile_seconds = 0.0
