@@ -22,6 +22,22 @@ class CacheHealthTests(unittest.TestCase):
         self.assertEqual(self.record(miss)['warnings'],['Unchanged module recompiled: AetherEngine'])
         self.files['ThirdParty/AetherCore/Sources/core.swift']='core2'
         self.assertEqual(self.record(miss)['warnings'],[])
+    def test_ffmpeg_wrapper_has_its_own_dependency_fingerprint(self):
+        self.files['ThirdParty/FFmpegBuild/Package.swift']='ffmpeg1'
+        miss="note: Local cache miss for key: llvmcas://abc (in target 'AetherFFmpegBuild' from project 'FFmpegBuild')"
+        self.record(miss)
+        self.files['VideoApp/ViewerController.swift']='ui2'
+        self.assertEqual(self.record(miss)['warnings'],['Unchanged module recompiled: AetherFFmpegBuild'])
+        self.files['ThirdParty/FFmpegBuild/Package.swift']='ffmpeg2'
+        self.assertEqual(self.record(miss)['warnings'],[])
+    def test_toolchain_signature_tracks_the_actual_swift_compiler(self):
+        developer=self.root/'Xcode.app/Contents/Developer'
+        compiler=developer/'Toolchains/XcodeDefault.xctoolchain/usr/bin/swift-frontend'
+        compiler.parent.mkdir(parents=True);compiler.write_bytes(b'compiler-one')
+        environment={'DEVELOPER_DIR':str(developer)}
+        before=cache_health.toolchain_signature(environment)
+        compiler.write_bytes(b'compiler-two-updated')
+        self.assertNotEqual(cache_health.toolchain_signature(environment),before)
     def test_artifact_reuse_does_not_erase_compiler_baseline(self):
         miss="note: Local cache miss for key: llvmcas://abc (in target 'AetherEngine' from project 'AetherEngine')"
         self.record(miss);self.record('',reused=True)

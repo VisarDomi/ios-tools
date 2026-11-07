@@ -9,7 +9,7 @@ from common import load, save, source_hash
 
 def toolchain_signature(environment):
     developer = Path(environment.get('DEVELOPER_DIR', '/Applications/Xcode.app/Contents/Developer'))
-    paths = [developer.parent / 'Toolchains/XcodeDefault.xctoolchain/usr/bin/swift-frontend',
+    paths = [developer / 'Toolchains/XcodeDefault.xctoolchain/usr/bin/swift-frontend',
              developer / 'Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk/SDKSettings.plist']
     values = []
     for path in paths:
@@ -23,6 +23,9 @@ def toolchain_signature(environment):
 def module_inputs(module, files):
     if module == 'AetherEngine':
         prefixes = ['ThirdParty/AetherCore/', 'ThirdParty/FFmpegBuild/', 'ThirdParty/LibDovi/']
+        names = {'FileHost/build-provider.py', 'FileHost/project.py', 'scripts/build-provider.py', 'scripts/project.py'}
+    elif module == 'AetherFFmpegBuild':
+        prefixes = ['ThirdParty/FFmpegBuild/']
         names = {'FileHost/build-provider.py', 'FileHost/project.py', 'scripts/build-provider.py', 'scripts/project.py'}
     elif module.startswith('Kit'):
         # Conservative dependency coverage: any NativeKit change may invalidate a module.
