@@ -39,10 +39,15 @@ native tunnel. See [the queue workflow](../push/README.md) before using it direc
   phone for behavior the virtual device cannot establish, such as its actual network,
   credentials or hardware. Remove temporary phone-control runners and verify removal.
 
-- **Instant, offline where possible, kill-robust.** Every change of state (position,
-  progress, navigation, downloads) is written durably and atomically when it happens, in the
-  background (`BackgroundWriter`); leaving for the background waits for pending writes. A
-  kill, a power-off or iOS ending the app loses nothing.
+- **Instant, offline where possible, kill-robust.** Capture the live viewport at scroll/zoom
+  completion, navigation departure and lifecycle save boundaries. `LiveScreen.captureState`
+  updates progress/position stores before route and view-state encoding; flushing a writer
+  alone does not capture a changed view. Writes run atomically in `BackgroundWriter`;
+  leaving waits for pending writes and metadata needed to reconstruct the saved screen.
+  An unresolved restore target stays authoritative until applied or superseded by a user
+  gesture. Do not replace it with provisional startup geometry or add faster save timers.
+  Reader snapshots retain zoom/pan, page geometry and legal document margins; same-width
+  list anchors retain the exact pixel distance, with fractional fallback across widths.
 - **Relaunch to the exact screen, first frame included** (cold and warm). Kept data is read
   before the first frame; images already on the phone decode before it
   (`ImagePipeline.beginRestore`); lists go straight to their anchor
