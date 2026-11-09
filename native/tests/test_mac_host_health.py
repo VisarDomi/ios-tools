@@ -17,6 +17,9 @@ class MacEvidenceTests(unittest.TestCase):
  def test_missing_console_flags_stay_unknown(self):
   row=m.console_sessions(plistlib.dumps([dict(IOConsoleUsers=[{}])]))[0]
   self.assertIsNone(row['screenShieldFlag'])
+ def test_real_ioreg_dictionary_root_is_supported_as_well_as_array_archives(self):
+  root=dict(IOConsoleUsers=[dict(kCGSSessionUserIDKey=501,CGSSessionScreenIsLocked=False)])
+  self.assertFalse(m.console_sessions(plistlib.dumps(root))[0]['screenShieldFlag'])
  def test_crash_metadata_retains_original_date_guest_and_watchdog(self):
   with tempfile.TemporaryDirectory() as td:
    path=Path(td)/'fixture.ips';path.write_text('{}\n'+json.dumps(dict(procName='MobileCal',captureTime='2026-11-07',coalitionName='sim.fixture',termination=dict(namespace='FRONTBOARD',code=0x8badf00d))))

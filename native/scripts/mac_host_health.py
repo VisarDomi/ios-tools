@@ -22,7 +22,7 @@ def command(argv, timeout=8):
 
 def console_sessions(data):
     root = plistlib.loads(data)
-    users = root[0].get('IOConsoleUsers', [])
+    users = (root[0] if isinstance(root,list) else root).get('IOConsoleUsers', [])
     return [dict(user=row.get('kCGSSessionUserNameKey'), uid=row.get('kCGSSessionUserIDKey'),
                  onConsole=row.get('kCGSSessionOnConsoleKey'), loginDone=row.get('kCGSessionLoginDoneKey'),
                  screenShieldFlag=row.get('CGSSessionScreenIsLocked'),
@@ -52,11 +52,12 @@ def ui_blockers(rows):
 
 
 UI_SCRIPT = '''const se=Application("System Events");
-const names=["CoreServicesUIAgent","ReportCrash","Problem Reporter","Xcode","Simulator","loginwindow"];
+const names=["CoreServicesUIAgent","ReportCrash","Problem Reporter","Xcode","Simulator"];
 JSON.stringify(names.map(n=>{try {const p=se.processes.byName(n);return p.exists()?{
 process:n,frontmost:p.frontmost(),windows:p.windows().slice(0,8).map(w=>({
-name:w.name(),role:w.role(),subrole:w.subrole(),buttons:w.buttons.name(),
-texts:w.staticTexts.value(),sheets:w.sheets().map(s=>({name:s.name(),buttons:s.buttons.name()}))
+name:w.name(),role:w.role(),subrole:w.subrole(),
+texts:n==="CoreServicesUIAgent"?w.staticTexts.value():[],
+sheets:n==="Xcode"?w.sheets().map(s=>({name:s.name(),buttons:s.buttons.name()})):[]
 }))}:{process:n,exists:false};}catch(e){return {process:n,error:String(e)}}}));'''
 
 
