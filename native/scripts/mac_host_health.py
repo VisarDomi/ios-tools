@@ -98,6 +98,10 @@ def collect(ui=False):
                 rows = json.loads(probe.pop('stdout')); probe['processes'] = rows
                 probe['blockers'] = ui_blockers(rows)
                 probe['complete'] = not any('error' in row for row in rows)
+                if (any(row.get('screenShieldFlag') is True for row in result['consoleSessions'] or [])
+                        and not any(row.get('windows') for row in rows)):
+                    probe['complete'] = False
+                    probe['visibilityUnknown'] = 'No windows were exposed for a flagged console session; absence of alerts is unverified.'
             except ValueError as error: probe['complete'] = False; probe['parseError'] = str(error)
         else: probe['complete'] = False
     return result

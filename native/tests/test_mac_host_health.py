@@ -55,5 +55,12 @@ class MacEvidenceTests(unittest.TestCase):
    return dict(ok=False,stdout='',stderr='fixture')
   with patch.object(m,'command',side_effect=fake):report=m.collect(True)
   self.assertFalse(report['ui']['complete']);self.assertNotIn('blockers',report['ui'])
+ def test_empty_ax_under_console_shield_is_not_proof_of_no_dialogs(self):
+  def fake(argv,timeout=8):
+   if argv[0]=='/usr/sbin/ioreg':return dict(ok=True,stdout=plistlib.dumps(dict(IOConsoleUsers=[dict(CGSSessionScreenIsLocked=True)])).decode())
+   if argv[0]=='/usr/bin/osascript':return dict(ok=True,stdout='[{"process":"Xcode","windows":[]}]')
+   return dict(ok=False,stdout='',stderr='fixture')
+  with patch.object(m,'command',side_effect=fake):report=m.collect(True)
+  self.assertFalse(report['ui']['complete']);self.assertIn('visibilityUnknown',report['ui'])
 
 if __name__=='__main__':unittest.main()
