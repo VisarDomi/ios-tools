@@ -279,6 +279,40 @@ class WorkloadTests(unittest.TestCase):
                 m.run_workload(args)
         devices.assert_not_called()
 
+    def test_gui_quit_acknowledgment_is_not_exit_proof(self):
+        owner=dict(pid=123,identity='owned simulator')
+        with patch.object(m,'process_identity',side_effect=['owned simulator',None]), \
+             patch.object(m.subprocess,'run'),patch.object(m.os,'kill') as kill:
+            m.close_owned_simulator_gui(owner)
+        kill.assert_not_called()
+
+    def test_gui_cleanup_terminates_only_the_unchanged_owned_process(self):
+        owner=dict(pid=123,identity='owned simulator')
+        with patch.object(m,'process_identity',side_effect=['owned simulator']*12+[None]), \
+             patch.object(m.subprocess,'run'),patch.object(m.time,'sleep'),patch.object(m.os,'kill') as kill:
+            m.close_owned_simulator_gui(owner)
+        kill.assert_called_once_with(123,m.signal.SIGTERM)
+
+    def test_gui_cleanup_refuses_a_reused_pid_and_keeps_unknown_ownership_explicit(self):
+        with patch.object(m,'process_identity',return_value='someone else'),patch.object(m.os,'kill') as kill:
+            with self.assertRaisesRegex(m.UnsafeWorkload,'identity changed'):
+                m.close_owned_simulator_gui(dict(pid=123,identity='owned simulator'))
+        kill.assert_not_called()
+        with self.assertRaisesRegex(m.UnsafeWorkload,'ownership was not established'):m.close_owned_simulator_gui(None)
+
+    def test_gui_cleanup_failure_retains_recovery_lease(self):
+        args=argparse.Namespace(kind='simulator',device=DEVICE,trial=False,timeout=10,command=['qa'],visible=True)
+        with patch.object(m,'metrics',return_value=HEALTHY), \
+             patch.object(m,'devices',return_value=[dict(udid=DEVICE,state='Shutdown',isAvailable=True)]), \
+             patch.object(m,'metal_coalescing',return_value=1), \
+             patch.object(m.subprocess,'run',return_value=subprocess.CompletedProcess([],1)), \
+             patch.object(m,'monitor'),patch.object(m,'shutdown'), \
+             patch.object(m,'simulator_gui_owner',return_value=dict(pid=123,identity='owned simulator')), \
+             patch.object(m,'close_owned_simulator_gui',side_effect=m.UnsafeWorkload('GUI stuck')):
+            with self.assertRaisesRegex(m.UnsafeWorkload,'GUI stuck'):m.run_workload(args)
+        lease=json.loads((m.ROOT/'workload-current.json').read_text())
+        self.assertEqual(lease['cleanupFailed'],'GUI stuck');self.assertEqual(lease['expiresAt'],0)
+
     def test_host_gui_requirement_is_checked_before_boot(self):
         args=argparse.Namespace(kind='simulator',device=DEVICE,trial=False,timeout=10,command=['qa'])
         with patch.object(m,'policy',return_value={'simulatorRequiresGUI':True}),patch.object(m,'metal_coalescing',return_value=1), \

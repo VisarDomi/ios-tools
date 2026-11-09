@@ -158,6 +158,46 @@ def devices():
     return [item for group in result['devices'].values() for item in group]
 
 
+def process_identity(pid):
+    result=subprocess.run(['/bin/ps','-ww','-p',str(pid),'-o','lstart=','-o','command='],capture_output=True,text=True,timeout=3)
+    return result.stdout.strip() if result.returncode==0 else None
+
+
+def simulator_gui_owner():
+    pids=[]
+    for _ in range(25):
+        result=subprocess.run(['/usr/bin/pgrep','-x','Simulator'],capture_output=True,text=True,timeout=3)
+        pids=[int(x) for x in result.stdout.split()]
+        if pids:break
+        time.sleep(.2)
+    if len(pids)!=1:raise UnsafeWorkload('Cannot establish ownership of one Simulator GUI process')
+    identity=process_identity(pids[0])
+    if not identity or '/Simulator.app/Contents/MacOS/Simulator' not in identity:
+        raise UnsafeWorkload('Unexpected Simulator GUI process identity')
+    return dict(pid=pids[0],identity=identity)
+
+
+def close_owned_simulator_gui(owner):
+    if not owner:raise UnsafeWorkload('Simulator GUI ownership was not established; inspect before cleanup')
+    def present():
+        identity=process_identity(owner['pid'])
+        if identity is not None and identity!=owner['identity']:
+            raise UnsafeWorkload('Simulator GUI PID identity changed; refusing to signal it')
+        return identity is not None
+    if not present():return
+    # A successful AppleScript return is only a quit request, not proof of exit.
+    try:subprocess.run(['/usr/bin/osascript','-e','tell application id "com.apple.iphonesimulator" to quit'],check=True,timeout=5,capture_output=True)
+    except subprocess.SubprocessError:pass
+    for _ in range(10):
+        if not present():return
+        time.sleep(.2)
+    if present():os.kill(owner['pid'],signal.SIGTERM)
+    for _ in range(20):
+        if not present():return
+        time.sleep(.2)
+    raise UnsafeWorkload('Owned Simulator GUI did not exit; retained recovery lease')
+
+
 def preflight(sample, booted, xcode_busy=False, allow_stale_load=False):
     reasons = []
     if sample['load'] > 6 and not allow_stale_load:
@@ -430,6 +470,7 @@ def run_workload(args):
         crash_watch = SimulatorFailureWatch(args.device,getattr(args,'allow_webcontent_crash',False)) if args.kind=='simulator' else None
         boot_attempted = False
         gui_started = False
+        gui_owner = None
         try:
             with report.open('w') as log:
                 print('Guarded %s; deadline %ss; limits %s; telemetry %s' % (args.kind, duration, limits, report), flush=True)
@@ -442,6 +483,8 @@ def run_workload(args):
                     if getattr(args,'visible',False):
                         gui_started = True
                         subprocess.run(['/usr/bin/open','-a','Simulator','--args','-CurrentDeviceUDID',args.device],check=True,timeout=15)
+                        gui_owner=simulator_gui_owner()
+                        state=json.loads(lease.read_text());state['guiOwner']=gui_owner;lease.write_text(json.dumps(state))
                     monitor([tool_path('simctl'), 'bootstatus', args.device, '-b'], deadline, log, fd, 'bootstatus', limits, crash_watch=crash_watch, yield_to_builds=True)
                 monitor(bounded_jobs(args.command) if args.kind == 'build' else args.command,
                         deadline, log, fd, 'command', limits,
@@ -452,15 +495,17 @@ def run_workload(args):
             try:
                 if boot_attempted:
                     shutdown(args.device)
-                    cleaned = True
+                if gui_started:
+                    if any(x['udid']!=args.device and x['state']!='Shutdown' for x in devices()):
+                        raise UnsafeWorkload('Another guest is active; leaving the shared GUI and recovery lease for coordination')
+                    close_owned_simulator_gui(gui_owner)
+                cleaned = True
             except Exception as error:
                 recovery=json.loads(lease.read_text())
                 recovery.update(cleanupFailed=str(error),expiresAt=0)
                 lease.write_text(json.dumps(recovery))
                 raise
             finally:
-                if gui_started and not any(x['udid']!=args.device and x['state']!='Shutdown' for x in devices()):
-                    subprocess.run(['/usr/bin/osascript','-e','tell application id "com.apple.iphonesimulator" to quit'],check=True,timeout=15)
                 if cleaned:
                     lease.unlink(missing_ok=True)
         if crash_watch is not None:

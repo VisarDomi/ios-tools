@@ -4,6 +4,59 @@ Read this before using Xcode or CoreSimulator. This Mac is a Dell Latitude 5480
 Hackintosh: i5-7200U (two physical/four logical cores), HD 620, 8 GiB RAM.
 The PC is canonical; access is `ssh mac`, using the pinned host key.
 
+## Collect evidence before diagnosing the Mac
+
+Use the existing route checker for transport, then the shared host report. These
+commands do not wake/unlock the desktop, change power settings, dismiss windows,
+restart services or operate the phone:
+
+```sh
+/home/visar/Documents/environment/mac-access/mac-connect --check
+ssh mac 'sudo -n launchctl asuser 501 sudo -n -H -u visar /usr/bin/python3 /Users/visar/Developer/ios-tools/native/scripts/mac-health --ui --save'
+ssh mac 'sudo -n launchctl asuser 501 sudo -n -H -u visar /usr/bin/python3 /Users/visar/Developer/ios-tools/native/scripts/mac-workload status'
+```
+
+`mac-health` separates command responsiveness, network configuration, power
+preferences, console session flags, the current workload lease, scoped GUI alerts
+and dated crash metadata. Its private JSON receipt is under the existing workload
+cache. Missing/denied/timed-out probes remain unknown; they are never reported as
+healthy. `--ui` reads only known alert hosts and may require existing Accessibility
+permission; an unavailable UI probe is not permission to enable it or dismiss alerts.
+
+`CGSSessionScreenIsLocked=true` alone does **not** establish a password-protected
+lock. Display-off shielding can set it while loginwindow later reports that the
+keybag was never locked. It establishes neither a disconnected Mac nor the cause
+of a failed Simulator input. Read the loginwindow event/actual app-state evidence
+before attributing a failure. Preserve existing display/sleep/security preferences.
+Builds and SSH can work while the desktop is shielded. For unattended lifecycle
+tests, use a prebuilt XCTest driver (`XCUIDevice.shared.press(.home)` and
+`XCUIApplication.activate`) and assert the application's real lifecycle/save state;
+a successful keyboard/menu/launch request is not proof of a background transition.
+Build the driver with guests shut down, then run `test-without-building` inside the
+same exact-device simulator guard, with parallel test destinations disabled.
+
+An old crash alert must be matched to its original report date, process, guest and
+termination reason before attribution. November 9's retained MobileCal alert was a
+November 7 background Calendar launch watchdog in the shared guest; it was not a
+new Maid Heroes crash or Mac kernel panic. Keep reports and graphics quarantine.
+
+For this unattended build host, the owner authorized noninteractive crash dialogs:
+
+```sh
+ssh mac '~/Developer/ios-tools/native/scripts/mac-health crash-dialogs noninteractive'
+ssh mac '~/Developer/ios-tools/native/scripts/mac-health crash-dialogs status'
+# Explicit rollback to the original preference, including an originally absent key:
+ssh mac '~/Developer/ios-tools/native/scripts/mac-health crash-dialogs restore'
+```
+
+This persists only `com.apple.CrashReporter DialogType=none`, with a durable private
+rollback receipt. It does not disable ReportCrash, diagnostics, crash watchers,
+notifications or system/user services. Preserve and inspect an existing alert before
+closing that specific alert; this command does not dismiss current windows. Verify
+fresh `.ips` capture and the absence of a blocking dialog with a bounded owned probe
+before relying on it. No background dialog-clicker, keep-awake job or agent session
+is a required dependency.
+
 The Mac already has persistent sleep prevention configured. Per the owner's
 standing requirement, do not wrap workloads in `caffeinate`, add wake/keep-awake
 helpers or startup jobs, or change sleep/power settings unless explicitly asked.
@@ -197,6 +250,11 @@ command. Do not launch the app executable directly or background `launchd_sim`;
 those changes were unvalidated during diagnosis. Other hosts may use headless mode.
 It shuts down only that guest in `finally`, including on test failure, timeout
 or cancellation. It refuses to take over a device already booted by someone else.
+GUI ownership includes the original PID, process start and executable command.
+Cleanup verifies actual exit after requesting quit. If necessary, it sends SIGTERM
+only to that unchanged owned process after the guest shuts down. An unknown/reused
+PID, another active guest or failed GUI exit retains a recovery lease and fails
+cleanup explicitly; a successful AppleScript return alone cannot release ownership.
 Never use `shutdown all`, erase device data, or restart shared CoreSimulator
 services while another device is in use. Never loop fresh boots or migrations
 after an abort. Read the telemetry and let the host settle first.

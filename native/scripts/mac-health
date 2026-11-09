@@ -1,0 +1,26 @@
+#!/usr/bin/env python3
+"""Mac evidence report, or explicit reversible unattended crash-dialog configuration."""
+import argparse
+import json
+import os
+from pathlib import Path
+import platform
+from mac_host_health import atomic_json, collect, crash_dialogs
+
+p=argparse.ArgumentParser(description=__doc__)
+p.add_argument('--ui',action='store_true',help='Read known GUI alert hosts in the GUI session; never dismisses them')
+p.add_argument('--save',action='store_true',help='Save private evidence in the existing workload cache')
+p.add_argument('action',nargs='?',choices=['report','crash-dialogs'],default='report')
+p.add_argument('mode',nargs='?',choices=['status','noninteractive','restore'],default='status')
+a=p.parse_args()
+if platform.system()!='Darwin':p.error('Run on the Mac using pinned ssh mac; see native/MAC-WORKLOADS.md')
+os.umask(0o077)
+root=Path.home()/'Library/Caches/ios-app-refresh'
+if a.action=='crash-dialogs':
+ result=crash_dialogs(a.mode,Path.home()/'Library/Application Support/ios-tools/crash-dialog-rollback.json')
+else:
+ result=collect(a.ui)
+ if a.save:
+  import time
+  path=root/('mac-health-'+str(time.time_ns())+'.json');atomic_json(path,result);result['evidenceFile']=str(path)
+print(json.dumps(result,indent=2))
