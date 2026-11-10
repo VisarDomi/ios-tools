@@ -58,12 +58,6 @@
   "guidance": {
     "path": "games/guidance"
   },
-  "maid-heroes": {
-    "path": "games/maid-heroes",
-    "copies": {
-      "web": "apps/ios/Resources/Web"
-    }
-  },
   "deep-town": {
     "path": "games/deep-town",
     "carry": [

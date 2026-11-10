@@ -11,7 +11,7 @@ Shared iOS tooling for the app repositories, used from this PC and the Mac
 - [renewal](renewal/README.md): monthly renewal of the paid-signed iPhone apps. Each app
   repository lists its apps in `apps/ios/scripts/renewal.py` and has its own scheduler;
   this folder holds the shared runner.
-- [inspector](inspector/README.md): attach to a WebKit app's page on the phone (Maid Heroes).
+- [inspector](inspector/README.md): attach to a WebKit app's page on the phone.
 
 Mac-only settings (signing team and phone UDID) live in `ios-tools.local.json`;
 start from `ios-tools.example.json`. [`mac-sync`](mac-sync) mirrors this repository to the

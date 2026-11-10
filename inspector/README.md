@@ -1,6 +1,6 @@
 # inspector
 
-For the apps that still run in WebKit (Maid Heroes; the native apps measure themselves, see
+For apps that run in WebKit; none does at the moment (the native apps measure themselves, see
 [native](../native/README.md)). `app-inspector.py` attaches to one installed app's WebKit page on the paired
 iPhone (from the Mac) and prints a page snapshot, optional console output,
 screenshot, cookie flags (never values) and evaluation results. Each app
@@ -18,7 +18,7 @@ prebuilt `cryptography` wheel:
 ```
 
 The phone's UDID comes from `ios-tools.local.json` at the repository root
-(see `ios-tools.example.json`), or `--device`. Example:
+(see `ios-tools.example.json`), or `--device`. Example (from the retired Maid Heroes):
 
 ```sh
 ~/Developer/ios-tools/inspector/.venv/bin/python ~/Developer/ios-tools/inspector/app-inspector.py \

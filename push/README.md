@@ -201,7 +201,7 @@ of the Mac worker. Commit tested tool updates before running the Mac installer.
 `projects.json` maps existing NativeKit checkouts. Recipes come from each app's existing
 `scripts/renewal.py`; team/device come from the Mac's private `ios-tools.local.json`.
 Video Platform's `deploy.py APP prepare` and Gallery Reader's `--prepare-only` prepare
-resources without contacting the Mac. Maid Heroes captures `web/` as `Resources/Web`.
+resources without contacting the Mac.
 Initial account/LAN provisioning remains project-specific; ordinary pushes preserve it.
 
 Deep Town's missing PC-side RoboVM bundle can only be inherited from its existing
