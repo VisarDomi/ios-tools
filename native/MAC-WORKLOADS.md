@@ -227,7 +227,8 @@ OS version or isolated device state. Record its owner, reason and UUID. Remove
 that temporary device through `apple-tool simctl delete UUID` after its final
 check and any needed state/evidence backup. Never delete another active or
 reserved device, and do not remove either shared device as routine cleanup.
-Transport, parser, model and non-iOS checks belong on the PC or in a guarded
+Transport, parser, model and non-iOS checks belong on the PC (the apps' `scripts/test.sh` and
+`scripts/kit-test.sh` run there with Swift for Linux; native/README.md) or in a guarded
 native command without booting a guest. Batch related UI checks within one
 boot instead of creating or rebooting a simulator for each case.
 

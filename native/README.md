@@ -144,8 +144,35 @@ script approves them).
 is built from (its sources, `Kit`, project and build scripts). They are fingerprinted at
 approval, and a changed input blocks the unattended monthly renewal until the app is
 deployed again. So never leave an input changed without deploying it, not even a comment;
-docs outside those paths are free to change. `scripts/kit-test.sh` runs the macOS tests (KitCore, KitNet, KitHTML) and the iOS
-build of every module on the Mac.
+docs outside those paths are free to change. `scripts/kit-test.sh` runs NativeKit's tests on this PC
+(~7 s; `--pc` stops there) and then the iOS build of every module on the Mac.
+
+**Logic tests on the PC.** The Mac is the build station and virtual-iPhone tester; Swift logic
+tests run here. NativeKit's tests and each app's `apps/ios/scripts/test.sh` (manga-reader,
+gallery-reader, gallery-downloader, video-platform) compile with Swift 6.2.4 for Linux, the
+compiler of the Mac's Xcode 26.3, and give the same results as on the Mac (2026-11-10: Kit
+7 s vs 49 s; apps 9-20 s vs 19-40 s). Setup, once, no root needed:
+
+```sh
+curl -fsSLO https://download.swift.org/swiftly/linux/swiftly-x86_64.tar.gz && tar xzf swiftly-x86_64.tar.gz
+./swiftly init --platform ubuntu24.04 --no-modify-profile --skip-install --assume-yes   # Mint 22 = Ubuntu 24.04
+~/.local/share/swiftly/bin/swiftly install 6.2.4 --use --assume-yes
+# KitHTML needs libxml2's headers: `sudo apt install libxml2-dev`, or unpack the package as a user:
+mkdir -p ~/.local/opt/libxml2-dev/deb && cd ~/.local/opt/libxml2-dev/deb && apt download libxml2-dev   # then dpkg -x its .deb into ..
+mkdir -p ../lib && ln -sf /usr/lib/x86_64-linux-gnu/libxml2.so.2 ../lib/libxml2.so
+```
+
+`Kit/Linux/swift-env.sh` (vendored with Kit) picks the compiler on either machine, caches the
+compiled Kit libraries between runs and, on Linux, builds small stand-ins for the Apple modules
+the apps' logic imports (`Kit/Linux/Shims`: CryptoKit's SHA-256, checked against the FIPS
+vectors by `Shims/check.sh`; CoreGraphics' types; `LinuxCompat`). Apple-only paths stay
+unchanged on iOS behind `#if canImport(...)`: on Linux the bundled-CA pinning refuses the PC
+host (it never trusts it another way), background URLSessions become ordinary sessions, and
+`ImageDimensions.measure` (ImageIO) is skipped, so code in those paths still needs a Mac run.
+Two corelibs Foundation differences are handled: its async URLSession methods deadlock when
+concurrent requests are cancelled (LinuxCompat routes them through completion-handler tasks),
+and `NotificationCenter.post` waits on a `.main` observer queue, deadlocking a main-actor
+poster (manga's `NotificationObservation` observes inline on Linux).
 
 ## Measuring on the phone: FrameMonitor
 
