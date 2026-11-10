@@ -410,6 +410,50 @@ def shutdown(device):
         raise UnsafeWorkload('Owned simulator did not shut down: ' + result.stderr.strip())
 
 
+SPEECH_MODEL_CACHE = Path('/private/var/tmp/SpeechModelCache')
+SPEECH_MODEL_BUDGET = 512 << 20
+DERIVED_DATA = Path.home() / 'Library/Developer/Xcode/DerivedData'
+DERIVED_DATA_IDLE = 3 * 86400
+
+
+def prune_regenerable_caches(now=None):
+    """Bound two regenerable caches that nothing else trims; returns bytes removed.
+
+    Speech services compile their models into /private/var/tmp/SpeechModelCache (*.bnnsir) under a
+    new name per asset/session; macOS never cleans /var/tmp, so it reached 3 GiB of ~400 MiB sets.
+    The newest files within 512 MiB (the current set) stay so the next session need not recompile.
+    Direct xcodebuild runs leave one DerivedData folder per checkout path; folders idle for three days
+    are removed (ios-push builds in its own workspaces; Xcode's *.noindex caches self-prune)."""
+    now = time.time() if now is None else now
+    removed = 0
+    try:
+        files = sorted((f for f in SPEECH_MODEL_CACHE.glob('*.bnnsir') if f.is_file() and f.stat().st_uid == os.getuid()),
+                       key=lambda f: f.stat().st_mtime, reverse=True)
+    except OSError:
+        files = []
+    kept = 0
+    for f in files:
+        size = f.stat().st_size
+        if kept + size <= SPEECH_MODEL_BUDGET:
+            kept += size
+            continue
+        with contextlib.suppress(OSError):
+            f.unlink()
+            removed += size
+    try:
+        folders = [d for d in DERIVED_DATA.iterdir() if d.is_dir() and not d.name.endswith('.noindex')]
+    except OSError:
+        folders = []
+    for d in folders:
+        with contextlib.suppress(OSError):
+            touched = max([d.stat().st_mtime] + [x.stat().st_mtime for x in (d / 'info.plist', d / 'Logs', d / 'Build') if x.exists()])
+            if now - touched > DERIVED_DATA_IDLE:
+                size = sum(x.stat().st_size for x in d.rglob('*') if x.is_file() and not x.is_symlink())
+                shutil.rmtree(d)
+                removed += size
+    return removed
+
+
 def assert_session(device):
     settings = policy()
     check_panic_reports(settings)
@@ -508,6 +552,8 @@ def run_workload(args):
             finally:
                 if cleaned:
                     lease.unlink(missing_ok=True)
+                with contextlib.suppress(Exception):
+                    prune_regenerable_caches()
         if crash_watch is not None:
             reason=crash_watch.failure()
             if reason:raise UnsafeWorkload(reason)

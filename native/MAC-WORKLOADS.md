@@ -296,6 +296,17 @@ their own virtual capacities and must not be counted again as extra physical
 disk consumption. Do not add a parallel cleanup service or lower the shared
 build-admission reserve.
 
+Every guarded workload ends by bounding two regenerable caches nothing else trims:
+`/private/var/tmp/SpeechModelCache` (speech services' compiled `*.bnnsir` models;
+macOS never cleans `/var/tmp`, and it had reached 3 GiB of superseded ~400 MiB
+sets) keeps its newest 512 MiB, and `~/Library/Developer/Xcode/DerivedData`
+folders idle for three days are removed. The simulator itself is already lean:
+one runtime per OS, the two shared devices and their current dyld caches
+(November 10: runtimes 14.5 GiB, dyld caches 7.0 GiB, devices 4.6 GiB, of which
+~1 GiB is the guests' own capped unified logs). Keep the Xcode GUI closed on
+this build host: builds use `xcodebuild`, and an open Xcode window re-copies
+phone/Watch symbol caches (6.5 GiB) and indexes projects in the background.
+
 ## Recovery
 
 If SSH slows, stop issuing more builds and boots. `mac-connect` now lets the actual
