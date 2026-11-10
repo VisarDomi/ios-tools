@@ -62,10 +62,14 @@ def install_mac():
         link.unlink()
     if link.exists(): raise RuntimeError('An unrelated ios-push command already exists')
     link.symlink_to(TOOLS / 'native/scripts/ios-push')
-    global_link = Path('/usr/local/bin/ios-push')
-    if global_link.exists() or global_link.is_symlink():
-        if not global_link.is_symlink() or global_link.resolve() != TOOLS / 'native/scripts/ios-push': raise RuntimeError('An unrelated global ios-push command already exists')
-    else: subprocess.run(['sudo', '-n', 'ln', '-s', str(TOOLS / 'native/scripts/ios-push'), str(global_link)], check=True)
+    global_link = Path('/usr/local/bin/ios-push'); expected = TOOLS / 'native/scripts/ios-push'
+    if global_link.is_symlink():
+        # Read as root: a link created under this installer's 077 umask hides its target from the user.
+        target = subprocess.run(['sudo', '-n', 'readlink', str(global_link)], capture_output=True, text=True, check=True).stdout.strip()
+        if Path(target) != expected and Path(target).resolve() != expected.resolve(): raise RuntimeError('An unrelated global ios-push command already exists')
+        subprocess.run(['sudo', '-n', 'chmod', '-h', '755', str(global_link)], check=True)
+    elif global_link.exists(): raise RuntimeError('An unrelated global ios-push command already exists')
+    else: subprocess.run(['sudo', '-n', '/bin/sh', '-c', 'umask 022; exec ln -s "$1" "$2"', 'sh', str(expected), str(global_link)], check=True)
     label = 'com.visar.ios-push'; target = 'gui/' + str(os.getuid())
     plist = home / 'Library/LaunchAgents' / (label + '.plist')
     contents = dict(Label=label, ProgramArguments=['/usr/bin/python3', str(TOOLS / 'push/worker.py'), 'work'],
