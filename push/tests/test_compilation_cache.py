@@ -58,7 +58,7 @@ class CompilationCacheTests(unittest.TestCase):
                 env=build_environment(original,root/job,source,cache)
                 contents=Path(env['XCODE_XCCONFIG_FILE']).read_text()
                 self.assertIn('COMPILATION_CACHE_ENABLE_CACHING = YES',contents)
-                self.assertIn('COMPILATION_CACHE_LIMIT_SIZE = 2G',contents)
+                self.assertIn('COMPILATION_CACHE_LIMIT_SIZE = 8G',contents)
                 self.assertIn('COMPILATION_CACHE_CAS_PATH = '+str(cache)+'\n',contents)
                 self.assertNotIn('SWIFT_OPTIMIZATION_LEVEL',contents)
                 self.assertIn(str(source.resolve())+'=/^src',contents)

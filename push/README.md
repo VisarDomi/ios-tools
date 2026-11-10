@@ -91,7 +91,7 @@ Queued Xcode builds enable Apple's local content-addressed compilation cache via
 a generated xcconfig outside the frozen source. The shared cache is under
 `~/Library/Caches/ios-tools/CompilationCache.noindex`, so fresh job paths and
 per-job DerivedData cleanup no longer discard cached compiler outputs. Xcode's
-own pruning targets 2 GiB per CAS store; no cache-cleanup daemon is added. Build
+own pruning targets 8 GiB per CAS store (2 GiB evicted unchanged NativeKit modules between apps); no cache-cleanup daemon is added. Build
 logs include cache diagnostics, and receipts record compilation seconds.
 
 Manga Reader, Gallery Reader (online and offline) and Video Platform builds also use stable,

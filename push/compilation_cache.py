@@ -48,7 +48,9 @@ def build_environment(environment, metadata, source, cache_root, *, product=None
         'COMPILATION_CACHE_ENABLE_DIAGNOSTIC_REMARKS = YES',
         'COMPILATION_CACHE_CAS_PATH = ' + str(cache_root),
         'COMPILATION_CACHE_KEEP_CAS_DIRECTORY = YES',
-        'COMPILATION_CACHE_LIMIT_SIZE = 2G',
+        # 2G evicted unchanged NativeKit modules between apps (CACHE REGRESSION for manga asura/lua and
+        # trader, November 10); 8G holds every app's modules and keeps the 12 GiB admission reserve.
+        'COMPILATION_CACHE_LIMIT_SIZE = 8G',
         'SWIFT_ENABLE_PREFIX_MAPPING = ' + ('NO' if preserve_swift_paths else 'YES'),
         'CLANG_ENABLE_PREFIX_MAPPING = YES',
         'SWIFT_OTHER_PREFIX_MAPPINGS = $(inherited)' + ('' if preserve_swift_paths else ' ' + prefix_maps),
