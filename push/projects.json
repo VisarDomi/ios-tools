@@ -29,7 +29,21 @@
       "cacheRoots": [
         "build/filehost/native",
         "build/filehost/DerivedData"
-      ]
+      ],
+      "shared": {
+        "apps": [
+          "tslive-local",
+          "ladder-local",
+          "fmp4-local",
+          "vault",
+          "tslive-live"
+        ],
+        "maximumBytes": 2147483648,
+        "cacheRoots": [
+          "build/app/DerivedData",
+          "build/app/native"
+        ]
+      }
     }
   },
   "manga-reader": {

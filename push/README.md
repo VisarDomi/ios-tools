@@ -94,9 +94,17 @@ per-job DerivedData cleanup no longer discard cached compiler outputs. Xcode's
 own pruning targets 2 GiB per CAS store; no cache-cleanup daemon is added. Build
 logs include cache diagnostics, and receipts record compilation seconds.
 
-Manga Reader, offline Gallery Reader and FileHost builds also use stable, regenerable compiler workspaces,
-each capped at 2 GiB of retained compiler data. FileHost has its own provider workspace;
-other video providers keep their existing build policy. Each job still freezes its own source. The
+Manga Reader, offline Gallery Reader and Video Platform builds also use stable, regenerable compiler
+workspaces, each capped at 2 GiB of retained compiler data. FileHost has its own provider workspace;
+the other video providers (`shared` in `projects.json`) build the same `VideoApp` target in one
+shared workspace.
+
+A stable path is what lets a second provider reuse the first one's app module. Xcode's
+compilation cache reuses NativeKit's modules across job paths, but an app module compiled at one
+checkpoint path missed at another (November 10, Intel Mac: 122/133 hits and 67–71 s at a new path,
+133/133 and 19.7 s at the same path; prefix mapping and header maps were not the cause). Variant
+apps therefore share one module name and one DerivedData inside one workspace: after a shared edit,
+Manga Reader's second and third providers took 35.9 s and 39.0 s instead of 111–216 s. Each job still freezes its own source. The
 worker copies changed inputs into the workspace, preserves unchanged timestamps,
 verifies the full tree before and after compilation, then copies the verified
 signed app back into that job's checkpoint. Stable paths let subsequent builds

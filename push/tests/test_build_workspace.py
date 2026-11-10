@@ -71,6 +71,22 @@ class BuildWorkspaceTests(unittest.TestCase):
         self.assertFalse(build_workspace.policy({'persistentBuildCache':True},'lua')['perApp'])
         with self.assertRaises(ValueError):build_workspace.policy({'persistentBuildCache':{'apps':['filehost-local'],'cacheRoots':['Sources']}},'filehost-local')
 
+    def test_shared_policy_puts_same_target_providers_in_one_workspace(self):
+        project={'persistentBuildCache':{'apps':['filehost-local'],'cacheRoots':['build/filehost/native','build/filehost/DerivedData'],
+                 'shared':{'apps':['fmp4-local','vault'],'maximumBytes':1<<30,'cacheRoots':['build/app/DerivedData','build/app/native']}}}
+        shared=build_workspace.policy(project,'fmp4-local')
+        self.assertFalse(shared['perApp'])
+        self.assertEqual(shared['cacheRoots'],['build/app/DerivedData','build/app/native'])
+        self.assertEqual(shared['maximumBytes'],1<<30)
+        self.assertEqual(build_workspace.policy(project,'vault'),shared)
+        self.assertTrue(build_workspace.policy(project,'filehost-local')['perApp'])
+        self.assertIsNone(build_workspace.policy(project,'tslive-local'))
+        with self.assertRaises(ValueError):
+            build_workspace.policy({'persistentBuildCache':{'shared':{'apps':['vault']}}},'vault')
+        with self.assertRaises(ValueError):
+            build_workspace.policy({'persistentBuildCache':{'apps':['vault'],'cacheRoots':['build/x'],
+                                    'shared':{'apps':['vault'],'cacheRoots':['build/app/DerivedData']}}},'vault')
+
     def test_provider_layout_budget_excludes_large_frozen_inputs(self):
         self.workspace.mkdir(parents=True);(self.workspace/'source-binary').write_bytes(b'x'*100)
         for name in ['native','DerivedData']:
