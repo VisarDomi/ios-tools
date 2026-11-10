@@ -55,6 +55,11 @@ def build_environment(environment, metadata, source, cache_root, *, product=None
         'CLANG_OTHER_PREFIX_MAPPINGS = $(inherited) ' + prefix_maps,
         'COMPILER_INDEX_STORE_ENABLE = NO',
     ]
+    if not preserve_swift_paths:
+        # No App Intents in the source: skip their const-value emission and metadata
+        # extraction (ExtractAppIntentsMetadata/SSU tasks), 3-5 s per build on the Intel Mac.
+        # Runtime code is unchanged; App Intents sources keep both.
+        lines += ['SWIFT_ENABLE_EMIT_CONST_VALUES = NO', 'LM_SKIP_METADATA_EXTRACTION = YES']
     atomic_bytes(config, ('\n'.join(lines) + '\n').encode())
     result['XCODE_XCCONFIG_FILE'] = str(config)
     return result

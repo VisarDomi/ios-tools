@@ -129,7 +129,10 @@ validation jobs verified without installing or changing the phone app. These
 measurements cover the build stage, excluding source capture/upload/queue time.
 
 Sources that import AppIntents retain real Swift paths: Xcode's metadata
-extractor cannot resolve the cache's virtual source aliases. The shared cache
+extractor cannot resolve the cache's virtual source aliases.
+Sources that do not import AppIntents skip const-value emission and App Intents metadata
+extraction instead (`SWIFT_ENABLE_EMIT_CONST_VALUES = NO`, `LM_SKIP_METADATA_EXTRACTION = YES`):
+3–5 s less per build on the Intel Mac, no runtime change. The shared cache
 and Clang path normalization remain enabled; only Swift path normalization is
 omitted for those apps so complication and shortcut metadata can be generated.
 

@@ -21,6 +21,18 @@ class CompilationCacheTests(unittest.TestCase):
             self.assertIn('CLANG_ENABLE_PREFIX_MAPPING = YES\n', text)
             self.assertIn('CLANG_OTHER_PREFIX_MAPPINGS = $(inherited) "'+str(source)+'=/^src"', text)
             self.assertEqual(widget.read_text(),'import AppIntents\nstruct Refresh: AppIntent {}\n')
+            self.assertNotIn('SWIFT_ENABLE_EMIT_CONST_VALUES', text)
+            self.assertNotIn('LM_SKIP_METADATA_EXTRACTION', text)
+
+    def test_sources_without_app_intents_skip_their_metadata_extraction(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); source = root/'source'
+            (source/'App').mkdir(parents=True)
+            (source/'App/View.swift').write_text('import UIKit\n// AppIntents is mentioned only in a comment\n')
+            text = Path(build_environment({}, root/'metadata', source, root/'cache')['XCODE_XCCONFIG_FILE']).read_text()
+            self.assertIn('SWIFT_ENABLE_EMIT_CONST_VALUES = NO\n', text)
+            self.assertIn('LM_SKIP_METADATA_EXTRACTION = YES\n', text)
+            self.assertIn('SWIFT_ENABLE_PREFIX_MAPPING = YES\n', text)
 
     def test_provider_output_and_derived_paths_share_virtual_cache_names(self):
         with tempfile.TemporaryDirectory() as temporary:
