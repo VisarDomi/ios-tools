@@ -112,11 +112,16 @@ loaded one):
 ```sh
 /usr/bin/python3 ~/Developer/ios-tools/renewal/scripts/refresh-installed.py status --repo <repo>
 launchctl print gui/501/com.visar.renewal.<repo>
-# Pause only when idle. Deploys do not need a pause.
+# Pause only when idle. Deploys do not need a pause. `disable` keeps it paused across reboots.
+sudo launchctl disable gui/501/com.visar.renewal.<repo>
 launchctl bootout gui/501/com.visar.renewal.<repo>
 # Resume.
+sudo launchctl enable gui/501/com.visar.renewal.<repo>
 launchctl bootstrap gui/501 "$HOME/Library/LaunchAgents/com.visar.renewal.<repo>.plist"
 ```
+
+`km-explorer` is paused this way since November 10: its only app (`com.visar.Ytb.paid`) is
+no longer installed on the phone, so its scheduler only made device requests.
 
 A repository's scheduler log is `last-check.log` in its folder above; each app's
 state and build logs are in `<repo>/<app>`. Success is recorded only after
