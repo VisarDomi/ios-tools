@@ -94,10 +94,10 @@ per-job DerivedData cleanup no longer discard cached compiler outputs. Xcode's
 own pruning targets 2 GiB per CAS store; no cache-cleanup daemon is added. Build
 logs include cache diagnostics, and receipts record compilation seconds.
 
-Manga Reader, offline Gallery Reader and Video Platform builds also use stable, regenerable compiler
-workspaces, each capped at 2 GiB of retained compiler data. FileHost has its own provider workspace;
-the other video providers (`shared` in `projects.json`) build the same `VideoApp` target in one
-shared workspace.
+Manga Reader, Gallery Reader (online and offline) and Video Platform builds also use stable,
+regenerable compiler workspaces, each capped at 2 GiB of retained compiler data. FileHost has its own
+provider workspace; the other video providers and the two online Gallery Reader providers
+(`shared` in `projects.json`) each build one common target in one shared workspace.
 
 A stable path is what lets a second provider reuse the first one's app module. Xcode's
 compilation cache reuses NativeKit's modules across job paths, but an app module compiled at one

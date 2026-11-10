@@ -52,7 +52,20 @@
   },
   "gallery-reader": {
     "path": "manga/gallery-reader",
-    "prepare": "gallery"
+    "prepare": "gallery",
+    "persistentBuildCache": {
+      "shared": {
+        "apps": [
+          "gallery-a",
+          "gallery-b"
+        ],
+        "maximumBytes": 2147483648,
+        "cacheRoots": [
+          "build/shared/DerivedData",
+          "build/shared/native"
+        ]
+      }
+    }
   },
   "gallery-downloader": {
     "path": "manga/gallery-downloader",
