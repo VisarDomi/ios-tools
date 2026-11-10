@@ -13,7 +13,7 @@ renew one calendar month after their last successful update.
 | gallery-reader | `gallery-reader/apps/ios` |
 | km-explorer | `km-explorer/apps/ios` |
 | video-platform | `video-platform/apps/ios` |
-| maid-heroes | `maid-heroes/apps/ios` |
+| maid-heroes | `maid-heroes/apps/ios` (retired: its scheduler is disabled) |
 | deep-town | `deep-town/apps/ios` |
 | custom-twitter | `custom-twitter` |
 | trader | `trader/apps/ios` |
