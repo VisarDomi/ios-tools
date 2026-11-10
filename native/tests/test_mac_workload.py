@@ -435,6 +435,8 @@ class RegenerableCacheTests(unittest.TestCase):
             now = time.time()
             for i, (name, size) in enumerate([('new.bnnsir', 300), ('mid.bnnsir', 200), ('old.bnnsir', 300), ('other.txt', 900)]):
                 f = speech / name; f.write_bytes(b'x' * size); os.utime(f, (now - i * 100, now - i * 100))
+            partial = speech / 'old.bnnsir.123'; partial.write_bytes(b'z' * 40); os.utime(partial, (now - 2 * 86400, now - 2 * 86400))
+            fresh = speech / 'new.bnnsir.456'; fresh.write_bytes(b'z' * 40)
             idle = derived / 'App-old'; (idle / 'Build').mkdir(parents=True); (idle / 'Build/a.o').write_bytes(b'y' * 50)
             busy = derived / 'App-new'; (busy / 'Build').mkdir(parents=True)
             cache = derived / 'ModuleCache.noindex'; cache.mkdir()
@@ -443,9 +445,9 @@ class RegenerableCacheTests(unittest.TestCase):
             with patch.object(m, 'SPEECH_MODEL_CACHE', speech), patch.object(m, 'SPEECH_MODEL_BUDGET', 500), \
                  patch.object(m, 'DERIVED_DATA', derived):
                 removed = m.prune_regenerable_caches(now)
-            self.assertEqual(sorted(x.name for x in speech.iterdir()), ['mid.bnnsir', 'new.bnnsir', 'other.txt'])
+            self.assertEqual(sorted(x.name for x in speech.iterdir()), ['mid.bnnsir', 'new.bnnsir', 'new.bnnsir.456', 'other.txt'])
             self.assertEqual(sorted(x.name for x in derived.iterdir()), ['App-new', 'ModuleCache.noindex'])
-            self.assertEqual(removed, 350)
+            self.assertEqual(removed, 390)
 
 
 if __name__ == '__main__':

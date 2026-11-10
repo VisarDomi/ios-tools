@@ -431,6 +431,17 @@ def prune_regenerable_caches(now=None):
                        key=lambda f: f.stat().st_mtime, reverse=True)
     except OSError:
         files = []
+    try:
+        # Interrupted compilations leave NAME.bnnsir.<digits> temporaries that are never reused.
+        stale = [f for f in SPEECH_MODEL_CACHE.glob('*.bnnsir.*') if f.is_file() and f.stat().st_uid == os.getuid()
+                 and now - f.stat().st_mtime > 86400]
+    except OSError:
+        stale = []
+    for f in stale:
+        with contextlib.suppress(OSError):
+            size = f.stat().st_size
+            f.unlink()
+            removed += size
     kept = 0
     for f in files:
         size = f.stat().st_size
