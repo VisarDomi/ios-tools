@@ -206,6 +206,10 @@ python3 push/install.py --deploy-mac
 The intentional jobs are `ios-push.timer`/`ios-push.service` on the PC and
 `com.visar.ios-push` in the Mac GUI login. They resume at login/network recovery and
 perform no device work without a queued delivery. Existing renewal schedulers stay.
+A completed upload (and `retry`/`cancel`/`ota`) starts the Mac worker at once; it sleeps through
+retries due within five minutes, waking early for new jobs, then exits. launchd restarts it every
+five minutes, so an idle queue no longer costs a Python run every 30 s (0.7 CPU-s each on the
+Intel Mac).
 The shared tool mirror publishes committed HEAD, keeping unfinished tool edits out
 of the Mac worker. Commit tested tool updates before running the Mac installer.
 

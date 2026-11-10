@@ -69,7 +69,7 @@ def install_mac():
     label = 'com.visar.ios-push'; target = 'gui/' + str(os.getuid())
     plist = home / 'Library/LaunchAgents' / (label + '.plist')
     contents = dict(Label=label, ProgramArguments=['/usr/bin/python3', str(TOOLS / 'push/worker.py'), 'work'],
-                    RunAtLoad=True, StartInterval=30, ProcessType='Background',
+                    RunAtLoad=True, StartInterval=300, ProcessType='Background',
                     StandardOutPath=str(store / 'worker.log'), StandardErrorPath=str(store / 'worker-errors.log'))
     atomic_bytes(plist, plistlib.dumps(contents))
     loaded = subprocess.run(['launchctl', 'print', target + '/' + label], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

@@ -128,6 +128,7 @@ def ready(job_id):
         save(metadata / 'ready.json', {'files': actual, 'sourceHash': source_hash(actual),
                                        'requestHash': digest(metadata / 'request.json'), 'inputHash': input_hash(config), 'sequence': sequence})
     update(metadata / 'state.json', 'queued', id=job_id, repo=repo, app=app, createdAt=request['createdAt'], uploadComplete=True)
+    kick()
 
 
 def request_for(metadata):
@@ -787,31 +788,84 @@ def control(job_id, action):
         update(metadata / 'state.json', 'queued', nextAttempt=0, message='Retry requested')
 
 
-def work():
-    with locked(STORE / 'worker.lock'):
-        due = []
-        for metadata in sorted((STORE / 'jobs').glob('*')):
-            try: state = load(metadata / 'state.json', {})
-            except (OSError, ValueError):
-                save(metadata / 'state.json', {'id': metadata.name, 'phase': 'failed', 'message': 'Unreadable queue state; inspect and retry the frozen checkpoint'})
-                continue
-            if not (metadata / 'ready.json').exists() or state.get('phase') in TERMINAL or state.get('nextAttempt', 0) > time.time(): continue
-            due.append((bool(state.get('otaPublished') or state.get('phase') == 'awaiting_watch'), metadata, state))
-        # Fresh source/build/publication work precedes retries for packages already sent.
-        for _retry, metadata, state in sorted(due, key=lambda item: (item[0], item[1].name)):
-            try: run_job(metadata.name)
-            except Rebuild as error:
-                attempts = state.get('rebuildAttempts', 0) + 1
-                if attempts > 2:
-                    update(metadata / 'state.json', 'failed', message=str(error)[:300]); continue
-                receipt = load(metadata / 'build-receipt.json', {})
-                receipt['complete'] = False; save(metadata / 'build-receipt.json', receipt)
-                update(metadata / 'state.json', 'waiting_mac', rebuildAttempts=attempts, nextAttempt=time.time() + 30, message=str(error)[:300])
-            except (Retry, BlockingIOError, subprocess.TimeoutExpired) as error:
-                update(metadata / 'state.json', 'waiting_mac', nextAttempt=time.time() + 30, message=str(error)[:300])
-            except Exception as error:
-                update(metadata / 'state.json', 'failed', message=str(error)[:400], nextAttempt=0)
-        prune()
+IDLE_EXIT = 300   # seconds; launchd's interval (push/install.py) and ready/control kicks restart the worker
+KICK = STORE / 'kick'
+LABEL = 'com.visar.ios-push'
+
+
+def kick():
+    """Start the queue now rather than at launchd's next interval. A running worker
+    notices the kick file instead (launchctl kickstart does nothing while it runs)."""
+    save(KICK, {'at': time.time()})
+    try:
+        subprocess.run(['/bin/launchctl', 'kickstart', 'gui/%d/%s' % (os.getuid(), LABEL)],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def queue_marker():
+    marks = []
+    for path in (STORE / 'order.json', STORE / 'jobs', KICK):
+        try: marks.append(path.stat().st_mtime_ns)
+        except OSError: marks.append(None)
+    return marks
+
+
+def scan(processed):
+    """Ready, non-terminal jobs that are due now, and the earliest later attempt.
+    A job already run by this worker is due again only once it scheduled a later attempt."""
+    due = []; earliest = None; now = time.time()
+    for metadata in sorted((STORE / 'jobs').glob('*')):
+        try: state = load(metadata / 'state.json', {})
+        except (OSError, ValueError):
+            save(metadata / 'state.json', {'id': metadata.name, 'phase': 'failed', 'message': 'Unreadable queue state; inspect and retry the frozen checkpoint'})
+            continue
+        if not (metadata / 'ready.json').exists() or state.get('phase') in TERMINAL: continue
+        attempt = state.get('nextAttempt', 0)
+        if metadata.name in processed and attempt <= processed[metadata.name]: continue
+        if attempt > now:
+            earliest = attempt if earliest is None else min(earliest, attempt); continue
+        due.append((bool(state.get('otaPublished') or state.get('phase') == 'awaiting_watch'), metadata, state))
+    return due, earliest
+
+
+def work(wait=True):
+    """Run due jobs, sleep through retries that fall due within IDLE_EXIT, then exit.
+    Idle, this replaces a 30 s launchd poll (0.7 CPU-s per run on the Intel Mac) with
+    nothing: new jobs kick the worker and launchd checks every IDLE_EXIT seconds."""
+    processed = {}; pruned = False
+    while True:
+        with locked(STORE / 'worker.lock'):
+            marker = queue_marker()
+            due, earliest = scan(processed)
+            # Fresh source/build/publication work precedes retries for packages already sent.
+            for _retry, metadata, state in sorted(due, key=lambda item: (item[0], item[1].name)):
+                try: run_job(metadata.name)
+                except Rebuild as error:
+                    attempts = state.get('rebuildAttempts', 0) + 1
+                    if attempts > 2:
+                        update(metadata / 'state.json', 'failed', message=str(error)[:300]); continue
+                    receipt = load(metadata / 'build-receipt.json', {})
+                    receipt['complete'] = False; save(metadata / 'build-receipt.json', receipt)
+                    update(metadata / 'state.json', 'waiting_mac', rebuildAttempts=attempts, nextAttempt=time.time() + 30, message=str(error)[:300])
+                except (Retry, BlockingIOError, subprocess.TimeoutExpired) as error:
+                    update(metadata / 'state.json', 'waiting_mac', nextAttempt=time.time() + 30, message=str(error)[:300])
+                except Exception as error:
+                    update(metadata / 'state.json', 'failed', message=str(error)[:400], nextAttempt=0)
+                finally:
+                    processed[metadata.name] = time.time()
+            if due or not pruned:
+                prune(); pruned = True
+            if due: continue
+            due, earliest = scan(processed)
+            if due: continue
+        if not wait or earliest is None or earliest - time.time() > IDLE_EXIT:
+            if queue_marker() == marker: return
+            continue
+        # Sleep until the earliest retry; a new upload, retry or cancel wakes it sooner.
+        while time.time() < earliest and queue_marker() == marker:
+            time.sleep(min(2, max(.1, earliest - time.time())))
 
 
 def main():
@@ -825,7 +879,7 @@ def main():
     elif args.action == 'ready': ready(identity(args.id)); print('ready')
     elif args.action == 'build-one': build_one(identity(args.id))
     elif args.action == 'renewal-build': renewal_build(args.config, args.validate_only)
-    elif args.action in {'retry', 'cancel', 'ota'}: control(identity(args.id), args.action)
+    elif args.action in {'retry', 'cancel', 'ota'}: control(identity(args.id), args.action); kick()
     elif args.action == 'work':
         try: work()
         except BlockingIOError: pass

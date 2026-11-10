@@ -379,6 +379,24 @@ class WorkerTests(unittest.TestCase):
             worker.work()
         self.assertEqual(order,['z-new',self.job])
 
+    def test_worker_sleeps_through_a_near_retry_and_exits_when_idle(self):
+        common.update(self.metadata/'state.json','queued',nextAttempt=0)
+        calls=[]
+        def run(job):
+            calls.append(job)
+            if len(calls)==1: common.update(self.metadata/'state.json','waiting_mac',nextAttempt=time.time()+.3)
+            else: common.update(self.metadata/'state.json','failed',nextAttempt=0)
+        with mock.patch.object(worker,'run_job',side_effect=run),mock.patch.object(worker,'prune'):
+            started=time.time(); worker.work()
+        self.assertEqual(calls,[self.job,self.job])
+        self.assertLess(time.time()-started,5)
+
+    def test_job_left_due_by_its_run_is_not_rerun_by_the_same_worker(self):
+        common.update(self.metadata/'state.json','queued',nextAttempt=0)
+        with mock.patch.object(worker,'run_job') as run,mock.patch.object(worker,'prune'):
+            worker.work()
+        self.assertEqual(run.call_count,1)
+
     def test_changed_source_and_request_never_reach_the_phone(self):
         (self.source / 'Sources/view.swift').write_text('unexpected source')
         with mock.patch.object(worker, 'catalog') as catalog, self.assertRaises(RuntimeError): worker.deliver(self.job)
