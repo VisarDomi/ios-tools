@@ -48,7 +48,7 @@ class InstalledTests(unittest.TestCase):
         inventory={'apps':[dict(bundleIdentifier=key,name=key,builtByDeveloper=True) for key in ['other.app','orphan.app']]}
         with patch.object(m,'STORE',store), patch.object(m,'device_json',return_value=inventory), \
              patch('builtins.print') as output:
-            m.refresh(dict(apps=[]))
+            m.refresh(dict(apps=[]),force=True)
         printed=[call.args[0] for call in output.call_args_list]
         self.assertIn('No repository renews installed app: orphan.app',printed)
         self.assertNotIn('No repository renews installed app: other.app',printed)
@@ -62,5 +62,15 @@ class InstalledTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError,'account changed'):
                 m.refresh(dict(apps=[dict(config='config',runner='builder')]))
             run.assert_not_called()
+
+    def test_nothing_due_makes_no_device_request(self):
+        app=dict(root='/app',app='app',bundleIds=['app'],team='PAID',interval='monthly')
+        with patch.object(m,'state_for',return_value=(app,{'lastSuccess':100000})), \
+             patch.object(m.time,'time',return_value=100100), \
+             patch.object(m,'device_json') as device, patch.object(m.subprocess,'run') as run, \
+             patch('builtins.print') as output:
+            m.refresh(dict(apps=[dict(config='config',runner='builder')]))
+        device.assert_not_called(); run.assert_not_called()
+        self.assertIn('No device request', output.call_args_list[-1].args[0])
 
 if __name__=='__main__': unittest.main(buffer=True)

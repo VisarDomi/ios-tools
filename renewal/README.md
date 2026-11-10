@@ -18,10 +18,12 @@ renew one calendar month after their last successful update.
 | trader | `trader/apps/ios` |
 
 Each scheduler checks every ten minutes and at login, so offline or locked phones
-are retried. It builds only its due apps, sequentially, installing over the
+are retried. Due dates are local state: a run with nothing due ends without any
+device request (ten schedulers used to query the phone's app list every ten
+minutes). It builds only its due apps, sequentially, installing over the
 existing bundle ID so app data is kept. The Mac must be awake and logged in, with
 the paired phone reachable and unlocked. Idle system sleep is disabled with
-`pmset -a sleep 0`; display sleep is independent. Every scheduled run also reports
+`pmset -a sleep 0`; display sleep is independent. A run that queries the phone also reports
 installed developer apps that no repository renews.
 
 ## How a renewal works

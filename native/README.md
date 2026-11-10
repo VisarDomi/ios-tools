@@ -248,9 +248,10 @@ replaces trust records. No phone IP or link-local IPv6 address is hard-coded. Th
 the existing `inspector/.venv` dependencies; restore them using [inspector](../inspector/README.md)
 on a fresh Mac. It runs under the existing monitor, with no additional LaunchAgent.
 
-The monitor runs every 30 s from
+The monitor runs every 5 minutes from
 the Mac's LaunchAgent `com.visar.phone-pairing` (`phone-pairing --install` sets it up), and
-from `phone-install` before it falls back to over the air. Two failed automatic
+from `phone-install` before it falls back to over the air. (Every 30 s it cost ~1 CPU-s per
+check and opened a CoreDevice tunnel to the phone each time; installers repair inline.) Two failed automatic
 requests start authenticated discovery even with a new cache and no past Bonjour
 success. Active host interfaces/addresses and the default route are tracked separately
 from the phone hostname, so a host network change can bypass old backoff even when

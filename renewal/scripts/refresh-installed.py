@@ -27,14 +27,25 @@ def due(config, state, now):
 
 
 def refresh(config, force=False, wireless=False):
+    # Due dates are local state: ask the phone for its inventory only when an app is due.
+    # (Ten schedulers each queried the phone every 10 minutes for monthly renewals: a CoreDevice
+    # tunnel, a phone wake-up and ~1.5 CPU-s per run on the Intel Mac.)
+    now = time.time()
+    entries = [(item,) + state_for(item) for item in config['apps']]
+    entries.sort(key=lambda entry: len(entry[1]['bundleIds']))
+    pending = [entry for entry in entries if force or due(entry[1], entry[2], now)]
+    if not pending and not force:
+        upcoming = min((next_due(app, state['lastSuccess']) for _, app, state in entries), default=None)
+        print('Nothing due' + ('' if upcoming is None else '; next renewal ' +
+              dt.datetime.fromtimestamp(upcoming, dt.timezone.utc).isoformat(timespec='minutes')) +
+              '. No device request.', flush=True)
+        return
     inventory = device_json(config, ['info', 'apps'])['apps']
     installed = {app['bundleIdentifier']: app for app in inventory}
-    known = set()
+    known = {app['bundleIds'][0] for _, app, _ in entries}
     errors = []
-    for item in sorted(config['apps'], key=lambda item: len(state_for(item)[0]['bundleIds'])):
-        app, state = state_for(item)
+    for item, app, state in pending:
         bundle = app['bundleIds'][0]
-        known.add(bundle)
         if bundle not in installed:
             continue
         # Actual signed artifact identifies the account; never infer it from an app name.
@@ -46,8 +57,6 @@ def refresh(config, force=False, wireless=False):
             errors.append(bundle + ': signing account changed; regenerate its build configuration')
             continue
         print(installed[bundle]['name'] + ': ' + interval + ' (' + app['team'] + ')', flush=True)
-        if not force and not due(app, state, time.time()):
-            continue
         command = ['/usr/bin/python3', item['runner'], 'refresh', '--config', item['config'], '--scheduled']
         if force: command.append('--force')
         if wireless: command.append('--wireless')

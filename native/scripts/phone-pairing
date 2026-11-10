@@ -6,7 +6,7 @@ multicast can also fail while the phone is reachable directly. Restore discovery
 using the existing trusted identity before restarting Mac pairing services:
 
   phone-pairing            one check; the LaunchAgent com.visar.phone-pairing runs it every
-                           30 s; repair after two failed real device requests while on the
+                           5 minutes (installers run --now/--repair inline); repair after two failed real device requests while on the
                            LAN, or when a recently connected phone loses its old address.
                            Address changes bypass prior backoff. Retries back off
                            10 minutes (an hour after failure with a reachable address).
@@ -43,6 +43,10 @@ ROOT = Path(__file__).resolve().parents[2]
 STATE = Path.home() / 'Library/Application Support/phone-pairing/state.json'
 LOG = Path.home() / 'Library/Logs/phone-pairing.log'
 CHECKS = 2               # unavailable checks in a row before restarting
+# Each check is two devicectl requests: on the Intel Mac ~1 CPU-s plus a CoreDevice tunnel to the
+# phone, opened and torn down (a host network change event, and a phone radio wake-up). Every 30 s
+# that was 3% of a core and constant network churn; installers repair inline (--now/--repair).
+INTERVAL = 300
 WAIT = 600               # seconds between restarts
 RECENT = 1800            # rediscover a phone lost within the last 30 minutes, even without old-IP replies
 WAIT_FAILED = 3600       # ... after a restart that did not bring the phone back
@@ -335,14 +339,14 @@ def install():
     domain = 'gui/' + str(os.getuid())
     LOG.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(plistlib.dumps(dict(
-        Label=LABEL, RunAtLoad=True, StartInterval=30, LimitLoadToSessionType='Aqua',
+        Label=LABEL, RunAtLoad=True, StartInterval=INTERVAL, LimitLoadToSessionType='Aqua',
         ProgramArguments=['/usr/bin/python3', str(Path(__file__).resolve())],
         StandardOutPath=str(LOG), StandardErrorPath=str(LOG))))
     target.chmod(0o600)
     subprocess.run(['/bin/launchctl', 'bootout', domain + '/' + LABEL], stderr=subprocess.DEVNULL)
     subprocess.run(['/bin/launchctl', 'enable', domain + '/' + LABEL], check=True)
     subprocess.run(['/bin/launchctl', 'bootstrap', domain, str(target)], check=True)
-    print('Loaded %s: checks the phone every 30 s; events in %s.' % (LABEL, LOG))
+    print('Loaded %s: checks the phone every %d s; events in %s.' % (LABEL, INTERVAL, LOG))
 
 
 if __name__ == '__main__':
