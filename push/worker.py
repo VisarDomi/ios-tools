@@ -842,8 +842,10 @@ def work(wait=True):
         with locked(STORE / 'worker.lock'):
             marker = queue_marker()
             due, earliest = scan(processed)
-            # Fresh source/build/publication work precedes retries for packages already sent.
-            for _retry, metadata, state in sorted(due, key=lambda item: (item[0], item[1].name)):
+            # Fresh source/build/publication work precedes retries for packages already sent. One job
+            # per scan, so a job that became ready meanwhile keeps its queue position instead of
+            # waiting for a whole earlier batch (a FileHost build is ~10 minutes).
+            for _retry, metadata, state in sorted(due, key=lambda item: (item[0], item[1].name))[:1]:
                 try: run_job(metadata.name)
                 except Rebuild as error:
                     attempts = state.get('rebuildAttempts', 0) + 1
