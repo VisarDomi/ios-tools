@@ -737,7 +737,8 @@ def record_tests(job_id, result, key):
         state = load(metadata / 'state.json', {})
         if state.get('phase') in TERMINAL: return
         if result == 'failed' and not state.get('installAttempted') and not state.get('otaPublished'): fail_tests(metadata)
-        else: update(metadata / 'state.json', state.get('phase', 'queued'), nextAttempt=0)
+        # Due now. Not 0: a running worker skips jobs it already handled unless they are due later than that.
+        else: update(metadata / 'state.json', state.get('phase', 'queued'), nextAttempt=time.time())
 
 
 def runnable(job_id):
@@ -980,7 +981,8 @@ def control(job_id, action):
         if digest(metadata / 'request.json') != frozen['requestHash']: raise RuntimeError('Queued request changed; enqueue a new checkpoint')
         verify_files(source, frozen['files'])
         (metadata / 'cancelled.json').unlink(missing_ok=True)
-        update(metadata / 'state.json', 'queued', nextAttempt=0, message='Retry requested')
+        # Due now; a running worker that already handled this job picks it up after the kick.
+        update(metadata / 'state.json', 'queued', nextAttempt=time.time(), message='Retry requested')
 
 
 IDLE_EXIT = 300   # seconds; launchd's interval (push/install.py) and ready/control kicks restart the worker

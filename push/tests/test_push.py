@@ -794,9 +794,12 @@ class WorkerTestGateTests(WorkerTests):
         state = common.load(self.metadata / 'state.json')
         self.assertEqual(state['phase'], 'waiting_tests'); self.assertGreater(state['nextAttempt'], time.time())
         with self.assertRaisesRegex(RuntimeError, 'different source'): worker.record_tests(self.job, 'passed', 'other')
+        processed = {self.job: time.time() - 1}     # this worker run already handled the job
+        self.assertEqual(worker.scan(processed)[0], [])
         worker.record_tests(self.job, 'passed', 'k1')
         state = common.load(self.metadata / 'state.json')
-        self.assertEqual(state['nextAttempt'], 0); self.assertTrue(worker.deliverable(self.metadata, state))
+        self.assertEqual([item[1] for item in worker.scan(processed)[0]], [self.metadata])   # due at once
+        self.assertTrue(worker.deliverable(self.metadata, state))
         with mock.patch.object(worker, 'deliver') as deliver:
             worker.finish_job(self.job); deliver.assert_called_once()
 
