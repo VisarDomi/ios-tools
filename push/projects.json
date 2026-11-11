@@ -96,10 +96,18 @@
     ]
   },
   "trader": {
-    "path": "trading/trader"
+    "path": "trading/trader",
+    "tests": [
+      "bash",
+      "apps/ios/scripts/test.sh"
+    ]
   },
   "guidance": {
-    "path": "games/guidance"
+    "path": "games/guidance",
+    "tests": [
+      "bash",
+      "apps/ios/scripts/test.sh"
+    ]
   },
   "deep-town": {
     "path": "games/deep-town",

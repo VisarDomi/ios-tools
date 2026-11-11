@@ -46,6 +46,12 @@ and bypasses local phone discovery for its initial publication. Later checks
 can still confirm delivery when the phone is reachable. New builds/publications
 run before retries for already-published OTA packages.
 
+Projects that declare `tests` in `projects.json` (manga-reader, gallery-reader,
+gallery-downloader, video-platform, guidance, trader) run them on this PC first: a failure
+stops the push with the log tail before anything is frozen or queued. A pass is remembered
+for the exact files under `apps/ios` (tracked and untracked), so a batch of pushes from one
+repository tests once (manga: 25 s, then 0.1 s). `--skip-tests` bypasses this deliberately.
+
 `--validate-only` builds/verifies without any phone operation. `--force` rebuilds even
 when an exactly matching verified artifact could be reused. The caller still runs the
 appropriate app tests; signing checks do not replace UI or codec verification.
