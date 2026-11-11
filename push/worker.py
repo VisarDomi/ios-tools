@@ -25,6 +25,9 @@ STORE = Path(os.environ.get('IOS_PUSH_MAC_STORE', MAC_HOME / 'Library/Applicatio
 CHECKPOINTS = Path(os.environ.get('IOS_PUSH_CHECKPOINTS', MAC_HOME / 'Developer/ios-push/checkpoints'))
 RENEWAL = MAC_HOME / 'Library/Application Support/ios-tools/renewal'
 SIGNING_LOCK = MAC_HOME / 'Library/Caches/ios-app-refresh/signing.lock'
+# Uploads and pruning share this lock, not the build/install lock: a source upload proceeds while
+# another job compiles or installs instead of waiting out the whole build.
+CHECKPOINT_LOCK = STORE / 'checkpoints.lock'
 sys.path.insert(0, str(TOOLS / 'renewal/scripts'))
 import refresh
 
@@ -70,7 +73,7 @@ def receive(job_id, repo, app):
     if (metadata / 'ready.json').exists(): return {'ready': True, 'source': str(source), 'metadata': str(metadata)}
     ensure_directory(metadata)
     save(metadata / 'incoming.json', {'at': time.time(), 'repo': repo, 'app': app})
-    with locked(SIGNING_LOCK):
+    with locked(CHECKPOINT_LOCK, wait=60):
         status = subprocess.run([sys.executable, str(TOOLS / 'native/scripts/mac-workload'), 'status'], capture_output=True, text=True, timeout=30, check=True)
         status = json.loads(status.stdout)
         if status.get('booted'): raise Retry('Waiting for the booted simulator to shut down')
@@ -298,7 +301,7 @@ def compile_checkpoint(config, frozen, request, metadata, cache_log, cache_offse
     environment.update(compile_config.get('environment', {}), SIGNING_DESTINATION='generic/platform=iOS')
     environment = build_environment(environment, metadata, compile_source, MAC_HOME / 'Library/Caches/ios-tools/CompilationCache.noindex',
                                     product=config['app'], app_name=config['name'])
-    print('Using shared Xcode compilation cache (2 GiB per CAS store)', flush=True)
+    print('Using shared Xcode compilation cache (8 GiB per CAS store)', flush=True)
     compile_started = time.monotonic()
     try:
         subprocess.run(compile_config['build'], cwd=compile_source, env=environment, pass_fds=(int(os.environ['IOS_REFRESH_LOCK_FD']),), check=True)
@@ -710,7 +713,7 @@ def run_job(job_id):
 def prune():
     """Keep every approved/pending source root, plus two recent unreferenced trials."""
     try:
-        with locked(SIGNING_LOCK):
+        with locked(SIGNING_LOCK), locked(CHECKPOINT_LOCK, wait=60):
             keep = set()
             for path in RENEWAL.glob('*/config/*.json'):
                 config = load(path); root = Path(config['root'])

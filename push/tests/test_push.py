@@ -76,6 +76,14 @@ class SnapshotTests(unittest.TestCase):
 
 
 class WorkerTests(unittest.TestCase):
+    def test_upload_proceeds_while_another_job_holds_the_build_lock(self):
+        status = {'booted': [], 'metrics': {'load': 3, 'diskGiB': 30, 'pressure': 1}}
+        with common.locked(worker.SIGNING_LOCK), \
+             mock.patch.object(worker.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, json.dumps(status))):
+            result = worker.receive('during-build', 'demo', 'demo')
+        self.assertFalse(result['ready'])
+        self.assertEqual(common.load(worker.paths('during-build')[0] / 'state.json')['phase'], 'receiving')
+
     def test_upload_admission_waits_for_guest_or_pressure_but_not_old_load(self):
         for status, reason in [
             ({'booted': [], 'metrics': {'load': 12.18, 'diskGiB': 30, 'pressure': 2}}, 'memory pressure'),
@@ -97,7 +105,8 @@ class WorkerTests(unittest.TestCase):
         self.renewal = self.base / 'renewal'; self.tools = self.base / 'tools'; self.tools.mkdir()
         common.save(self.tools / 'ios-tools.local.json', {'team': 'TEAM', 'device': 'PHONE'})
         self.patch = mock.patch.multiple(worker, STORE=self.store, CHECKPOINTS=self.checkpoints, MAC_HOME=self.base,
-                                        RENEWAL=self.renewal, SIGNING_LOCK=self.base / 'signing.lock', TOOLS=self.tools)
+                                        RENEWAL=self.renewal, SIGNING_LOCK=self.base / 'signing.lock', TOOLS=self.tools,
+                                        CHECKPOINT_LOCK=self.store / 'checkpoints.lock', KICK=self.store / 'kick')
         self.patch.start(); self.addCleanup(self.patch.stop)
         self.job = 'job-1'; self.metadata, self.source = worker.paths(self.job)
         self.metadata.mkdir(parents=True); (self.source / 'Sources').mkdir(parents=True)
@@ -671,7 +680,7 @@ class ClientStatusTests(unittest.TestCase):
             job = Path(temporary) / 'jobs' / 'job-1'
             common.save(job / 'request.json', {'id': 'job-1'})
             common.save(job / 'state.json', {'phase': 'queued', 'message': 'old busy reason'})
-            def transfer(_):
+            def transfer(_, checksum=False):
                 state = common.load(job / 'state.json')
                 self.assertEqual(state['phase'], 'uploading')
                 self.assertEqual(state['message'], 'Transferring the frozen source checkpoint')

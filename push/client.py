@@ -122,12 +122,14 @@ def remote(arguments, timeout=90, check=True):
     return subprocess.run(['ssh', '-o', 'BatchMode=yes', 'mac', command], capture_output=True, text=True, timeout=timeout, check=check)
 
 
-def transfer(directory):
+def transfer(directory, checksum=False):
     request = load(directory / 'request.json'); job_id = identity(request['id'])
     verify(directory / 'source', request['files'])
     target = json.loads(remote(['receive', '--id', job_id, '--repo', request['repo'], '--app', request['app']]).stdout)
     if target.get('ready'): return
-    args = ['rsync', '-az', '--delete', '--checksum', '-e', 'ssh -o BatchMode=yes', str(directory / 'source') + '/',
+    # Size/mtime quick check: the Mac's `ready` hashes every file and refuses a mismatch, after which
+    # the retry compares checksums (reading all files on both machines, as every upload used to).
+    args = ['rsync', '-az', '--delete', *(['--checksum'] if checksum else []), '-e', 'ssh -o BatchMode=yes', str(directory / 'source') + '/',
             'mac:' + shlex.quote(target['source']) + '/']
     for item in request.get('carry', []): args.insert(1, '--exclude=/' + str(item))
     subprocess.run(args, check=True, timeout=600, stdout=subprocess.DEVNULL)
@@ -153,7 +155,7 @@ def pump():
             try:
                 if not state.get('uploadComplete'):
                     update(directory / 'state.json', 'uploading', message='Transferring the frozen source checkpoint')
-                    transfer(directory)
+                    transfer(directory, checksum=state.get('checksumTransfer', False))
                     update(directory / 'state.json', 'submitted', uploadComplete=True, message='Source transferred; waiting for guarded build')
                 result = remote(['status', '--id', request['id']], timeout=45)
                 current = json.loads(result.stdout)
@@ -163,7 +165,9 @@ def pump():
                 attempts = state.get('transportAttempts', 0) + 1
                 detail = (getattr(error, 'stderr', None) or str(error)).strip()[-400:]
                 busy = isinstance(error, subprocess.CalledProcessError) and error.returncode == 75
+                if 'Incomplete or changed source upload' in detail: state['checksumTransfer'] = True
                 update(directory / 'state.json', state.get('phase', 'queued'), transportAttempts=attempts,
+                       checksumTransfer=state.get('checksumTransfer', False),
                        transportError=detail, message='Waiting for Mac transfer: ' + detail,
                        transportNextAttempt=time.time() + (15 if busy else min(300, 10 * 2 ** min(5, attempts - 1))))
 

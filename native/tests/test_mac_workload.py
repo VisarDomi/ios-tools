@@ -26,7 +26,8 @@ class WorkloadTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        for name, value in [('ROOT', self.root), ('LOCK', self.root / 'signing.lock'), ('POLICY', self.root / 'policy.json')]:
+        for name, value in [('ROOT', self.root), ('LOCK', self.root / 'signing.lock'), ('POLICY', self.root / 'policy.json'),
+                            ('SPEECH_MODEL_CACHE', self.root / 'speech'), ('DERIVED_DATA', self.root / 'DerivedData')]:
             p = patch.object(m, name, value)
             p.start()
             self.addCleanup(p.stop)
