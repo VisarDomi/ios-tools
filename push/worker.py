@@ -961,15 +961,21 @@ def work(wait=True):
             # waiting for a whole earlier batch (a FileHost build is ~10 minutes). A built job's phone
             # delivery overlaps the next queued job's compile.
             ordered = sorted(due, key=lambda item: (item[0], item[1].name))
+            built_only = False
             if ordered:
                 first = ordered[0]
                 second = next((item for item in ordered[1:] if buildable(item[1])), None)
                 if second and deliverable(first[1], first[2]): run_overlapped(first, second, processed)
-                elif second and buildable(first[1]) and not load(first[1] / 'request.json', {}).get('validateOnly'):
-                    # Build only; the next scan overlaps this job's delivery with the following build.
+                elif buildable(first[1]) and not load(first[1] / 'request.json', {}).get('validateOnly'):
+                    # Build only, then scan again: a job that became ready during this build
+                    # (uploads usually finish while the first job compiles) compiles while this
+                    # one installs.
                     attempt(first[1], first[2], processed, lambda: build_job(first[1].name), mark=False)
+                    built_only = True
+                    # No complete build despite success: never spin on it within this run.
+                    if buildable(first[1]): processed[first[1].name] = time.time()
                 else: attempt(first[1], first[2], processed, lambda: run_job(first[1].name))
-            if due or not pruned:
+            if (due and not built_only) or not pruned:
                 prune(); pruned = True
             if due: continue
             due, earliest = scan(processed)

@@ -384,9 +384,11 @@ class WorkerTests(unittest.TestCase):
         common.save(new/'ready.json',{})
         common.save(new/'state.json',{'phase':'queued'})
         order=[]
-        with mock.patch.object(worker,'run_job',side_effect=order.append),mock.patch.object(worker,'prune'):
+        with mock.patch.object(worker,'run_job',side_effect=order.append),mock.patch.object(worker,'prune'), \
+             mock.patch.object(worker,'build_job',side_effect=lambda job: order.append(('build',job)) or True):
             worker.work()
-        self.assertEqual(order,['z-new',self.job])
+        # The unbuilt job is built first (and, never completing here, not retried in this run).
+        self.assertEqual(order,[('build','z-new'),self.job])
 
     def test_worker_sleeps_through_a_near_retry_and_exits_when_idle(self):
         common.update(self.metadata/'state.json','queued',nextAttempt=0)
@@ -550,6 +552,25 @@ class WorkerTests(unittest.TestCase):
         class Build:
             def __init__(self, command, **kwargs): events.append(('overlapped build', command[-1]))
             def wait(self, timeout=None): test.complete_build(second); return 0
+        def deliver(job, allow_ota=False, lock_held=False):
+            events.append(('deliver', job, lock_held)); common.update(worker.paths(job)[0] / 'state.json', 'installed')
+        with mock.patch.object(worker.subprocess, 'run', side_effect=build), mock.patch.object(worker.subprocess, 'Popen', Build), \
+             mock.patch.object(worker, 'deliver', side_effect=deliver), mock.patch.object(worker, 'prune'):
+            worker.work()
+        self.assertEqual(events, [('build', self.job), ('overlapped build', 'job-2'), ('deliver', self.job, True), ('deliver', 'job-2', False)])
+
+    def test_job_arriving_during_a_build_compiles_while_that_build_installs(self):
+        events = []; test = self; arrived = []
+        common.save(self.metadata / 'build-receipt.json', dict(self.receipt, complete=False))
+        common.update(self.metadata / 'state.json', 'queued', nextAttempt=0)
+        def build(command, **kwargs):
+            if 'build-one' not in command: return subprocess.CompletedProcess(command, 0)
+            events.append(('build', command[-1]))
+            arrived.append(test.queue_second())  # its upload finishes while this job compiles
+            test.complete_build(test.metadata); return subprocess.CompletedProcess(command, 0)
+        class Build:
+            def __init__(self, command, **kwargs): events.append(('overlapped build', command[-1]))
+            def wait(self, timeout=None): test.complete_build(arrived[0]); return 0
         def deliver(job, allow_ota=False, lock_held=False):
             events.append(('deliver', job, lock_held)); common.update(worker.paths(job)[0] / 'state.json', 'installed')
         with mock.patch.object(worker.subprocess, 'run', side_effect=build), mock.patch.object(worker.subprocess, 'Popen', Build), \
