@@ -27,6 +27,9 @@ from simulator_environment import checked_wasm_overrides,intel_wasm_overrides
 
 ROOT = Path.home() / 'Library/Caches/ios-app-refresh'
 POLICY = Path.home() / 'Library/Application Support/ios-tools/mac-workload.json'
+PROFILES = Path(__file__).resolve().parents[1] / 'simulator-profiles.json'
+PROFILE_STATE = POLICY.parent / 'simulator-profile'
+SIM_LAUNCHD_STATE = Path('/private/var/tmp')
 LOCK = ROOT / 'signing.lock'
 PANIC_REPORTS = Path('/Library/Logs/DiagnosticReports')
 _CPU_PORT = None
@@ -153,9 +156,83 @@ def metrics():
     return sample
 
 
+def command_app(command):
+    """The ios-push project a check belongs to, from a path in its command (e.g. ~/Developer/video-platform/apps/ios/...)."""
+    apps = json.loads(PROFILES.read_text())['apps']
+    for argument in command:
+        for part in Path(argument).parts:
+            for app in apps:
+                if part == app or part.startswith(app + '-'):
+                    return app
+    return None
+
+
+def simulator_profile(runtime, needs=(), app=None, full=False):
+    """The launchd jobs to disable for this boot and a description of the profile.
+    Lean by default: an iOS guest starts ~180 jobs, most of them (Siri, Health, Home, Mail, App
+    Store, iCloud sync, widgets, ...) irrelevant to an app check; --needs/--app keep groups."""
+    profiles = json.loads(PROFILES.read_text())
+    platform_name = next((name for name in profiles['platforms'] if '.SimRuntime.' + name + '-' in runtime), None)
+    wanted = list(needs)
+    if app:
+        if app not in profiles['apps']:
+            raise UnsafeWorkload('Unknown app for simulator needs: ' + app + ' (see simulator-profiles.json)')
+        wanted += profiles['apps'][app]
+    if full or platform_name is None:
+        return [], 'full' + ('' if full else ' (no profile for this runtime)')
+    profile = profiles['platforms'][platform_name]
+    unknown = [need for need in wanted if need not in profile['needs']]
+    if unknown:
+        raise UnsafeWorkload('Unknown simulator needs: ' + ', '.join(unknown) + '; known: ' + ', '.join(sorted(profile['needs'])))
+    kept = {job for need in wanted for job in profile['needs'][need]}
+    disabled = [job for job in profile['lean'] if job not in kept]
+    return disabled, 'lean' + ''.join(' +' + need for need in sorted(set(wanted)))
+
+
+def atomic_write(path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name('.' + path.name + '.tmp')
+    with open(temporary, 'wb') as handle:
+        handle.write(data)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temporary, path)
+
+
+def apply_simulator_profile(device, disabled_jobs):
+    """Set the launchd overrides the next boot of this shut-down guest reads.
+    simctl boot --disabledJob only writes /private/tmp/<guest>/disabled.plist, which launchd_sim
+    ignores for user-domain jobs (nearly all of iOS), so this edits launchd_sim's persisted
+    overrides instead. The value each label had before it was first touched is kept in a sidecar,
+    so --full or a smaller profile restores it exactly (e.g. the companion jobs CoreSimulator
+    enables for a paired watch). Written sidecar first, so an interruption at any point leaves
+    the next session able to restore."""
+    overrides = SIM_LAUNCHD_STATE / ('com.apple.CoreSimulator.SimDevice.' + device) / 'disabled.plist'
+    sidecar = PROFILE_STATE / (device + '.json')
+    current = plistlib.loads(overrides.read_bytes()) if overrides.exists() else {}
+    originals = json.loads(sidecar.read_text()) if sidecar.exists() else {}
+    if not originals and not disabled_jobs:
+        return
+    for label in list(originals):
+        # Still disabled (ours): put the original back. Changed by someone else since: adopt that.
+        value = originals[label] if current.get(label) is True else current.get(label)
+        originals[label] = value
+        if value is None:
+            current.pop(label, None)
+        else:
+            current[label] = value
+    for label in disabled_jobs:
+        originals.setdefault(label, current.get(label))
+        current[label] = True
+    atomic_write(sidecar, json.dumps(originals, sort_keys=True).encode())
+    if overrides.parent.exists() or disabled_jobs:
+        overrides.parent.mkdir(mode=0o700, exist_ok=True)
+        atomic_write(overrides, plistlib.dumps(current))
+
+
 def devices():
     result = json.loads(capture([tool_path('simctl'), 'list', 'devices', '--json'], 15))
-    return [item for group in result['devices'].values() for item in group]
+    return [dict(item, runtime=runtime) for runtime, group in result['devices'].items() for item in group]
 
 
 def process_identity(pid):
@@ -514,7 +591,14 @@ def run_workload(args):
         stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
         report = ROOT / ('workload-' + stamp + '.jsonl')
         lease = ROOT / 'workload-current.json'
-        lease.write_text(json.dumps(dict(pid=os.getpid(), device=args.device, trial=args.trial,
+        disabled_jobs, profile_name = ([], None)
+        if args.kind == 'simulator':
+            runtime = next((x.get('runtime', '') for x in known if x['udid'] == args.device), '')
+            app = getattr(args, 'app', None) or command_app(args.command)
+            disabled_jobs, profile_name = simulator_profile(runtime, [n for n in (getattr(args, 'needs', '') or '').split(',') if n],
+                                                            app, getattr(args, 'full', False))
+            profile_name += ' (app %s)' % app if app else ''
+        lease.write_text(json.dumps(dict(pid=os.getpid(), device=args.device, trial=args.trial, profile=profile_name, disabledJobs=disabled_jobs,
                                          expiresAt=time.time() + duration, kind=args.kind,
                                          allowWebContentCrash=getattr(args,'allow_webcontent_crash',False),
                                          checkedWasm=mode in ('checked','compat'), wasmCompat=mode=='compat',wasmMode=mode)))
@@ -530,10 +614,16 @@ def run_workload(args):
             with report.open('w') as log:
                 print('Guarded %s; deadline %ss; limits %s; telemetry %s' % (args.kind, duration, limits, report), flush=True)
                 if args.kind == 'simulator':
+                    # Before the boot is claimed: a guest someone else booted meanwhile is refused, never shut down.
+                    if not any(x['udid'] == args.device and x['state'] == 'Shutdown' for x in devices()):
+                        raise UnsafeWorkload('The selected simulator is not shut down; its launchd profile cannot be applied')
+                    apply_simulator_profile(args.device, disabled_jobs)
+                    print('Simulator profile: %s (%d launchd jobs disabled)' % (profile_name, len(disabled_jobs)), flush=True)
                     boot_attempted = True
                     boot = [tool_path('simctl'), 'boot', args.device]
                     if platform.machine() == 'x86_64':
                         boot.append('--arch=x86_64')
+                    boot_started = time.monotonic()
                     monitor(boot, deadline, log, fd, 'boot', limits, crash_watch=crash_watch, yield_to_builds=True)
                     if getattr(args,'visible',False):
                         gui_started = True
@@ -541,6 +631,7 @@ def run_workload(args):
                         gui_owner=simulator_gui_owner()
                         state=json.loads(lease.read_text());state['guiOwner']=gui_owner;lease.write_text(json.dumps(state))
                     monitor([tool_path('simctl'), 'bootstatus', args.device, '-b'], deadline, log, fd, 'bootstatus', limits, crash_watch=crash_watch, yield_to_builds=True)
+                    print('Simulator ready after %.0f s (%s)' % (time.monotonic() - boot_started, profile_name), flush=True)
                 monitor(bounded_jobs(args.command) if args.kind == 'build' else args.command,
                         deadline, log, fd, 'command', limits,
                         intel_wasm_overrides() if mode=='compat' else (checked_wasm_overrides() if mode=='checked' else None),crash_watch=crash_watch,
@@ -588,6 +679,9 @@ def main():
             p.add_argument('--native-wasm',action='store_true',help='Explicit runtime-default JSC configuration for diagnostic controls')
             p.add_argument('--wasm-compat',action='store_true',help='Intel runtime compatibility: checked memory and baseline Wasm JIT instead of IPInt')
             p.add_argument('--checked-wasm',action='store_true',help='Simulator app launch flags: explicit Wasm bounds checks instead of the signal handler')
+            p.add_argument('--needs', default='', help='Comma-separated service groups this check needs (simulator-profiles.json): media, photos, location, push, widgets, watch, siri, safari, store, icloud')
+            p.add_argument('--app', help='Use the needs recorded for this ios-push project in simulator-profiles.json (default: the project named in the command path)')
+            p.add_argument('--full', action='store_true', help='Boot every launchd job (no lean profile)')
         p.add_argument('command', nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if platform.system() != 'Darwin':

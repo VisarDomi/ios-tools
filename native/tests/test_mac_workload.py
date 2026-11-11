@@ -27,7 +27,8 @@ class WorkloadTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         for name, value in [('ROOT', self.root), ('LOCK', self.root / 'signing.lock'), ('POLICY', self.root / 'policy.json'),
-                            ('SPEECH_MODEL_CACHE', self.root / 'speech'), ('DERIVED_DATA', self.root / 'DerivedData')]:
+                            ('SPEECH_MODEL_CACHE', self.root / 'speech'), ('DERIVED_DATA', self.root / 'DerivedData'),
+                            ('PROFILE_STATE', self.root / 'profile'), ('SIM_LAUNCHD_STATE', self.root / 'launchd')]:
             p = patch.object(m, name, value)
             p.start()
             self.addCleanup(p.stop)
@@ -449,6 +450,128 @@ class RegenerableCacheTests(unittest.TestCase):
             self.assertEqual(sorted(x.name for x in speech.iterdir()), ['mid.bnnsir', 'new.bnnsir', 'new.bnnsir.456', 'other.txt'])
             self.assertEqual(sorted(x.name for x in derived.iterdir()), ['App-new', 'ModuleCache.noindex'])
             self.assertEqual(removed, 390)
+
+
+IOS_RUNTIME = 'com.apple.CoreSimulator.SimRuntime.iOS-26-3'
+
+
+class SimulatorProfileTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        for name, value in [('PROFILE_STATE', self.root / 'profile'), ('SIM_LAUNCHD_STATE', self.root / 'launchd')]:
+            p = patch.object(m, name, value)
+            p.start()
+            self.addCleanup(p.stop)
+        self.overrides = self.root / 'launchd' / ('com.apple.CoreSimulator.SimDevice.' + DEVICE) / 'disabled.plist'
+
+    def write_overrides(self, values):
+        self.overrides.parent.mkdir(parents=True, exist_ok=True)
+        self.overrides.write_bytes(m.plistlib.dumps(values))
+
+    def read_overrides(self):
+        return m.plistlib.loads(self.overrides.read_bytes())
+
+    def test_profiles_keep_only_the_groups_an_app_needs(self):
+        profiles = json.loads(m.PROFILES.read_text())['platforms']['iOS']
+        lean, name = m.simulator_profile(IOS_RUNTIME)
+        self.assertEqual((lean, name), (profiles['lean'], 'lean'))
+        self.assertEqual(len(lean), len(set(lean)))
+        for need, jobs in profiles['needs'].items():
+            with self.subTest(need=need):
+                self.assertTrue(set(jobs) <= set(lean), 'a need may only keep jobs the lean profile disables')
+        media, name = m.simulator_profile(IOS_RUNTIME, app='video-platform')
+        self.assertEqual(name, 'lean +media')
+        self.assertNotIn('com.apple.mediaremoted', media)
+        self.assertIn('com.apple.assistantd', media)
+        watch, name = m.simulator_profile(IOS_RUNTIME, ['push'], app='t3-watch')
+        self.assertEqual(name, 'lean +push +watch +widgets')
+        self.assertFalse({'com.apple.apsd', 'com.apple.nanotimekitcompaniond', 'com.apple.chronod'} & set(watch))
+        self.assertEqual(m.simulator_profile(IOS_RUNTIME, ['siri'], full=True), ([], 'full'))
+        self.assertEqual(m.simulator_profile('com.apple.CoreSimulator.SimRuntime.watchOS-26-2'), ([], 'full (no profile for this runtime)'))
+        with self.assertRaisesRegex(m.UnsafeWorkload, 'Unknown simulator needs: bluetooth'):
+            m.simulator_profile(IOS_RUNTIME, ['bluetooth'])
+        with self.assertRaisesRegex(m.UnsafeWorkload, 'Unknown app'):
+            m.simulator_profile(IOS_RUNTIME, app='nope')
+
+    def test_the_app_comes_from_the_command_path_when_not_given(self):
+        self.assertEqual(m.command_app(['/usr/bin/python3', '/Users/v/Developer/video-platform/apps/ios/scripts/check-zoom.py', '--device', DEVICE]), 'video-platform')
+        self.assertEqual(m.command_app(['python3', '/Users/v/Developer/guidance-virtual/apps/ios/scripts/check.py']), 'guidance')
+        self.assertEqual(m.command_app(['python3', '/Users/v/Developer/gallery-reader/x.py']), 'gallery-reader')
+        self.assertIsNone(m.command_app(['/usr/bin/python3', '/tmp/simcheck.py', DEVICE]))
+
+    def test_a_guest_booted_during_admission_is_refused_not_shut_down(self):
+        args = argparse.Namespace(kind='simulator', device=DEVICE, trial=False, timeout=10, command=['qa'])
+        states = iter([[dict(udid=DEVICE, state='Shutdown', isAvailable=True, runtime=IOS_RUNTIME)],
+                       [dict(udid=DEVICE, state='Booted', isAvailable=True, runtime=IOS_RUNTIME)]])
+        with patch.object(m, 'ROOT', self.root), patch.object(m, 'LOCK', self.root / 'signing.lock'), \
+             patch.object(m, 'POLICY', self.root / 'policy.json'), patch.object(m, 'tool_path', return_value='/fake/simctl'), \
+             patch.object(m, 'metrics', return_value=HEALTHY), patch.object(m, 'devices', side_effect=lambda: next(states)), \
+             patch.object(m, 'metal_coalescing', return_value=1), \
+             patch.object(m.subprocess, 'run', return_value=subprocess.CompletedProcess([], 1)), \
+             patch.object(m, 'apply_simulator_profile') as apply, patch.object(m, 'monitor') as monitor, \
+             patch.object(m, 'shutdown') as shutdown, patch.object(m, 'prune_regenerable_caches'):
+            with self.assertRaisesRegex(m.UnsafeWorkload, 'not shut down'):
+                m.run_workload(args)
+        apply.assert_not_called(); monitor.assert_not_called(); shutdown.assert_not_called()
+        self.assertFalse((self.root / 'workload-current.json').exists())
+
+    def test_overrides_round_trip_to_the_exact_original_state(self):
+        original = {'com.apple.nanoappregistryd': False, 'com.apple.healthd': True, 'com.apple.pairedsyncd': False}
+        self.write_overrides(original)
+        m.apply_simulator_profile(DEVICE, ['com.apple.healthd', 'com.apple.homed', 'com.apple.nanoappregistryd'])
+        self.assertEqual(self.read_overrides(), {'com.apple.nanoappregistryd': True, 'com.apple.healthd': True,
+                                                 'com.apple.pairedsyncd': False, 'com.apple.homed': True})
+        m.apply_simulator_profile(DEVICE, ['com.apple.homed'])
+        self.assertEqual(self.read_overrides(), dict(original, **{'com.apple.homed': True}))
+        m.apply_simulator_profile(DEVICE, [])
+        self.assertEqual(self.read_overrides(), original)
+        m.apply_simulator_profile(DEVICE, [])
+        self.assertEqual(self.read_overrides(), original)
+
+    def test_a_change_made_by_someone_else_is_adopted_not_reverted(self):
+        self.write_overrides({})
+        m.apply_simulator_profile(DEVICE, ['com.apple.wcd'])
+        values = self.read_overrides(); values['com.apple.wcd'] = False  # e.g. pairing a watch enabled it
+        self.write_overrides(values)
+        m.apply_simulator_profile(DEVICE, [])
+        self.assertEqual(self.read_overrides(), {'com.apple.wcd': False})
+
+    def test_an_interrupted_apply_still_restores(self):
+        self.write_overrides({'com.apple.wcd': False})
+        m.apply_simulator_profile(DEVICE, ['com.apple.wcd', 'com.apple.homed'])
+        sidecar = json.loads((self.root / 'profile' / (DEVICE + '.json')).read_text())
+        self.assertEqual(sidecar, {'com.apple.homed': None, 'com.apple.wcd': False})
+        # Power lost after the sidecar of a second apply but before its overrides: the next apply still restores.
+        m.atomic_write(self.root / 'profile' / (DEVICE + '.json'), json.dumps(dict(sidecar, **{'com.apple.apsd': None})).encode())
+        m.apply_simulator_profile(DEVICE, [])
+        self.assertEqual(self.read_overrides(), {'com.apple.wcd': False})
+
+    def test_full_profile_on_a_never_profiled_guest_writes_nothing(self):
+        m.apply_simulator_profile(DEVICE, [])
+        self.assertFalse(self.overrides.exists())
+        self.assertFalse((self.root / 'profile').exists())
+
+    def test_a_session_applies_the_profile_to_the_shut_down_guest_before_boot(self):
+        args = argparse.Namespace(kind='simulator', device=DEVICE, trial=False, timeout=10, command=['qa'], app='video-platform')
+        steps = []
+        with patch.object(m, 'ROOT', self.root), patch.object(m, 'LOCK', self.root / 'signing.lock'), \
+             patch.object(m, 'POLICY', self.root / 'policy.json'), patch.object(m, 'tool_path', return_value='/fake/simctl'), \
+             patch.object(m, 'metrics', return_value=HEALTHY), \
+             patch.object(m, 'devices', return_value=[dict(udid=DEVICE, state='Shutdown', isAvailable=True, runtime=IOS_RUNTIME)]), \
+             patch.object(m, 'metal_coalescing', return_value=1), \
+             patch.object(m.subprocess, 'run', return_value=subprocess.CompletedProcess([], 1)), \
+             patch.object(m, 'apply_simulator_profile', side_effect=lambda *a: steps.append(('apply',) + a)), \
+             patch.object(m, 'monitor', side_effect=lambda command, *a, **k: steps.append((command[1 if len(command) > 1 else 0], json.loads((self.root / 'workload-current.json').read_text())))), \
+             patch.object(m, 'shutdown'), patch.object(m, 'prune_regenerable_caches'):
+            m.run_workload(args)
+        self.assertEqual([step[0] for step in steps], ['apply', 'boot', 'bootstatus', 'qa'])
+        disabled = steps[0][2]
+        self.assertNotIn('com.apple.mediaremoted', disabled)
+        self.assertEqual(steps[1][1]['profile'], 'lean +media (app video-platform)')
+        self.assertEqual(steps[1][1]['disabledJobs'], disabled)
+        self.assertNotIn('--disabledJob', ' '.join(map(str, steps)))
 
 
 if __name__ == '__main__':

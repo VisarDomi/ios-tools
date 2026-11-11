@@ -210,6 +210,10 @@ graphics-repair policy before any boot. Build before booting, with two compiler
 jobs and no active guests. Use an explicit project-owned UUID, never an implicit
 old iPhone 17 Pro Max. The guard shuts down only the guest it booted, including
 after timeout/cancellation. Do not use `shutdown all` or restart shared services.
+iOS sessions boot lean (about 120 Siri/Health/Home/iCloud/... launchd jobs off; the
+needs of each project are in `simulator-profiles.json`, taken from `--app` or the
+command's paths). Use `--needs a,b` for extra service groups and `--full` for system
+behaviour; see "Boot only the services a check needs" in MAC-WORKLOADS.md.
 
 - **Never play video in the simulator.** It decodes in software here and drives the Mac's
   load past 300 within minutes. A local video app can restore playback at launch: use a dedicated

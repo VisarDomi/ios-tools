@@ -237,6 +237,90 @@ unreviewed kernel panic or GPU reset report blocks simulator startup. Driver exp
 time-limited trial whose expected driver setting is verified before boot.
 Do not bypass quarantine with raw `simctl boot` or opening Simulator.app.
 
+### Boot only the services a check needs
+
+A stock iOS 26.3 guest starts about 180 of its ~370 launchd jobs (Siri and
+on-device intelligence, Health, Home, Mail, Calendar, telephony, Game Center,
+Wallet, ads, App Store, Screen Time, iCloud sync, photo analysis, Spotlight,
+location, push, widgets, watch companions, ...). On this two-core Mac they
+compete with the app under test for the whole session. Guarded iOS sessions
+therefore boot **lean**: the jobs listed in `native/simulator-profiles.json` are
+disabled, and only groups a project needs are kept.
+
+- `--app PROJECT` keeps the groups recorded for that ios-push project (`apps` in
+  the JSON). Without `--app`, the guard takes the project named in the command's
+  paths (`~/Developer/video-platform/...` → `video-platform`, `guidance-virtual`
+  → `guidance`). Today only `video-platform` (`media`) and `t3-watch` (`watch`,
+  `widgets`) need anything.
+- `--needs a,b` keeps named groups (`media`, `photos`, `location`, `push`,
+  `widgets`, `watch`, `siri`, `safari`, `store`, `icloud`). Unknown names are
+  refused before boot.
+- `--full` boots every job, for checks of system behaviour or to rule the
+  profile out when something looks wrong.
+- The session prints `Simulator profile: lean +media (app video-platform)
+  (N launchd jobs disabled)` and records the profile in the lease.
+- Watch guests have no profile and boot fully.
+
+How it works: `launchd_sim` reads its persisted overrides from
+`/private/var/tmp/com.apple.CoreSimulator.SimDevice.UDID/disabled.plist` at boot.
+`simctl boot --disabledJob` does not work for this. It only writes
+`/private/tmp/<same>/disabled.plist`, which this runtime ignores for user-domain
+jobs, and 386 of the 392 jobs run in `user/501`. Verified November 11: a job
+passed with `--disabledJob` still ran; the same label in the persisted file never
+loaded.
+
+The guard writes the overrides while the guest is shut down. It keeps each
+label's original value in
+`~/Library/Application Support/ios-tools/simulator-profile/UDID.json`, writing
+that file first so an interrupted write can still be undone. A smaller profile
+or `--full` restores those values exactly, including the companion jobs
+CoreSimulator explicitly enables for the paired Watch. A change someone else
+made since is adopted, not reverted. A boot outside the guard gets the last
+session's profile.
+
+Three services must stay on, even though nothing obviously needs them:
+
+| Job | What happens without it |
+| --- | --- |
+| `com.apple.sleepd` | SpringBoard retries `com.apple.sleepd.sleepserver` in a tight loop (53,000 lookups) and the boot never finishes. |
+| `com.apple.dmd` | `appprotectiond` does the same with `com.apple.dmd`. |
+| `com.apple.nanoregistryd` (and `nanoregistrylaunchd`) | CoreSimulatorBridge's host-support handler deadlocks in `NRPairedDeviceRegistry`. SpringBoard is up after 16 s, but `simctl bootstatus` stays at "Waiting on BackBoard" until the deadline. |
+
+Add a job to `lean` only after a guarded lean boot reaches `Finished`, the app
+check passes, and the guest's launchd log
+(`/private/var/tmp/com.apple.CoreSimulator.SimDevice.UDID/launchd.log`, lines
+`failed lookup: name = X, requestor = Y`) shows no requester retrying in a loop.
+Failed lookups of a disabled service normally return at once, so a few per
+requester are expected. A hang shows up as bootstatus stuck at one stage.
+Sample the guest processes from the host (`sample PID 3`); they are ordinary
+host processes.
+
+Measured November 11 on the shared iPhone (iOS 26.3.1), Manga Reader's offline
+check: install, launch, first KitTestHooks `/layout`. "Cold" runs follow
+`sudo purge`. Admission waits are excluded.
+
+| | Full, warm (2 runs) | Lean, warm (4 runs) | Full, cold | Lean, cold |
+| --- | --- | --- | --- | --- |
+| Boot to `Finished` | 59–74 s | 26–30 s | 89 s | 34 s |
+| `simctl install` | 75–82 s | 33–37 s | 98 s | 34 s |
+| `simctl launch` returns | 9–16 s | 4.3–4.6 s | 10.9 s | 5.3 s |
+| First `/layout` after launch | 22–34 s | 8.7–9.1 s | 16.1 s | 9.9 s |
+| Boot to app on screen | ~170–190 s | ~75–80 s | ~214 s | ~83 s |
+| Running jobs after the check | 181–183 | 71–72 | 180 | 70 |
+| Guest CPU time, whole session | 529 s | 228–233 s | 568 s | 246 s |
+
+Most of the remaining install time is installd's first install of each boot.
+Its preflight walks the runtime's bundles (240 apps, ~2,400 frameworks) before installing (logged as
+`Preflight/Patch`, plus 241 harmless `Info.plist missing` lines in
+`~/Library/Logs/CoreSimulator/UDID/MobileInstallation`). It takes 10–20 s lean
+and 50–62 s full, because the walk competes with the other daemons. Later
+installs in the same boot skip it, so install every app a check needs within
+one session.
+
+What still runs lean is mostly SpringBoard (33 s of CPU), PosterBoard (11 s),
+the home-screen widget renderer (7 s) and the prewarmed Spotlight UI (6 s).
+None of these can be disabled without breaking the home screen.
+
 On a verified graphics stack, pass the exact UUID of a listed shared or owned, shut-down
 guest and the complete test command:
 
@@ -277,7 +361,8 @@ On 2026-11-02, an owned iPhone 12 Pro Max guest played one 1280×720 H.264/AAC H
 recording. Its clock and sampled video buffers advanced in sequential seek/play
 windows, including the encoder change around 15 minutes. Memory pressure stayed
 normal and the host remained responsive, with no new GPU-reset/panic report.
-Cold guest initialization took about 224 seconds; the combined comparison batch
+Cold guest initialization took about 224 seconds (full boot; lean sessions now reach
+the app in ~83 s cold, see "Boot only the services a check needs"); the combined comparison batch
 later reached its ten-minute deadline. This validation covers single-stream
 720p H.264. Other codecs/resolutions require their own measurements, and the
 historical Intel driver failure retains its separate guard.
