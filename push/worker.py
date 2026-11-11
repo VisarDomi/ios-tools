@@ -11,6 +11,7 @@ from pathlib import Path
 import plistlib
 import shutil
 import subprocess
+import threading
 import sys
 import tempfile
 import time
@@ -39,6 +40,10 @@ class Retry(Exception):
 
 class Rebuild(Retry):
     pass
+
+
+class WaitTests(Exception):
+    """Built, but the PC has not reported this checkpoint's tests yet: never install meanwhile."""
 
 
 class RecoverTransport(Exception):
@@ -371,6 +376,15 @@ def build_one(job_id):
     # Retain the validated output/input layout even if a builder fails before
     # producing its receipt, so completed compiler caches can still be cleaned.
     save(metadata / 'config.json', config)
+    phone = None
+    if os.environ.get('IOS_PUSH_PREFETCH') and not request.get('validateOnly'):
+        phone = threading.Thread(target=prefetch_phone, args=(metadata, config), daemon=True); phone.start()
+    try: build_checkpoint(metadata, source, request, frozen, config, before)
+    finally:
+        if phone: phone.join(timeout=60)
+
+
+def build_checkpoint(metadata, source, request, frozen, config, before):
     save(metadata / 'build-receipt.json', {'inputHash': before, 'complete': False})
     app = source / config['app']
     recover_product(app)
@@ -471,6 +485,28 @@ def pending_state(request, config):
     state['pendingPush'] = {'id': request['id'], 'createdAt': request['createdAt'], 'sequence': request['queueSequence']}
     save(path, state)
     return path, state
+
+
+PREFETCH_FRESH = 300   # seconds a reachable phone answer from the build stays good for its first delivery
+
+
+def prefetch_phone(metadata, config):
+    """Ask the phone whether it is reachable while the app compiles, so the delivery after the build
+    skips that 5-6 s question (29 s on a slow phone). Runs only under the Mac lock: inside a guarded
+    build, or by the worker after an overlapped delivery."""
+    apps = catalog(config, metadata / 'phone-prefetch-apps.json')
+    save(metadata / 'phone-prefetch.json', {'at': time.time(), 'device': config['device'], 'reachable': apps is not None})
+
+
+def phone_reachable(config, metadata, state):
+    """The phone's app list, None when unreachable. A reachable answer from this job's build counts
+    for its first delivery attempt only; any retry asks the phone again."""
+    prefetch = load(metadata / 'phone-prefetch.json', {})
+    (metadata / 'phone-prefetch.json').unlink(missing_ok=True)
+    if (prefetch.get('reachable') and prefetch.get('device') == config['device'] and not state.get('deliveryAttempts')
+            and 0 <= time.time() - prefetch.get('at', 0) < PREFETCH_FRESH):
+        return []
+    return catalog(config, metadata / 'phone-before.json')
 
 
 def catalog(config, output):
@@ -614,7 +650,7 @@ def deliver(job_id, allow_ota=False, lock_held=False):
         phone_done = bool(config.get('watch') and load(metadata / 'state.json', {}).get('phoneDelivery') == phone_proof)
         ota_requested = load(metadata / 'delivery-mode.json', {}).get('mode') == 'ota'
         unpublished_ota = ota_requested and not load(metadata / 'state.json', {}).get('otaPublished')
-        before = [] if phone_done else (None if unpublished_ota else catalog(config, metadata / 'phone-before.json'))
+        before = [] if phone_done else (None if unpublished_ota else phone_reachable(config, metadata, load(metadata / 'state.json', {})))
         if before is None and not allow_ota and not ota_requested: raise RecoverTransport()
         with locked(metadata / 'control.lock', wait=5):
             if (metadata / 'cancelled.json').exists(): update(metadata / 'state.json', 'cancelled'); return
@@ -676,10 +712,39 @@ def log_excerpt(output):
 BUILD_TIMEOUT = 1250
 
 
+def tests_state(metadata, request):
+    """'passed', 'failed' or 'pending': the PC's tests for this exact checkpoint (they run while it builds)."""
+    if not request.get('testsRequired'): return 'passed'
+    result = load(metadata / 'tests.json', {})
+    if result.get('key') != request.get('testsKey'): return 'pending'
+    return result.get('result') if result.get('result') in {'passed', 'failed'} else 'pending'
+
+
+def fail_tests(metadata):
+    update(metadata / 'state.json', 'failed', nextAttempt=0,
+           message='PC tests failed for this source; nothing was installed (log: ios-push status on the PC)')
+
+
+def record_tests(job_id, result, key):
+    """The PC reports its test result for an uploaded job; a waiting build then installs or fails now."""
+    if result not in {'passed', 'failed'}: raise ValueError('Unknown test result')
+    metadata, _ = paths(job_id)
+    with locked(metadata / 'control.lock', wait=5):
+        request = request_for(metadata)
+        if not request.get('testsRequired') or request.get('testsKey') != key:
+            raise RuntimeError('Test result for a different source checkpoint')
+        save(metadata / 'tests.json', {'result': result, 'key': key, 'at': time.time()})
+        state = load(metadata / 'state.json', {})
+        if state.get('phase') in TERMINAL: return
+        if result == 'failed' and not state.get('installAttempted') and not state.get('otaPublished'): fail_tests(metadata)
+        else: update(metadata / 'state.json', state.get('phase', 'queued'), nextAttempt=0)
+
+
 def runnable(job_id):
-    """False when the job has nothing left to do (finished, cancelled or superseded)."""
+    """False when the job has nothing left to do (finished, cancelled, superseded or failed its tests)."""
     metadata, source = paths(job_id); request = request_for(metadata); state = load(metadata / 'state.json', {})
     if state.get('phase') in TERMINAL or (metadata / 'cancelled.json').exists(): return False
+    if tests_state(metadata, request) == 'failed': fail_tests(metadata); return False
     frozen = load(metadata / 'ready.json')
     if digest(metadata / 'request.json') != frozen['requestHash']: raise RuntimeError('Queued build request changed')
     current = load(config_path(request['repo'], request['app']), {})
@@ -720,7 +785,9 @@ def build_job(job_id):
     if not load(paths(job_id)[0] / 'build-receipt.json', {}).get('complete'):
         log_path, offset = begin_build(job_id)
         with log_path.open('a') as stream:
-            result = subprocess.run(build_command(job_id), stdout=stream, stderr=subprocess.STDOUT, timeout=BUILD_TIMEOUT)
+            # Nothing else uses the phone during this build, so the build asks whether it is reachable.
+            result = subprocess.run(build_command(job_id), stdout=stream, stderr=subprocess.STDOUT, timeout=BUILD_TIMEOUT,
+                                    env=dict(os.environ, IOS_PUSH_PREFETCH='1'))
         check_build(log_path, offset, result.returncode)
     return True
 
@@ -733,6 +800,9 @@ def finish_job(job_id, lock_held=False):
     """After a complete build: validate (validation-only pushes) or deliver to the phone."""
     metadata, source = paths(job_id); request = request_for(metadata); frozen = load(metadata / 'ready.json')
     if (metadata / 'cancelled.json').exists(): update(metadata / 'state.json', 'cancelled'); return
+    tests = tests_state(metadata, request)
+    if tests == 'failed': fail_tests(metadata); return
+    if tests == 'pending': raise WaitTests('Built; waiting for the PC tests of this source before installing')
     if request.get('validateOnly'):
         with mac_lock(lock_held):
             config = load(metadata / 'config.json'); receipt = load(metadata / 'build-receipt.json')
@@ -756,7 +826,9 @@ def finish_job(job_id, lock_held=False):
 
 def deliverable(metadata, state):
     """Built and waiting only for an ordinary phone delivery (no OTA, Watch or pairing recovery pending)."""
-    return (load(metadata / 'build-receipt.json', {}).get('complete') and not load(metadata / 'request.json', {}).get('validateOnly')
+    request = load(metadata / 'request.json', {})
+    return (load(metadata / 'build-receipt.json', {}).get('complete') and not request.get('validateOnly')
+            and tests_state(metadata, request) == 'passed'
             and not state.get('otaPublished') and not state.get('transportRecovery') and state.get('phase') != 'awaiting_watch'
             and not (metadata / 'cancelled.json').exists())
 
@@ -794,6 +866,10 @@ def run_overlapped(first, second, processed):
         try: attempt(first_dir, first_state, processed, lambda: runnable(first_dir.name) and finish_job(first_dir.name, lock_held=True))
         finally:
             note('overlap: %s delivery step done' % first_dir.name)
+            # The phone is free again while the second job still compiles: ask it now, under the lock.
+            second_config = load(second_dir / 'config.json')
+            if build and second_config and not load(second_dir / 'request.json', {}).get('validateOnly'):
+                prefetch_phone(second_dir, second_config)
             # A built job stays due: its own delivery follows in this worker run.
             if build: attempt(second_dir, second_state, processed, finish, mark=False)
 
@@ -808,6 +884,9 @@ def attempt(metadata, state, processed, action, mark=True):
     failed = True
     try:
         action(); failed = False
+    except WaitTests as error:
+        # The PC's result resets nextAttempt and kicks the worker; this is only the fallback poll.
+        update(metadata / 'state.json', 'waiting_tests', nextAttempt=time.time() + 300, message=str(error)); failed = False
     except Rebuild as error:
         attempts = state.get('rebuildAttempts', 0) + 1
         if attempts > 2:
@@ -990,15 +1069,17 @@ def work(wait=True):
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['receive', 'ready', 'work', 'build-one', 'renewal-build', 'status', 'logs', 'install-authority', 'retry', 'cancel', 'ota', 'cache-status'])
+    parser.add_argument('action', choices=['receive', 'ready', 'work', 'build-one', 'renewal-build', 'status', 'logs', 'install-authority', 'retry', 'cancel', 'ota', 'cache-status', 'tests'])
     parser.add_argument('--id'); parser.add_argument('--repo'); parser.add_argument('--app'); parser.add_argument('--bundle')
     parser.add_argument('--config'); parser.add_argument('--validate-only', action='store_true')
+    parser.add_argument('--result'); parser.add_argument('--key')
     args = parser.parse_args()
     if args.action == 'receive': print(json.dumps(receive(identity(args.id), identity(args.repo), identity(args.app))))
     elif args.action == 'ready': ready(identity(args.id)); print('ready')
     elif args.action == 'build-one': build_one(identity(args.id))
     elif args.action == 'renewal-build': renewal_build(args.config, args.validate_only)
     elif args.action in {'retry', 'cancel', 'ota'}: control(identity(args.id), args.action); kick()
+    elif args.action == 'tests': record_tests(identity(args.id), args.result, args.key); kick()
     elif args.action == 'work':
         try: work()
         except BlockingIOError: pass

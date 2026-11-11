@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -76,9 +77,10 @@ def prepare(project, app):
         subprocess.run(['node', str(ios / 'scripts/build.mjs'), app['name'], '--prepare-only'], cwd=root, check=True)
 
 
-def tests_key(repo_root, project):
+def tests_key(repo_root, project, copy_to=None):
     """The exact test inputs: every tracked and untracked, non-ignored file under the test scope
-    (default apps/ios), with the test command. Ignored build outputs are not part of it."""
+    (default apps/ios), with the test command. Ignored build outputs are not part of it.
+    With copy_to, the same bytes are also written there (the job's frozen test source)."""
     scope = project.get('testScope', 'apps/ios')
     listed = subprocess.run(['git', '-C', str(repo_root), 'ls-files', '-co', '--exclude-standard', '-z', '--', scope],
                             capture_output=True, check=True).stdout.split(b'\0')
@@ -86,55 +88,94 @@ def tests_key(repo_root, project):
     for name in sorted(item for item in listed if item):
         path = repo_root / name.decode()
         if not path.is_file(): continue
-        digest.update(name + b'\0'); digest.update(hashlib.sha256(path.read_bytes()).digest())
+        data = path.read_bytes()
+        digest.update(name + b'\0'); digest.update(hashlib.sha256(data).digest())
+        if copy_to:
+            target = Path(copy_to) / name.decode(); target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data); os.chmod(target, path.stat().st_mode & 0o777)
     return digest.hexdigest()
 
 
-def run_tests(repo, project):
-    """The project's logic tests on this PC before its source is frozen: a broken change fails here
-    in seconds, not minutes into a Mac build. A pass is remembered for identical test inputs, so a
-    batch of pushes from one repository runs them once; concurrent pushes wait for the first run."""
-    command = project.get('tests')
-    if not command or ON_MAC: return
-    repo_root = Path(project['root']).resolve()
-    with locked(STORE / ('tests-' + identity(repo) + '.lock'), wait=900):
-        key = tests_key(repo_root, project)
-        results = load(STORE / 'test-results.json', {})
-        if results.get(repo, {}).get('key') == key:
-            print(repo + ' tests already passed for this source on this PC.', flush=True)
-            return
-        log = STORE / 'test-logs' / (identity(repo) + '.log')
-        ensure_directory(log.parent)
-        print('Running ' + repo + ' tests on this PC (' + ' '.join(command) + ')...', flush=True)
-        started = time.time()
-        with log.open('w') as stream:
-            result = subprocess.run(command, cwd=repo_root, stdout=stream, stderr=subprocess.STDOUT, timeout=900)
-        seconds = round(time.time() - started, 1)
-        if result.returncode:
-            tail = ''.join(log.read_text(errors='replace').splitlines(keepends=True)[-25:])
-            raise RuntimeError(tail + '\n' + repo + ' tests failed after ' + str(seconds) + ' s; nothing was queued. '
-                               'Full log: ' + str(log) + ' (fix the change, or push with --skip-tests deliberately)')
-        results = load(STORE / 'test-results.json', {})
-        results[repo] = {'key': key, 'seconds': seconds, 'at': time.time()}
-        save(STORE / 'test-results.json', results)
-        print(repo + ' tests passed in ' + str(seconds) + ' s.', flush=True)
+def tests_passed(repo, key):
+    return load(STORE / 'test-results.json', {}).get(repo, {}).get('key') == key
+
+
+def test_job(job_id):
+    """Run a queued job's PC tests on its frozen test source, while the Mac builds it. The Mac
+    installs nothing until the uploader reports a pass. Pushes of one repository take turns,
+    so a batch runs identical tests once."""
+    directory = STORE / 'jobs' / identity(job_id); request = load(directory / 'request.json')
+    if not request or not request.get('testsRequired'): return
+    try: runner = locked(directory / 'tests.lock'); runner.__enter__()
+    except BlockingIOError: return   # already running
+    try:
+        if load(directory / 'tests.json', {}).get('result') or load(directory / 'state.json', {}).get('phase') in TERMINAL: return
+        repo = request['repo']; key = request['testsKey']
+        log = STORE / 'test-logs' / (identity(job_id) + '.log'); ensure_directory(log.parent)
+        with locked(STORE / ('tests-' + identity(repo) + '.lock'), wait=900):
+            started = time.time()
+            if tests_passed(repo, key):
+                result = 'passed'; log.write_text('Passed earlier for identical test inputs.\n')
+            else:
+                with log.open('w') as stream:
+                    try: code = subprocess.run(request['testsCommand'], cwd=directory / 'tests-source', stdout=stream,
+                                               stderr=subprocess.STDOUT, timeout=900).returncode
+                    except subprocess.TimeoutExpired: code = 'timeout'
+                result = 'passed' if code == 0 else 'failed'
+                if result == 'passed':
+                    results = load(STORE / 'test-results.json', {})
+                    results[repo] = {'key': key, 'seconds': round(time.time() - started, 1), 'at': time.time()}
+                    save(STORE / 'test-results.json', results)
+        save(directory / 'tests.json', {'result': result, 'key': key, 'seconds': round(time.time() - started, 1),
+                                        'log': str(log), 'reported': False})
+    finally: runner.__exit__(None, None, None)
+    # The uploader reports the result to the Mac (or fails a job that never left the PC).
+    subprocess.run(['systemctl', '--user', 'start', '--no-block', 'ios-push.service'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def start_tests(job_id):
+    """Run test_job detached in its own user unit, so it outlives the shell that queued the push.
+    The uploader starts it again if it never finished (for example after a reboot)."""
+    command = [sys.executable, str(TOOLS / 'native/scripts/ios-push'), 'test-job', job_id]
+    try:
+        started = subprocess.run(['systemd-run', '--user', '--collect', '--quiet', '--unit', 'ios-push-tests-' + identity(job_id).lower().replace('_', '-'),
+                                  '--property', 'UMask=0077', *command], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+        if started.returncode == 0: return
+    except (OSError, subprocess.SubprocessError): pass
+    subprocess.Popen(command, start_new_session=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def tests_due(directory, request, state):
+    """Start the job's tests if they have no result and nothing is running them."""
+    if not request.get('testsRequired') or load(directory / 'tests.json', {}).get('result') or state.get('phase') in TERMINAL: return
+    try:
+        with locked(directory / 'tests.lock'): pass
+    except BlockingIOError: return
+    start_tests(directory.name)
 
 
 def enqueue(selector, project_name=None, source=None, validate_only=False, force=False, skip_tests=False):
     repo, project, app = choose(selector, project_name, source)
-    if not skip_tests: run_tests(repo, project)
-    prepare(project, app)
     repo_root = Path(project['root']).resolve(); root = Path(app['root']).resolve()
-    suffix = root.relative_to(repo_root)
-    overlays = {}
-    for src, dst in project.get('copies', {}).items():
-        target = Path(dst)
-        if target.is_relative_to(suffix): overlays[str(target.relative_to(suffix))] = repo_root / src
     job_id = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ-') + uuid.uuid4().hex[:10]
     directory = STORE / 'jobs' / job_id
     ensure_directory(directory)
     captured = Path.home() / 'Developer/ios-push/checkpoints' / job_id / 'source' if ON_MAC else directory / 'source'
+    tests = None
     try:
+        # The PC tests run on a frozen copy of their inputs while the Mac builds (no longer before
+        # queueing); the Mac installs only after a pass. A pass for identical inputs is reused.
+        if not skip_tests and project.get('tests') and not ON_MAC:
+            key = tests_key(repo_root, project, copy_to=directory / 'tests-source')
+            if tests_passed(repo, key):
+                shutil.rmtree(directory / 'tests-source'); print(repo + ' tests already passed for this source on this PC.', flush=True)
+            else: tests = {'testsRequired': True, 'testsKey': key, 'testsCommand': project['tests']}
+        prepare(project, app)
+        suffix = root.relative_to(repo_root)
+        overlays = {}
+        for src, dst in project.get('copies', {}).items():
+            target = Path(dst)
+            if target.is_relative_to(suffix): overlays[str(target.relative_to(suffix))] = repo_root / src
         extra = []
         for candidate in ['scripts', 'apps/ios/scripts']:
             if (root / candidate).is_dir(): extra.append(candidate)
@@ -145,11 +186,10 @@ def enqueue(selector, project_name=None, source=None, validate_only=False, force
         request = {'version': 1, 'id': job_id, 'repo': identity(repo), 'app': identity(app['name']),
                    'createdAt': time.time(), 'sourceRevision': revision, 'sourceHash': source_hash(files),
                    'files': files, 'carry': missing, 'config': app, 'sourceRoot': str(root),
-                   'validateOnly': validate_only, 'force': force, 'neverLaunch': True}
+                   'validateOnly': validate_only, 'force': force, 'neverLaunch': True, **(tests or {})}
         update(directory / 'state.json', 'queued', id=job_id, repo=repo, app=app['name'], createdAt=request['createdAt'])
         save(directory / 'request.json', request)  # Publish last; uploader cannot race the initial state.
     except BaseException:
-        import shutil
         shutil.rmtree(directory, ignore_errors=True)
         if ON_MAC: shutil.rmtree(captured.parent, ignore_errors=True)
         raise
@@ -159,6 +199,9 @@ def enqueue(selector, project_name=None, source=None, validate_only=False, force
         subprocess.run(['launchctl', 'kickstart', 'gui/' + str(os.getuid()) + '/' + LABEL], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     else:
         started = subprocess.run(['systemctl', '--user', 'start', '--no-block', 'ios-push.service'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if tests:
+            start_tests(job_id)
+            print('Running ' + repo + ' tests on this PC while the Mac builds; it installs only if they pass.', flush=True)
         if started.returncode: raise RuntimeError('Job ' + job_id + ' is saved; install the shared ios-push worker before delivery')
     return job_id
 
@@ -197,12 +240,24 @@ def pump():
             except (OSError, ValueError):
                 save(directory / 'state.json', {'id': directory.name, 'phase': 'failed', 'message': 'Unreadable queue record; enqueue a fresh checkpoint'})
                 continue
-            if not request or state.get('transportNextAttempt', 0) > time.time(): continue
+            if not request: continue
+            tests = load(directory / 'tests.json', {}) if request.get('testsRequired') else {}
+            uploaded = state.get('uploadComplete') or (directory / 'uploaded.json').exists()
+            if tests.get('result') == 'failed' and not uploaded and not tests.get('reported'):
+                # Failed before it reached the Mac: nothing to upload or build.
+                update(directory / 'state.json', 'failed', message='PC tests failed; nothing was queued on the Mac. Log: ' + tests.get('log', ''))
+                continue
+            tests_due(directory, request, state)
+            if state.get('transportNextAttempt', 0) > time.time(): continue
             try:
-                if not state.get('uploadComplete'):
+                if not uploaded:
                     update(directory / 'state.json', 'uploading', message='Transferring the frozen source checkpoint')
                     transfer(directory, checksum=state.get('checksumTransfer', False))
                     update(directory / 'state.json', 'submitted', uploadComplete=True, message='Source transferred; waiting for guarded build')
+                    save(directory / 'uploaded.json', {'at': time.time()})   # state.json is replaced by the Mac's
+                if tests.get('result') and not tests.get('reported'):
+                    remote(['tests', '--id', request['id'], '--result', tests['result'], '--key', request['testsKey']], timeout=45)
+                    tests['reported'] = True; save(directory / 'tests.json', tests)
                 result = remote(['status', '--id', request['id']], timeout=45)
                 current = json.loads(result.stdout)
                 # A transfer acknowledgement is not an installation success.
@@ -221,7 +276,14 @@ def pump():
 def show(job_id=None, follow=False, as_json=False):
     directories = [STORE / 'jobs' / identity(job_id)] if job_id else sorted((STORE / 'jobs').glob('*'))[-20:]
     while True:
-        values = [load(path / 'state.json', {'id': path.name, 'phase': 'unknown'}) for path in directories]
+        values = []
+        for path in directories:
+            value = load(path / 'state.json', {'id': path.name, 'phase': 'unknown'})
+            if load(path / 'request.json', {}).get('testsRequired') and value.get('phase') not in TERMINAL - {'failed'}:
+                tests = load(path / 'tests.json', {})
+                if not tests.get('result'): value['message'] = (value.get('message', '') + ' · PC tests running').lstrip(' ·')
+                elif tests['result'] == 'failed': value['message'] = value.get('message', '') + ' · PC test log: ' + tests.get('log', '')
+            values.append(value)
         if as_json: print(json.dumps(values[0] if job_id else values, indent=2), flush=True)
         else:
             for value in values: print(value.get('id', ''), value.get('repo', ''), value.get('app', ''), value.get('phase'), value.get('message', ''), flush=True)
@@ -246,6 +308,7 @@ def main():
     if args.action == 'pump':
         try: pump()
         except BlockingIOError: pass
+    elif args.action == 'test-job': test_job(args.job)
     elif args.action == 'status': show(args.job, args.follow, args.json)
     elif args.action == 'logs':
         if ON_MAC:

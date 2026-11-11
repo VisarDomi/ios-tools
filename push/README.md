@@ -47,10 +47,16 @@ can still confirm delivery when the phone is reachable. New builds/publications
 run before retries for already-published OTA packages.
 
 Projects that declare `tests` in `projects.json` (manga-reader, gallery-reader,
-gallery-downloader, video-platform, guidance, trader) run them on this PC first: a failure
-stops the push with the log tail before anything is frozen or queued. A pass is remembered
-for the exact files under `apps/ios` (tracked and untracked), so a batch of pushes from one
-repository tests once (manga: 25 s, then 0.1 s). `--skip-tests` bypasses this deliberately.
+gallery-downloader, video-platform, guidance, trader) run them on this PC while the Mac
+builds. `ios-push APP` freezes a copy of the test inputs (every tracked and untracked file
+under `apps/ios`) next to the app source, queues at once and runs the tests detached in a
+user unit (`ios-push-tests-JOB`), so they no longer delay the upload (13-23 s per push).
+The Mac installs nothing until the uploader reports a pass for that exact copy: a built job
+waits as `waiting_tests`; a failure fails the job (before upload it never leaves the PC) and
+`ios-push status` shows the PC test log. Edits after queueing never reach a job's tests. A pass
+is remembered per repository for identical inputs, so a batch tests once; runs of one
+repository take turns. The uploader starts a run again if it never finished (a reboot).
+`--skip-tests` bypasses this deliberately.
 
 `--validate-only` builds/verifies without any phone operation. `--force` rebuilds even
 when an exactly matching verified artifact could be reused. The caller still runs the
@@ -188,6 +194,11 @@ retried on its own once the build releases the lock, because recovery takes the 
 itself. OTA, Watch and validation-only jobs never overlap. A failed overlapped build
 fails only its own job. After a power cut both jobs resume from their durable state:
 the delivery is retried and the build starts again.
+
+The phone check before an install (is it reachable? `devicectl device info apps`, 5-6 s,
+once 29 s) runs during the compile: inside a lone job's guarded build, or by the worker right
+after an overlapped delivery while the next job still compiles. Both run under the Mac lock.
+A reachable answer counts for that job's first delivery within five minutes; retries ask again.
 
 The worker builds a job, then scans again, so jobs whose upload finishes during that
 build still overlap. Measured November 11: Violet's 11 s delivery ran during the next

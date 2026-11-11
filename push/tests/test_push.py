@@ -778,6 +778,51 @@ class WorkerTests(unittest.TestCase):
         self.assertFalse((products / 'Kit.o').exists())
 
 
+class WorkerTestGateTests(WorkerTests):
+    def require_tests(self):
+        self.request.update(testsRequired=True, testsKey='k1', testsCommand=['true'])
+        common.save(self.metadata / 'request.json', self.request)
+        frozen = common.load(self.metadata / 'ready.json'); frozen['requestHash'] = common.digest(self.metadata / 'request.json')
+        common.save(self.metadata / 'ready.json', frozen)
+
+    def test_built_job_waits_for_the_pc_tests_then_installs(self):
+        self.require_tests(); state = common.load(self.metadata / 'state.json')
+        self.assertFalse(worker.deliverable(self.metadata, state))
+        with mock.patch.object(worker, 'deliver') as deliver:
+            worker.attempt(self.metadata, state, {}, lambda: worker.finish_job(self.job))
+            deliver.assert_not_called()
+        state = common.load(self.metadata / 'state.json')
+        self.assertEqual(state['phase'], 'waiting_tests'); self.assertGreater(state['nextAttempt'], time.time())
+        with self.assertRaisesRegex(RuntimeError, 'different source'): worker.record_tests(self.job, 'passed', 'other')
+        worker.record_tests(self.job, 'passed', 'k1')
+        state = common.load(self.metadata / 'state.json')
+        self.assertEqual(state['nextAttempt'], 0); self.assertTrue(worker.deliverable(self.metadata, state))
+        with mock.patch.object(worker, 'deliver') as deliver:
+            worker.finish_job(self.job); deliver.assert_called_once()
+
+    def test_failed_pc_tests_fail_the_job_and_nothing_installs(self):
+        self.require_tests(); worker.record_tests(self.job, 'failed', 'k1')
+        self.assertEqual(common.load(self.metadata / 'state.json')['phase'], 'failed')
+        self.assertFalse(worker.runnable(self.job))
+        with mock.patch.object(worker, 'deliver') as deliver:
+            worker.finish_job(self.job); deliver.assert_not_called()
+
+    def test_phone_answer_from_the_build_counts_once_and_only_while_fresh(self):
+        fresh = {'at': time.time(), 'device': self.config['device'], 'reachable': True}
+        with mock.patch.object(worker, 'catalog', return_value=None) as catalog:
+            common.save(self.metadata / 'phone-prefetch.json', fresh)
+            self.assertEqual(worker.phone_reachable(self.config, self.metadata, {}), [])
+            catalog.assert_not_called()
+            self.assertIsNone(worker.phone_reachable(self.config, self.metadata, {}))     # consumed: asks again
+            common.save(self.metadata / 'phone-prefetch.json', fresh)
+            self.assertIsNone(worker.phone_reachable(self.config, self.metadata, {'deliveryAttempts': 1}))   # retries ask
+            common.save(self.metadata / 'phone-prefetch.json', dict(fresh, at=time.time() - worker.PREFETCH_FRESH - 1))
+            self.assertIsNone(worker.phone_reachable(self.config, self.metadata, {}))     # stale
+            common.save(self.metadata / 'phone-prefetch.json', dict(fresh, reachable=False))
+            self.assertIsNone(worker.phone_reachable(self.config, self.metadata, {}))
+            self.assertEqual(catalog.call_count, 4)
+
+
 class ClientStatusTests(unittest.TestCase):
     def test_transfer_replaces_a_stale_busy_message(self):
         with tempfile.TemporaryDirectory() as temporary, mock.patch.object(client, 'STORE', Path(temporary)):
@@ -794,28 +839,64 @@ class ClientStatusTests(unittest.TestCase):
 
 
 class PushTestGateTests(unittest.TestCase):
-    def test_tests_run_once_per_source_rerun_after_edits_and_failures_queue_nothing(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            base = Path(temporary); repo = base / 'repo'; (repo / 'apps/ios/scripts').mkdir(parents=True)
-            subprocess.run(['git', 'init', '-q', str(repo)], check=True)
-            counter = base / 'runs'
-            (repo / 'apps/ios/scripts/test.sh').write_text('echo run >> "%s"\n[ -e apps/ios/broken ] && { echo FAIL: broken; exit 1; }\necho PASS\n' % counter)
-            (repo / 'apps/ios/App.swift').write_text('v1')
-            project = {'root': str(repo), 'tests': ['bash', 'apps/ios/scripts/test.sh']}
-            runs = lambda: len(counter.read_text().splitlines()) if counter.exists() else 0
-            with mock.patch.object(client, 'STORE', base / 'store'), mock.patch.object(client, 'ON_MAC', False):
-                client.run_tests('demo', project); client.run_tests('demo', project)
-                self.assertEqual(runs(), 1)                      # second push of the batch reuses the pass
-                (repo / 'apps/ios/App.swift').write_text('v2')   # untracked working edits count
-                client.run_tests('demo', project)
-                self.assertEqual(runs(), 2)
-                (repo / 'apps/ios/broken').write_text('x')
-                with self.assertRaisesRegex(RuntimeError, 'FAIL: broken[\\s\\S]*tests failed'):
-                    client.run_tests('demo', project)
-                with self.assertRaises(RuntimeError): client.run_tests('demo', project)
-                self.assertEqual(runs(), 4)                      # a failure is never cached
-                client.run_tests('other', {'root': str(repo)})   # no declared tests: nothing runs
-                self.assertEqual(runs(), 4)
+    """PC tests run on a frozen copy of their inputs while the Mac builds; the uploader reports them."""
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
+        self.base = Path(self.temp.name); self.repo = self.base / 'repo'; (self.repo / 'apps/ios/scripts').mkdir(parents=True)
+        subprocess.run(['git', 'init', '-q', str(self.repo)], check=True)
+        self.counter = self.base / 'runs'
+        (self.repo / 'apps/ios/scripts/test.sh').write_text(
+            'echo run >> "%s"\n[ -e apps/ios/broken ] && { echo FAIL: broken; exit 1; }\necho PASS\n' % self.counter)
+        (self.repo / 'apps/ios/App.swift').write_text('v1')
+        self.project = {'root': str(self.repo), 'tests': ['bash', 'apps/ios/scripts/test.sh']}
+        for patch in (mock.patch.object(client, 'STORE', self.base / 'store'), mock.patch.object(client, 'ON_MAC', False)):
+            patch.start(); self.addCleanup(patch.stop)
+
+    def runs(self): return len(self.counter.read_text().splitlines()) if self.counter.exists() else 0
+
+    def job(self, name):
+        directory = client.STORE / 'jobs' / name
+        key = client.tests_key(self.repo, self.project, copy_to=directory / 'tests-source')
+        common.save(directory / 'request.json', {'id': name, 'repo': 'demo', 'testsRequired': True, 'testsKey': key,
+                                                 'testsCommand': self.project['tests']})
+        common.save(directory / 'state.json', {'phase': 'queued'})
+        return directory, key
+
+    def test_tests_run_on_the_frozen_copy_once_per_source_and_failures_are_never_cached(self):
+        self.assertEqual(client.tests_key(self.repo, self.project), client.tests_key(self.repo, self.project, copy_to=self.base / 'copy'))
+        first, key = self.job('job-1')
+        (self.repo / 'apps/ios/broken').write_text('x')       # an edit after queueing does not reach its tests
+        real = subprocess.run
+        with mock.patch.object(client.subprocess, 'run', side_effect=lambda c, **k: subprocess.CompletedProcess(c, 0) if c[0] == 'systemctl' else real(c, **k)):
+            client.test_job('job-1')
+            self.assertEqual(common.load(first / 'tests.json')['result'], 'passed')
+            (self.repo / 'apps/ios/broken').unlink()
+            second, same = self.job('job-2')
+            client.test_job('job-2')                          # identical inputs: the first pass counts
+            self.assertEqual((same, self.runs()), (key, 1))
+            (self.repo / 'apps/ios/broken').write_text('x')
+            third, _ = self.job('job-3')                       # this one froze the broken tree
+            client.test_job('job-3'); client.test_job('job-3')
+            self.assertEqual(common.load(third / 'tests.json')['result'], 'failed')
+            self.assertEqual(self.runs(), 2)                   # a result is final for its job
+            fourth, _ = self.job('job-4'); client.test_job('job-4')
+            self.assertEqual((common.load(fourth / 'tests.json')['result'], self.runs()), ('failed', 3))   # failures are not cached
+            self.assertIn('FAIL: broken', Path(common.load(fourth / 'tests.json')['log']).read_text())
+
+    def test_uploader_reports_results_starts_missing_runs_and_never_uploads_a_failed_job(self):
+        failed, _ = self.job('job-1'); common.save(failed / 'tests.json', {'result': 'failed', 'key': 'x', 'log': '/log'})
+        passed, key = self.job('job-2'); common.save(passed / 'tests.json', {'result': 'passed', 'key': key, 'reported': False})
+        common.save(passed / 'uploaded.json', {'at': 1})
+        running, _ = self.job('job-3'); common.save(running / 'uploaded.json', {'at': 1})
+        remote = mock.Mock(return_value=subprocess.CompletedProcess([], 0, '{}'))
+        with mock.patch.object(client, 'transfer') as transfer, mock.patch.object(client, 'remote', remote), \
+             mock.patch.object(client, 'start_tests') as start:
+            client.pump()
+        transfer.assert_not_called()
+        self.assertEqual(common.load(failed / 'state.json')['phase'], 'failed')
+        self.assertIn(mock.call(['tests', '--id', 'job-2', '--result', 'passed', '--key', key], timeout=45), remote.call_args_list)
+        self.assertTrue(common.load(passed / 'tests.json')['reported'])
+        start.assert_called_once_with('job-3')
 
 
 class WatchClientTests(unittest.TestCase):
