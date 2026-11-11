@@ -145,7 +145,7 @@ scripts or configuration change.
 
 
 Mac renewal builders run through `native/scripts/mac-workload` under the inherited
-signing lock. A booted simulator or busy/pressured host defers the build. Device
+signing lock. A booted simulator (other than the guard's idle warm guest) or busy/pressured host defers the build. Device
 requests use `native/scripts/apple-tool devicectl`, avoiding repeated component
 initialization from older Xcode stubs. The automatic pairing monitor shares the
 lock. These shared changes do not alter approved app input fingerprints.

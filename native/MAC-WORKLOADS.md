@@ -32,7 +32,7 @@ Builds and SSH can work while the desktop is shielded. For unattended lifecycle
 tests, use a prebuilt XCTest driver (`XCUIDevice.shared.press(.home)` and
 `XCUIApplication.activate`) and assert the application's real lifecycle/save state;
 a successful keyboard/menu/launch request is not proof of a background transition.
-Build the driver with guests shut down, then run `test-without-building` inside the
+Build the driver with no active guest, then run `test-without-building` inside the
 same exact-device simulator guard, with parallel test destinations disabled.
 
 An old crash alert must be matched to its original report date, process, guest and
@@ -126,10 +126,13 @@ ssh mac 'sudo -n launchctl asuser 501 sudo -n -H -u visar /usr/bin/python3 /User
 ```
 
 Before starting, the guard requires normal kernel memory pressure, at least
-12 GiB free, no running `xcodebuild`, and no booted simulator. Simulator admission
-also requires load at most 6. A build with a higher residual load average may
-start after three successive samples show at least 50% CPU idle and a health
-probe below 0.5 seconds; the other checks still apply.
+12 GiB free, no running `xcodebuild`, and no booted simulator other than the
+idle guest the guard itself holds warm (see "The guest stays warm for an hour").
+Simulator admission also requires load at most 6. A build, or a session that
+reuses the warm guest, may start with a higher residual load average after three
+successive samples show at least 50% CPU idle and a health probe below 0.5
+seconds; the other checks still apply. A session that has to boot always waits
+for the load limit.
 It waits at most 30 seconds for the existing signing lock, including the inherited descriptor used by
 renewal builders. Signing, compilation and simulator sessions cannot overlap
 when run through it. Keep repository signing locks too.
@@ -174,7 +177,8 @@ well as elapsed/process CPU time. Keep instrumentation out of the product target
 If simulator installation stalls before the app launches, collect the simctl,
 CoreSimulatorService and guest installd/lsd stacks inside the existing bounded
 session. Do not attribute pre-launch host work to the app or keep extending its
-timeout. End the owned session normally. With all guests shut down, no pending
+timeout. End the owned session normally. With all guests shut down (`mac-workload
+release-warm` ends the warm hold), no pending
 delivery and the shared lock held, an evidence-preserving restart of the exact
 current-user CoreSimulatorService is an available bounded recovery; it does not
 erase a guest or replace a runtime. Record whether it actually helps.
@@ -214,13 +218,13 @@ device. These are simulator identifiers, not the physical signing targets in
 `ios-tools.local.json`. Historical app-specific names such as “Guidance QA” in
 panic reports do not imply that another simulator must be kept for that app.
 
-Build first with all guests shut down, then enter one bounded guarded session.
+Build first (only the guard's idle warm guest may be up), then enter one bounded guarded session.
 Use fixture data and separate app bundle IDs or test-data directories. Reset
 only the owned app's fixture when needed; do not erase the shared device between
 projects. Update a diagnostic app in place during a testing session, stop it
-after each attempt, and uninstall it after the final check. The guard shuts
-down the exact guest and closes its owned GUI; retain the initialized shared
-device for the next project.
+after each attempt, and uninstall it after the final check. The guard closes
+its owned GUI and keeps the exact guest warm for an hour (below), then shuts it
+down; retain the initialized shared device for the next project.
 
 Create a temporary device only when a test actually requires another model,
 OS version or isolated device state. Record its owner, reason and UUID. Remove
@@ -321,6 +325,62 @@ What still runs lean is mostly SpringBoard (33 s of CPU), PosterBoard (11 s),
 the home-screen widget renderer (7 s) and the prewarmed Spotlight UI (6 s).
 None of these can be disabled without breaking the home screen.
 
+### The guest stays warm for an hour
+
+A session whose check finishes, passing or failing, does not shut its guest
+down. The guard stops the apps the check left running (Apple's own are left
+alone), closes the Simulator window it opened and leaves the guest booted and
+idle. The next session on the same device within the hour reuses it: no boot,
+and installd's first-install scan is already done. It prints
+`Simulator warm: reusing the guest booted N min ago, idle M min (...)`, and
+`--cold` boots fresh instead.
+
+Measured November 11 on the shared iPhone (lean), installing and launching a
+Manga Reader QA build:
+
+| | Cold session | Warm reuse |
+| --- | --- | --- |
+| Guest ready (boot, or reattaching the window) | 32 s | 2 s |
+| `simctl install` | 31.9 s | 1.0 s |
+| `simctl launch` returns | 2.2 s | 1.1 s |
+
+The idle warm guest (window closed, no app running) used 0.8% CPU and about
+1 GB of memory: 57% of memory was free with it up, 70% after it shut down.
+A reuse is admitted on idle CPU like a build (there at residual load 7.2,
+after 17 s); a cold boot still waits for load 6. The timer checks once a minute,
+so a hold ends up to a minute after its hour.
+
+The hold ends, with a normal `simctl shutdown` of that exact guest:
+
+- after an hour without a session (`simulatorWarmSeconds` in the policy file,
+  default 3600; 0 turns the hold off);
+- before a session that needs another device, services the warm guest has off
+  (a lean guest cannot serve `--app video-platform`; a `+media` guest serves a
+  lean check), or `--cold`;
+- at once on a new kernel panic or GPU reset report, or two minutes of memory
+  pressure;
+- before a build is admitted under memory pressure, and during a build the
+  moment the host shows pressure or slow probes (the build then continues if
+  that was enough);
+- on `mac-workload release-warm`, e.g. before measuring an idle Mac;
+- on a check that was stopped (deadline, pressure, crash report, delivery
+  yield, cancellation): those guests are shut down as before.
+
+Builds, the push queue and renewal are admitted beside the idle warm guest;
+`mac-workload status` reports it under `warm`, not `booted`. Only one guest is
+ever up.
+
+The record is `~/Library/Caches/ios-app-refresh/simulator-warm.json`. It names
+the guest's `launchd_sim` process (PID and start time); a guest booted again by
+anyone else no longer matches, and its record is dropped without touching the
+guest. The hour is timed by a detached `mac-workload warm-expire` process, not a
+service: if it is lost, every guarded workload ends an expired hold itself.
+A power loss or reboot ends the guest, and nothing brings it back: the window
+is closed during the hold, so Simulator.app is not reopened at login. Only the
+guard's own Simulator process is started with `-DetachOnAppQuit YES` (quit
+leaves the guest running); the Simulator preference itself stays at its
+default, which shuts guests down on quit.
+
 On a verified graphics stack, pass the exact UUID of a listed shared or owned, shut-down
 guest and the complete test command:
 
@@ -333,8 +393,9 @@ Use the logged-in GUI bootstrap and `--visible` on this Intel host. The guard
 opens Simulator through Launch Services, waits for boot completion, and runs the
 command. Do not launch the app executable directly or background `launchd_sim`;
 those changes were unvalidated during diagnosis. Other hosts may use headless mode.
-It shuts down only that guest in `finally`, including on test failure, timeout
-or cancellation. It refuses to take over a device already booted by someone else.
+When the check finishes it hands the guest to the warm hold; on a timeout,
+cancellation, pressure stop or crash report it shuts down only that guest in
+`finally`. It refuses to take over a device already booted by someone else.
 GUI ownership includes the original PID, process start and executable command.
 Cleanup verifies actual exit after requesting quit. If necessary, it sends SIGTERM
 only to that unchanged owned process after the guest shuts down. An unknown/reused
@@ -367,8 +428,9 @@ later reached its ten-minute deadline. This validation covers single-stream
 720p H.264. Other codecs/resolutions require their own measurements, and the
 historical Intel driver failure retains its separate guard.
 
-Close Simulator.app after guest shutdown so macOS cannot reopen it and reboot
-the guest at the next login. Guarded visible sessions also close the GUI they opened. A pre-existing GUI is never taken over.
+Close Simulator.app after a session so macOS cannot reopen it and reboot the
+guest at the next login. Guarded visible sessions close the GUI they opened,
+also when the guest stays warm. A pre-existing GUI is never taken over.
 Keep validation mirrors separate from approved physical-delivery mirrors, so
 simulator changes cannot silently invalidate monthly app renewal fingerprints.
 

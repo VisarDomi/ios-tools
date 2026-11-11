@@ -232,8 +232,10 @@ cores, and an observed SimMetalHost/Intel graphics kernel panic. Use
 `scripts/mac-workload` for builds and complete simulator sessions; check its
 graphics-repair policy before any boot. Build before booting, with two compiler
 jobs and no active guests. Use an explicit project-owned UUID, never an implicit
-old iPhone 17 Pro Max. The guard shuts down only the guest it booted, including
-after timeout/cancellation. Do not use `shutdown all` or restart shared services.
+old iPhone 17 Pro Max. A finished check leaves its guest warm (booted, idle,
+windowless) for an hour and the next session reuses it; `--cold` boots fresh and
+`mac-workload release-warm` ends the hold. After a timeout/cancellation the guard
+shuts down only the guest it booted. Do not use `shutdown all` or restart shared services.
 iOS sessions boot lean (about 120 Siri/Health/Home/iCloud/... launchd jobs off; the
 needs of each project are in `simulator-profiles.json`, taken from `--app` or the
 command's paths). Use `--needs a,b` for extra service groups and `--full` for system
