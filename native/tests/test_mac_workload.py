@@ -1,6 +1,8 @@
 """Safety regressions with fake Mac boundaries; no simulator or physical phone is booted."""
 import argparse
+import contextlib
 import ctypes
+import io
 import importlib.machinery
 import importlib.util
 import json
@@ -572,6 +574,244 @@ class SimulatorProfileTests(unittest.TestCase):
         self.assertEqual(steps[1][1]['profile'], 'lean +media (app video-platform)')
         self.assertEqual(steps[1][1]['disabledJobs'], disabled)
         self.assertNotIn('--disabledJob', ' '.join(map(str, steps)))
+
+
+OTHER = '87654321-4321-4321-4321-CBA987654321'
+REAL_MONITOR = m.monitor
+BOOT = dict(pid=4242, identity='Wed Nov 11 16:00:00 2026 launchd_sim /Users/v/Library/Developer/CoreSimulator/Devices/%s/data/var/run/launchd_bootstrap.plist' % DEVICE)
+
+
+class WarmHoldTests(unittest.TestCase):
+    """A guarded session leaves its guest booted and idle for an hour; the next session reuses it."""
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        for name, value in [('ROOT', self.root), ('LOCK', self.root / 'signing.lock'), ('POLICY', self.root / 'policy.json'),
+                            ('WARM', self.root / 'simulator-warm.json'), ('PANIC_REPORTS', self.root / 'reports'),
+                            ('PROFILE_STATE', self.root / 'profile'), ('SIM_LAUNCHD_STATE', self.root / 'launchd')]:
+            p = patch.object(m, name, value)
+            p.start()
+            self.addCleanup(p.stop)
+        (self.root / 'reports').mkdir()
+        self.state = {DEVICE: 'Shutdown', OTHER: 'Shutdown'}
+        self.running = []
+        self.calls = []
+        self.steps = []
+        self.boot = dict(BOOT)
+        for name, kwargs in [('tool_path', dict(return_value='/fake/simctl')), ('metal_coalescing', dict(return_value=1)),
+                             ('metrics', dict(return_value=HEALTHY)), ('prune_regenerable_caches', {}),
+                             ('devices', dict(side_effect=lambda: [dict(udid=u, state=s, isAvailable=True, runtime=IOS_RUNTIME) for u, s in self.state.items()])),
+                             ('guest_boot_identity', dict(side_effect=lambda device: self.boot if self.state.get(device) == 'Booted' else None)),
+                             ('shutdown', dict(side_effect=self.fake_shutdown)), ('start_warm_expiry', {}),
+                             ('simulator_gui_owner', dict(return_value=dict(pid=99, identity='owned simulator'))),
+                             ('close_owned_simulator_gui', dict(side_effect=lambda owner: self.steps.append('close-gui'))),
+                             ('apply_simulator_profile', dict(side_effect=lambda device, jobs: self.steps.append('apply'))),
+                             ('monitor', dict(side_effect=self.fake_monitor))]:
+            p = patch.object(m, name, **kwargs)
+            setattr(self, name, p.start())
+            self.addCleanup(p.stop)
+        p = patch.object(m.subprocess, 'run', side_effect=self.fake_run)
+        p.start()
+        self.addCleanup(p.stop)
+        self.command_result = None
+
+    def fake_shutdown(self, device):
+        self.steps.append('shutdown ' + device)
+        self.state[device] = 'Shutdown'
+
+    def fake_monitor(self, command, *args, **kwargs):
+        name = command[1] if command[0] == '/fake/simctl' else command[0]
+        self.steps.append(name)
+        if name == 'boot':
+            self.state[command[2]] = 'Booted'
+        if name == 'qa':
+            self.running.append('com.example.qa')
+            if self.command_result:
+                raise self.command_result
+
+    def fake_run(self, argv, *args, **kwargs):
+        argv = list(argv)
+        self.calls.append(argv)
+        if argv[:2] == ['/usr/bin/pgrep', '-x']:
+            return subprocess.CompletedProcess(argv, 1, '', '')
+        if argv[1:2] == ['spawn']:
+            listing = '-\t0\tUIKitApplication:com.apple.Preferences[0x1][rb-legacy]\n' + ''.join(
+                '123\t0\tUIKitApplication:%s[0x2][rb-legacy]\n' % bundle for bundle in self.running)
+            return subprocess.CompletedProcess(argv, 0, listing, '')
+        if argv[1:2] == ['terminate']:
+            self.running.remove(argv[3])
+        return subprocess.CompletedProcess(argv, 0, '', '')
+
+    def session(self, device=DEVICE, **options):
+        args = argparse.Namespace(kind='simulator', device=device, trial=False, timeout=60, command=['qa'], visible=True, **options)
+        self.steps.clear()
+        m.run_workload(args)
+        return list(self.steps)
+
+    def hold(self):
+        return json.loads((self.root / 'simulator-warm.json').read_text())
+
+    def test_a_finished_session_leaves_the_guest_idle_and_warm_for_an_hour(self):
+        self.assertEqual(self.session(), ['apply', 'boot', 'bootstatus', 'qa', 'close-gui'])
+        self.assertEqual(self.state[DEVICE], 'Booted')
+        hold = self.hold()
+        self.assertEqual((hold['device'], hold['boot'], hold['profile']), (DEVICE, BOOT, 'lean'))
+        self.assertAlmostEqual(hold['until'] - hold['lastUsed'], 3600)
+        self.assertEqual(self.running, [], 'the test app is stopped; Apple apps are left alone')
+        self.assertIn(['/fake/simctl', 'terminate', DEVICE, 'com.example.qa'], self.calls)
+        self.start_warm_expiry.assert_called_once_with(hold['token'])
+        self.assertFalse((self.root / 'workload-current.json').exists())
+        opened = next(c for c in self.calls if c[0] == '/usr/bin/open')
+        self.assertEqual(opened[-2:], ['-DetachOnAppQuit', 'YES'], 'only the owned GUI leaves its guest running on quit')
+
+    def test_the_next_session_reuses_the_warm_guest_without_a_boot(self):
+        self.session()
+        token = self.hold()['token']
+        steps = self.session()
+        self.assertEqual(steps, ['bootstatus', 'qa', 'close-gui'])
+        self.assertNotEqual(self.hold()['token'], token, 'a new hour starts; the old timer stops on the token change')
+
+    def test_a_failing_check_still_leaves_a_healthy_guest_warm(self):
+        self.command_result = subprocess.CalledProcessError(1, ['qa'])
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.session()
+        self.assertEqual(self.hold()['device'], DEVICE)
+
+    def test_a_stopped_session_shuts_the_guest_down(self):
+        for failure in (m.UnsafeWorkload('workload deadline expired'), KeyboardInterrupt()):
+            with self.subTest(failure=failure):
+                self.command_result = failure
+                with self.assertRaises(type(failure)):
+                    self.session()
+                self.assertEqual(self.state[DEVICE], 'Shutdown')
+                self.assertFalse((self.root / 'simulator-warm.json').exists())
+
+    def test_a_new_graphics_report_during_the_session_shuts_the_guest_down(self):
+        def crash(*args, **kwargs):
+            self.steps.append('qa')
+            (self.root / 'reports' / 'x.gpuRestart').write_text('')
+        self.monitor.side_effect = lambda command, *a, **k: crash() if command == ['qa'] else self.fake_monitor(command)
+        with self.assertRaisesRegex(m.UnsafeWorkload, 'graphics failure'):
+            self.session()
+        self.assertEqual(self.state[DEVICE], 'Shutdown')
+        self.assertFalse((self.root / 'simulator-warm.json').exists())
+
+    def test_a_cold_request_another_device_or_missing_services_end_the_hold_first(self):
+        for options, device, expected in [(dict(cold=True), DEVICE, 'shutdown ' + DEVICE), (dict(), OTHER, 'shutdown ' + DEVICE),
+                                          (dict(app='video-platform'), DEVICE, 'shutdown ' + DEVICE)]:
+            with self.subTest(options=options, device=device):
+                for udid in self.state: self.state[udid] = 'Shutdown'
+                (self.root / 'simulator-warm.json').unlink(missing_ok=True)
+                self.session()
+                steps = self.session(device, **options)
+                self.assertEqual(steps[:3], [expected, 'apply', 'boot'])
+                self.assertEqual(self.hold()['device'], device)
+                self.assertEqual([u for u, s in self.state.items() if s == 'Booted'], [device], 'one guest at a time')
+
+    def test_a_guest_with_more_services_satisfies_a_leaner_check(self):
+        self.session(app='video-platform')
+        self.assertEqual(self.session(), ['bootstatus', 'qa', 'close-gui'])
+        self.assertEqual(self.hold()['profile'], 'lean +media (app video-platform)')
+
+    def test_builds_and_status_do_not_count_the_held_guest_as_busy(self):
+        self.session()
+        known = m.wait_for_idle(0, kind='build', warm=m.held_warm(None))
+        self.assertIn(DEVICE, [x['udid'] for x in known])
+        with self.assertRaisesRegex(m.UnsafeWorkload, 'already booted'):
+            m.wait_for_idle(0, kind='build')
+
+    def test_memory_pressure_ends_the_hold_before_a_build_starts(self):
+        self.session()
+        self.metrics.return_value = dict(HEALTHY, pressure=2)
+        with self.assertRaisesRegex(m.UnsafeWorkload, 'memory pressure'), patch.object(m.time, 'sleep'):
+            m.wait_for_idle(0, kind='build', warm=m.held_warm(None))
+        self.assertEqual(self.state[DEVICE], 'Shutdown')
+
+    def test_a_build_under_pressure_sheds_the_warm_guest_and_continues(self):
+        self.session()
+        self.monitor.side_effect = None
+        samples = iter([dict(HEALTHY, pressure=2)] + [HEALTHY] * 50)
+        self.metrics.side_effect = lambda: next(samples)
+        with tempfile.TemporaryFile('w+') as log:
+            REAL_MONITOR([sys.executable, '-c', 'import time; time.sleep(4.5)'], time.monotonic() + 20, log, 1, 'command', warm=m.held_warm(None))
+        self.assertEqual(self.state[DEVICE], 'Shutdown')
+        self.assertFalse((self.root / 'simulator-warm.json').exists())
+
+    def test_an_expired_hold_is_ended_by_the_next_workload(self):
+        self.session()
+        hold = self.hold(); hold['until'] = time.time() - 1
+        (self.root / 'simulator-warm.json').write_text(json.dumps(hold))
+        steps = self.session()
+        self.assertEqual(steps[:3], ['shutdown ' + DEVICE, 'apply', 'boot'])
+
+    def test_a_stale_record_after_a_reboot_or_someone_elses_boot_is_dropped_not_acted_on(self):
+        self.session()
+        self.boot = dict(BOOT, pid=5151)  # the guest was booted again by someone else
+        self.assertIsNone(m.held_warm(None))
+        self.assertFalse((self.root / 'simulator-warm.json').exists())
+        with self.assertRaisesRegex(m.UnsafeWorkload, 'already booted'):
+            self.session()
+        self.assertEqual(self.state[DEVICE], 'Booted')
+        self.assertNotIn('shutdown ' + DEVICE, self.steps)
+        self.state[DEVICE] = 'Shutdown'  # a reboot: the record outlives its guest
+        self.boot = dict(BOOT)
+        self.session()
+        self.state[DEVICE] = 'Shutdown'
+        self.assertIsNone(m.held_warm(None))
+
+    def test_a_guest_whose_apps_cannot_be_stopped_is_shut_down(self):
+        real = self.fake_run
+        self.fake_run = None
+        def stubborn(argv, *a, **k):
+            if list(argv)[1:2] == ['terminate']: return subprocess.CompletedProcess(argv, 1, '', '')
+            return real(argv, *a, **k)
+        with patch.object(m.subprocess, 'run', side_effect=stubborn):
+            self.session()
+        self.assertEqual(self.state[DEVICE], 'Shutdown')
+        self.assertFalse((self.root / 'simulator-warm.json').exists())
+
+    def test_policy_can_turn_the_hold_off(self):
+        (self.root / 'policy.json').write_text(json.dumps(dict(simulatorWarmSeconds=0)))
+        self.session()
+        self.assertEqual(self.state[DEVICE], 'Shutdown')
+        self.assertFalse((self.root / 'simulator-warm.json').exists())
+
+    def test_the_timer_ends_the_hold_at_expiry_or_on_a_graphics_report_and_stops_on_takeover(self):
+        self.session()
+        token = self.hold()['token']
+        with patch.object(m, 'memory_pressure', return_value=1), patch.object(m.time, 'sleep'):
+            self.assertIsNone(m.warm_expire('someone else'))
+            self.assertEqual(self.state[DEVICE], 'Booted')
+            (self.root / 'reports' / 'y.gpuRestart').write_text('')
+            self.assertEqual(m.warm_expire(token), 'new Mac graphics failure report')
+        self.assertEqual(self.state[DEVICE], 'Shutdown')
+        (self.root / 'reports' / 'y.gpuRestart').unlink()
+        self.session()
+        hold = self.hold(); hold['until'] = time.time() - 1; hold['lastUsed'] = hold['until'] - 3600
+        (self.root / 'simulator-warm.json').write_text(json.dumps(hold))
+        with patch.object(m, 'memory_pressure', return_value=1), patch.object(m.time, 'sleep'):
+            self.assertEqual(m.warm_expire(hold['token']), 'idle for 60 min')
+        self.assertEqual(self.state[DEVICE], 'Shutdown')
+
+
+    def test_the_timer_sheds_the_guest_after_two_strained_minutes(self):
+        self.session()
+        with patch.object(m, 'memory_pressure', side_effect=[2, 1, 2, 2]), patch.object(m.time, 'sleep') as sleep:
+            self.assertEqual(m.warm_expire(self.hold()['token']), 'memory pressure')
+        self.assertEqual(sleep.call_count, 3)
+        self.assertEqual(self.state[DEVICE], 'Shutdown')
+
+    def test_status_reports_the_held_guest_apart_from_busy_guests(self):
+        self.session()
+        out = io.StringIO()
+        with patch.object(sys, 'argv', ['mac-workload', 'status']), patch.object(m.platform, 'system', return_value='Darwin'), \
+             patch.object(m, 'policy', return_value={}), contextlib.redirect_stdout(out):
+            m.main()
+        status = json.loads(out.getvalue())
+        self.assertEqual(status['booted'], [])
+        self.assertEqual(status['warm']['device'], DEVICE)
+        self.assertTrue((self.root / 'simulator-warm.json').exists(), 'status never changes the hold')
 
 
 if __name__ == '__main__':

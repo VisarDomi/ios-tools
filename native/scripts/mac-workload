@@ -31,6 +31,8 @@ PROFILES = Path(__file__).resolve().parents[1] / 'simulator-profiles.json'
 PROFILE_STATE = POLICY.parent / 'simulator-profile'
 SIM_LAUNCHD_STATE = Path('/private/var/tmp')
 LOCK = ROOT / 'signing.lock'
+WARM = ROOT / 'simulator-warm.json'
+WARM_SECONDS = 3600
 PANIC_REPORTS = Path('/Library/Logs/DiagnosticReports')
 _CPU_PORT = None
 _CPU_TICKS = None
@@ -240,6 +242,14 @@ def process_identity(pid):
     return result.stdout.strip() if result.returncode==0 else None
 
 
+def guest_boot_identity(device):
+    """The launchd_sim process of this boot: a later boot of the same guest has another PID/start."""
+    result=subprocess.run(['/usr/bin/pgrep','-f','launchd_sim .*/Devices/%s/'%device],capture_output=True,text=True,timeout=5)
+    pids=[int(x) for x in result.stdout.split()]
+    identity=process_identity(pids[0]) if len(pids)==1 else None
+    return dict(pid=pids[0],identity=identity) if identity else None
+
+
 def simulator_gui_owner():
     pids=[]
     for _ in range(25):
@@ -291,14 +301,21 @@ def preflight(sample, booted, xcode_busy=False, allow_stale_load=False):
         raise UnsafeWorkload('; '.join(reasons))
 
 
-def wait_for_idle(wait=0, kind='simulator'):
-    """Builds can prove CPU headroom instead of waiting for a lagging load average."""
+def wait_for_idle(wait=0, kind='simulator', warm=None):
+    """Builds can prove CPU headroom instead of waiting for a lagging load average.
+    `warm` is the idle guest this guard holds after a session; it is not someone else's workload."""
     end=time.monotonic()+max(8 if kind=='build' else 0,min(wait,300))
     announced=False
     quiet_samples=0
     while True:
         known=devices()
         sample=metrics()
+        if warm and sample['pressure']!=1:
+            release_warm(warm,'memory pressure before a %s'%kind)
+            warm=None
+            known=devices()
+        if warm:
+            known=[x for x in known if x['udid']!=warm['device']]
         if kind=='simulator' and queued_delivery():
             raise UnsafeWorkload('Simulator deferred to queued app delivery')
         busy=subprocess.run(['/usr/bin/pgrep','-x','xcodebuild'],stdout=subprocess.DEVNULL).returncode==0
@@ -313,7 +330,7 @@ def wait_for_idle(wait=0, kind='simulator'):
             preflight(sample,[],busy,allow_stale_load=quiet_samples>=3)
             if sample['load']>6:
                 print('Admitting build after three idle CPU samples; residual load %.2f, CPU idle %.1f%%'%(sample['load'],idle),flush=True)
-            return known
+            return devices() if warm else known
         except UnsafeWorkload:
             if time.monotonic()>=end:raise
             if not announced:
@@ -450,7 +467,7 @@ def pressure_failure(sample, previous, now, limits=None):
     return None, since
 
 
-def monitor(command, deadline, log, fd, phase, limits=None, extra_env=None, crash_watch=None, yield_to_builds=False):
+def monitor(command, deadline, log, fd, phase, limits=None, extra_env=None, crash_watch=None, yield_to_builds=False, warm=None):
     env = dict(os.environ, IOS_REFRESH_LOCK_FD=str(fd), IOS_WORKLOAD_ACTIVE=str(os.getpid()))
     env.update(extra_env or {})
     process = subprocess.Popen(command, env=env, pass_fds=(fd,), start_new_session=True)
@@ -462,6 +479,12 @@ def monitor(command, deadline, log, fd, phase, limits=None, extra_env=None, cras
             log.write(json.dumps(dict(phase=phase, at=time.time(), **sample)) + '\n')
             log.flush()
             reason, since = pressure_failure(sample, since, now, limits)
+            if warm and since is not None:
+                # The held idle guest goes first; the build continues if that was enough.
+                release_warm(warm, 'the host is under pressure during a build')
+                warm, since = None, None
+                if reason != 'free disk fell below 8 GiB':
+                    reason = None
             if yield_to_builds:
                 pending=queued_delivery()
                 if pending: reason='Simulator yielding to queued app delivery '+pending
@@ -485,6 +508,115 @@ def shutdown(device):
                             capture_output=True, text=True, timeout=45)
     if result.returncode and any(x['udid'] == device and x['state'] != 'Shutdown' for x in devices()):
         raise UnsafeWorkload('Owned simulator did not shut down: ' + result.stderr.strip())
+
+
+def warm_seconds(settings=None):
+    settings = policy() if settings is None else settings
+    return max(0, int(settings.get('simulatorWarmSeconds', WARM_SECONDS)))
+
+
+def graphics_reports():
+    return sorted(p.name for suffix in ('panic', 'gpuRestart') for p in PANIC_REPORTS.glob('*.' + suffix) if not p.name.startswith('.'))
+
+
+def warm_state():
+    try:
+        return json.loads(WARM.read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def held_warm(known, drop=True):
+    """The idle guest a previous session left booted, if it is still that same boot. A record whose guest
+    is gone (shut down, a reboot) or was booted again by someone else is dropped, never acted on."""
+    state = warm_state()
+    if not state:
+        return None
+    known = devices() if known is None else known
+    device = state.get('device')
+    if any(x['udid'] == device and x['state'] == 'Booted' for x in known) and guest_boot_identity(device) == state.get('boot'):
+        return state
+    if drop:
+        WARM.unlink(missing_ok=True)
+    return None
+
+
+def release_warm(state, reason):
+    """Shut down the held guest. Callers hold the shared lock."""
+    print('Simulator warm hold ended (%s): shutting down %s' % (reason, state['device']), flush=True)
+    shutdown(state['device'])
+    if (warm_state() or {}).get('token') == state.get('token'):
+        WARM.unlink(missing_ok=True)
+
+
+def user_apps_running(device):
+    result = subprocess.run([tool_path('simctl'), 'spawn', device, 'launchctl', 'list'], capture_output=True, text=True, timeout=20)
+    if result.returncode:
+        raise UnsafeWorkload('Cannot list the apps running in the guest')
+    return sorted({m.group(1) for m in re.finditer(r'UIKitApplication:([^\[\s]+)\[', result.stdout)
+                   if not m.group(1).startswith('com.apple.')})
+
+
+def hold_warm(device, gui_owner, profile, disabled_jobs, booted_at, seconds):
+    """Leave the guest booted and idle for `seconds` after this session: next session skips the boot and
+    installd's first-install scan. The test apps are stopped and the window closed, so nothing renders and
+    a power loss or login cannot bring the guest back (Simulator.app reopens only if its window was open)."""
+    for bundle in user_apps_running(device):
+        subprocess.run([tool_path('simctl'), 'terminate', device, bundle], capture_output=True, timeout=20)
+    left = user_apps_running(device)
+    if left:
+        raise UnsafeWorkload('Apps still running in the guest: ' + ', '.join(left))
+    if gui_owner:
+        close_owned_simulator_gui(gui_owner)
+    boot = guest_boot_identity(device)
+    if not boot or not any(x['udid'] == device and x['state'] == 'Booted' for x in devices()):
+        return False
+    token = os.urandom(8).hex()
+    now = time.time()
+    atomic_write(WARM, json.dumps(dict(device=device, boot=boot, profile=profile, disabledJobs=disabled_jobs, bootedAt=booted_at,
+                                       lastUsed=now, until=now + seconds, token=token, reports=graphics_reports())).encode())
+    start_warm_expiry(token)
+    print('Simulator kept warm for %d min after this session (idle, window closed): %s' % (seconds // 60, device), flush=True)
+    return True
+
+
+def start_warm_expiry(token):
+    # A detached timer, not a service: if it is lost, every guarded workload still ends an expired hold,
+    # and a power loss ends the guest itself.
+    env = {k: v for k, v in os.environ.items() if k not in ('IOS_REFRESH_LOCK_FD', 'IOS_WORKLOAD_ACTIVE')}
+    subprocess.Popen([sys.executable, str(Path(__file__).resolve()), 'warm-expire', '--token', token], env=env,
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+
+
+def warm_expire(token, poll=60):
+    """Shut the held guest down at the end of its hour, or at once on a new GPU/panic report or memory
+    pressure. Exits as soon as a session takes the guest over or holds it again (new token)."""
+    strained = 0
+    while True:
+        state = warm_state()
+        if not state or state.get('token') != token:
+            return None
+        reason = None
+        if set(graphics_reports()) - set(state.get('reports', [])):
+            reason = 'new Mac graphics failure report'
+        strained = strained + 1 if memory_pressure() != 1 else 0
+        if strained >= 2:
+            reason = 'memory pressure'
+        if time.time() >= state['until']:
+            reason = 'idle for %d min' % round((state['until'] - state['lastUsed']) / 60)
+        if reason:
+            try:
+                with signing_lock():
+                    state = warm_state()
+                    if not state or state.get('token') != token:
+                        return None
+                    held = held_warm(None)
+                    if held:
+                        release_warm(held, reason)
+                    return reason
+            except UnsafeWorkload:
+                pass  # A workload holds the Mac; it ends an expired hold itself, or the next check does.
+        time.sleep(max(1, min(poll, state['until'] - time.time())))
 
 
 SPEECH_MODEL_CACHE = Path('/private/var/tmp/SpeechModelCache')
@@ -579,7 +711,12 @@ def run_workload(args):
     mode = wasm_mode(args,policy())
     limits = trial_limits(policy(), args.trial, args.kind)
     with signing_lock() as fd:
-        known = wait_for_idle(getattr(args,'wait_for_idle',0),kind=args.kind)
+        warm = held_warm(None)
+        if warm and warm['until'] <= time.time():
+            release_warm(warm, 'idle for %d min' % round((warm['until'] - warm['lastUsed']) / 60))
+            warm = None
+        known = wait_for_idle(getattr(args,'wait_for_idle',0),kind=args.kind,warm=warm)
+        warm = held_warm(known)
         if args.kind=='simulator':check_panic_reports(policy())
         if args.kind=='simulator' and getattr(args,'visible',False) and subprocess.run(['/usr/bin/pgrep','-x','Simulator'],stdout=subprocess.DEVNULL).returncode==0:
             raise UnsafeWorkload('Simulator.app opened during admission wait; refusing to take over')
@@ -598,6 +735,16 @@ def run_workload(args):
             disabled_jobs, profile_name = simulator_profile(runtime, [n for n in (getattr(args, 'needs', '') or '').split(',') if n],
                                                             app, getattr(args, 'full', False))
             profile_name += ' (app %s)' % app if app else ''
+            if warm:
+                # Reuse needs the same guest and at least every service this check keeps running.
+                mismatch = ('a cold boot was requested' if getattr(args, 'cold', False) else
+                            'another device was requested' if warm['device'] != args.device else
+                            'this check needs services the warm guest has off' if not set(warm['disabledJobs']) <= set(disabled_jobs) else None)
+                if mismatch:
+                    release_warm(warm, mismatch)
+                    warm = None
+                else:
+                    disabled_jobs, profile_name = warm['disabledJobs'], warm['profile']
         lease.write_text(json.dumps(dict(pid=os.getpid(), device=args.device, trial=args.trial, profile=profile_name, disabledJobs=disabled_jobs,
                                          expiresAt=time.time() + duration, kind=args.kind,
                                          allowWebContentCrash=getattr(args,'allow_webcontent_crash',False),
@@ -610,10 +757,21 @@ def run_workload(args):
         boot_attempted = False
         gui_started = False
         gui_owner = None
+        command_finished = False
+        crash_reason = None
+        booted_at = time.time()
         try:
             with report.open('w') as log:
                 print('Guarded %s; deadline %ss; limits %s; telemetry %s' % (args.kind, duration, limits, report), flush=True)
-                if args.kind == 'simulator':
+                if args.kind == 'simulator' and warm:
+                    # Taken over from the hold: from here this session's cleanup owns the guest.
+                    WARM.unlink(missing_ok=True)
+                    boot_attempted = True
+                    booted_at = warm['bootedAt']
+                    boot_started = time.monotonic()
+                    print('Simulator warm: reusing the guest booted %.0f min ago, idle %.0f min (%s, %d launchd jobs disabled)'
+                          % ((time.time() - warm['bootedAt']) / 60, (time.time() - warm['lastUsed']) / 60, profile_name, len(disabled_jobs)), flush=True)
+                elif args.kind == 'simulator':
                     # Before the boot is claimed: a guest someone else booted meanwhile is refused, never shut down.
                     if not any(x['udid'] == args.device and x['state'] == 'Shutdown' for x in devices()):
                         raise UnsafeWorkload('The selected simulator is not shut down; its launchd profile cannot be applied')
@@ -624,21 +782,41 @@ def run_workload(args):
                     if platform.machine() == 'x86_64':
                         boot.append('--arch=x86_64')
                     boot_started = time.monotonic()
+                    booted_at = time.time()
                     monitor(boot, deadline, log, fd, 'boot', limits, crash_watch=crash_watch, yield_to_builds=True)
+                if args.kind == 'simulator':
                     if getattr(args,'visible',False):
                         gui_started = True
-                        subprocess.run(['/usr/bin/open','-a','Simulator','--args','-CurrentDeviceUDID',args.device],check=True,timeout=15)
+                        # Only this owned GUI process leaves the guest running when it quits (the warm hold);
+                        # the owner's own Simulator preference is untouched.
+                        subprocess.run(['/usr/bin/open','-a','Simulator','--args','-CurrentDeviceUDID',args.device,
+                                        '-DetachOnAppQuit','YES'],check=True,timeout=15)
                         gui_owner=simulator_gui_owner()
                         state=json.loads(lease.read_text());state['guiOwner']=gui_owner;lease.write_text(json.dumps(state))
                     monitor([tool_path('simctl'), 'bootstatus', args.device, '-b'], deadline, log, fd, 'bootstatus', limits, crash_watch=crash_watch, yield_to_builds=True)
                     print('Simulator ready after %.0f s (%s)' % (time.monotonic() - boot_started, profile_name), flush=True)
-                monitor(bounded_jobs(args.command) if args.kind == 'build' else args.command,
-                        deadline, log, fd, 'command', limits,
-                        intel_wasm_overrides() if mode=='compat' else (checked_wasm_overrides() if mode=='checked' else None),crash_watch=crash_watch,
-                        yield_to_builds=args.kind=='simulator')
+                try:
+                    monitor(bounded_jobs(args.command) if args.kind == 'build' else args.command,
+                            deadline, log, fd, 'command', limits,
+                            intel_wasm_overrides() if mode=='compat' else (checked_wasm_overrides() if mode=='checked' else None),crash_watch=crash_watch,
+                            yield_to_builds=args.kind=='simulator', warm=warm if args.kind=='build' else None)
+                    command_finished = True
+                except subprocess.CalledProcessError:
+                    command_finished = True # A failing check still leaves a healthy guest to hold.
+                    raise
         finally:
             cleaned = not boot_attempted
             try:
+                crash_reason = crash_watch.failure() if crash_watch is not None else None
+                seconds = warm_seconds() if boot_attempted and command_finished else 0
+                if seconds and not crash_reason and \
+                        not any(x['udid']!=args.device and x['state']!='Shutdown' for x in devices()):
+                    try:
+                        if hold_warm(args.device, gui_owner if gui_started else None, profile_name, disabled_jobs, booted_at, seconds):
+                            boot_attempted = gui_started = False
+                    except (UnsafeWorkload, subprocess.SubprocessError, OSError) as error:
+                        print('Simulator not kept warm (%s); shutting it down' % error, flush=True)
+                        WARM.unlink(missing_ok=True)
                 if boot_attempted:
                     shutdown(args.device)
                 if gui_started:
@@ -657,14 +835,27 @@ def run_workload(args):
                 with contextlib.suppress(Exception):
                     prune_regenerable_caches()
         if crash_watch is not None:
-            reason=crash_watch.failure()
+            reason=crash_reason or crash_watch.failure()
             if reason:raise UnsafeWorkload(reason)
+
+
+def release_command():
+    """End the warm hold now (e.g. before measuring an idle Mac)."""
+    with signing_lock():
+        warm = held_warm(None)
+        if warm:
+            release_warm(warm, 'requested')
+        else:
+            print('No simulator is held warm', flush=True)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest='kind', required=True)
     sub.add_parser('status')
+    sub.add_parser('release-warm', help='Shut down the guest held warm after the last session')
+    expiry = sub.add_parser('warm-expire', help=argparse.SUPPRESS)
+    expiry.add_argument('--token', required=True)
     assertion = sub.add_parser('assert-simulator')
     assertion.add_argument('--device', required=True)
     for kind in ('build', 'simulator'):
@@ -682,6 +873,7 @@ def main():
             p.add_argument('--needs', default='', help='Comma-separated service groups this check needs (simulator-profiles.json): media, photos, location, push, widgets, watch, siri, safari, store, icloud')
             p.add_argument('--app', help='Use the needs recorded for this ios-push project in simulator-profiles.json (default: the project named in the command path)')
             p.add_argument('--full', action='store_true', help='Boot every launchd job (no lean profile)')
+            p.add_argument('--cold', action='store_true', help='Boot fresh even if the guest is held warm from the last session')
         p.add_argument('command', nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if platform.system() != 'Darwin':
@@ -690,7 +882,17 @@ def main():
         parser.error('Use an explicit simulator UUID')
     os.umask(0o077)
     if args.kind == 'status':
-        print(json.dumps(dict(metrics=metrics(), booted=[x for x in devices() if x['state'] != 'Shutdown'], policy=policy()), indent=2))
+        known = devices()
+        warm = held_warm(known, drop=False)
+        # The held idle guest is the guard's own, so it is reported apart and never blocks other work.
+        print(json.dumps(dict(metrics=metrics(), booted=[x for x in known if x['state'] != 'Shutdown' and x['udid'] != (warm or {}).get('device')],
+                              warm=warm and dict(device=warm['device'], profile=warm['profile'], bootedAt=warm['bootedAt'],
+                                                 lastUsed=warm['lastUsed'], until=warm['until']),
+                              policy=policy()), indent=2))
+    elif args.kind == 'release-warm':
+        release_command()
+    elif args.kind == 'warm-expire':
+        warm_expire(args.token)
     elif args.kind == 'assert-simulator':
         assert_session(args.device)
     else:
