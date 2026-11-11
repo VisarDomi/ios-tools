@@ -2,6 +2,7 @@
 """GUI-session Mac worker: frozen inputs, guarded build, in-place install, approval."""
 from __future__ import annotations
 import argparse
+import contextlib
 import datetime
 import hashlib
 import json
@@ -589,13 +590,18 @@ def deliver_watch(config, receipt, app, metadata):
     return True
 
 
-def deliver(job_id, allow_ota=False):
+def mac_lock(held):
+    """The shared Mac lock, or nothing when the caller already holds it (an overlapped install)."""
+    return contextlib.nullcontext() if held else locked(SIGNING_LOCK)
+
+
+def deliver(job_id, allow_ota=False, lock_held=False):
     metadata, source = paths(job_id); request = request_for(metadata); config = load(metadata / 'config.json')
     receipt = load(metadata / 'build-receipt.json'); app = source / config['app']
     frozen = load(metadata / 'ready.json')
     if digest(metadata / 'request.json') != frozen['requestHash'] or configuration(request, source) != config:
         raise RuntimeError('Queued build registration changed')
-    with locked(SIGNING_LOCK):
+    with mac_lock(lock_held):
         if (metadata / 'cancelled.json').exists(): update(metadata / 'state.json', 'cancelled'); return
         current = load(config_path(request['repo'], request['app']), {})
         if current.get('pushSequence', 0) > request['queueSequence']:
@@ -668,46 +674,139 @@ def log_excerpt(output):
     return '\n'.join([line for line in build_errors(output) if line not in tail] + tail)
 
 
-def run_job(job_id):
+BUILD_TIMEOUT = 1250
+
+
+def runnable(job_id):
+    """False when the job has nothing left to do (finished, cancelled or superseded)."""
     metadata, source = paths(job_id); request = request_for(metadata); state = load(metadata / 'state.json', {})
-    if state.get('phase') in TERMINAL or (metadata / 'cancelled.json').exists(): return
+    if state.get('phase') in TERMINAL or (metadata / 'cancelled.json').exists(): return False
     frozen = load(metadata / 'ready.json')
     if digest(metadata / 'request.json') != frozen['requestHash']: raise RuntimeError('Queued build request changed')
     current = load(config_path(request['repo'], request['app']), {})
     if not request.get('validateOnly') and current.get('pushSequence', 0) > request['queueSequence']:
-        update(metadata / 'state.json', 'superseded', message='A newer source checkpoint is installed'); return
-    receipt = load(metadata / 'build-receipt.json', {})
-    if not receipt.get('complete'):
-        update(metadata / 'state.json', 'building', message='Waiting for guarded Mac build admission')
-        log_path = metadata / 'build.log'
-        offset = log_path.stat().st_size if log_path.exists() else 0
+        update(metadata / 'state.json', 'superseded', message='A newer source checkpoint is installed'); return False
+    return True
+
+
+def build_command(job_id):
+    return [sys.executable, str(TOOLS / 'native/scripts/mac-workload'), 'build', '--wait-for-idle', '300',
+            '--timeout', '900', '--', sys.executable, str(Path(__file__).resolve()), 'build-one', '--id', job_id]
+
+
+def begin_build(job_id):
+    metadata = paths(job_id)[0]
+    update(metadata / 'state.json', 'building', message='Waiting for guarded Mac build admission')
+    log_path = metadata / 'build.log'
+    return log_path, log_path.stat().st_size if log_path.exists() else 0
+
+
+def check_build(log_path, offset, returncode):
+    if not returncode: return
+    with log_path.open('rb') as stream:
+        stream.seek(offset); text = stream.read().decode(errors='replace')
+    reason = refresh.preflight_deferral_text(text)
+    if reason: raise Retry('Waiting for shared Mac resources: ' + reason)
+    errors = build_errors(text)
+    detail = errors[0] if errors else 'see private build.log'
+    raise RuntimeError('Build failed: ' + detail)
+
+
+def run_job(job_id):
+    if not runnable(job_id): return
+    if not load(paths(job_id)[0] / 'build-receipt.json', {}).get('complete'):
+        log_path, offset = begin_build(job_id)
         with log_path.open('a') as stream:
-            result = subprocess.run([sys.executable, str(TOOLS / 'native/scripts/mac-workload'), 'build', '--wait-for-idle', '300',
-                                     '--timeout', '900', '--', sys.executable, str(Path(__file__).resolve()), 'build-one', '--id', job_id],
-                                    stdout=stream, stderr=subprocess.STDOUT, timeout=1250)
-        if result.returncode:
-            with log_path.open('rb') as stream:
-                stream.seek(offset); text = stream.read().decode(errors='replace')
-            reason = refresh.preflight_deferral_text(text)
-            if reason: raise Retry('Waiting for shared Mac resources: ' + reason)
-            errors = build_errors(text)
-            detail = errors[0] if errors else 'see private build.log'
-            raise RuntimeError('Build failed: ' + detail)
+            result = subprocess.run(build_command(job_id), stdout=stream, stderr=subprocess.STDOUT, timeout=BUILD_TIMEOUT)
+        check_build(log_path, offset, result.returncode)
+    finish_job(job_id)
+
+
+def finish_job(job_id, lock_held=False):
+    """After a complete build: validate (validation-only pushes) or deliver to the phone."""
+    metadata, source = paths(job_id); request = request_for(metadata); frozen = load(metadata / 'ready.json')
     if (metadata / 'cancelled.json').exists(): update(metadata / 'state.json', 'cancelled'); return
     if request.get('validateOnly'):
-        with locked(SIGNING_LOCK):
+        with mac_lock(lock_held):
             config = load(metadata / 'config.json'); receipt = load(metadata / 'build-receipt.json')
             verify_checkpoint(config, frozen)
             validate_receipt(config, receipt, source / config['app'])
         update(metadata / 'state.json', 'validated', message='Signed source checkpoint verified; no phone operation', nextAttempt=0)
         return
-    try: deliver(job_id)
+    try: deliver(job_id, lock_held=lock_held)
     except RecoverTransport:
+        if (metadata / 'cancelled.json').exists(): update(metadata / 'state.json', 'cancelled'); return
+        if lock_held:
+            # Pairing recovery takes the Mac lock itself, which the overlapped build holds:
+            # this delivery runs again on its own, with recovery, once that build is done.
+            update(metadata / 'state.json', 'waiting_mac', transportRecovery=True)
+            raise Retry('Phone unreachable; pairing recovery follows the overlapped build')
         # Pairing recovery uses the same global lock itself. Never call it while
         # retaining the installation lock, and never change trust or phone UI.
-        if (metadata / 'cancelled.json').exists(): update(metadata / 'state.json', 'cancelled'); return
         subprocess.run([str(TOOLS / 'native/scripts/phone-pairing'), '--now'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
         deliver(job_id, allow_ota=True)
+
+
+def deliverable(metadata, state):
+    """Built and waiting only for an ordinary phone delivery (no OTA, Watch or pairing recovery pending)."""
+    return (load(metadata / 'build-receipt.json', {}).get('complete') and not load(metadata / 'request.json', {}).get('validateOnly')
+            and not state.get('otaPublished') and not state.get('transportRecovery') and state.get('phase') != 'awaiting_watch'
+            and not (metadata / 'cancelled.json').exists())
+
+
+def buildable(metadata):
+    return not load(metadata / 'build-receipt.json', {}).get('complete') and not (metadata / 'cancelled.json').exists()
+
+
+def run_overlapped(first, second, processed):
+    """Deliver `first` while `second` compiles. The worker takes the shared Mac lock once; the
+    guarded build inherits it (mac-workload accepts IOS_REFRESH_LOCK_FD) and the delivery runs
+    under it too, so renewal, simulator and pairing work stay excluded for both. Saves the
+    10-15 s of phone work per job (more when the phone answers slowly) in a batch."""
+    (_, first_dir, first_state), (_, second_dir, second_state) = first, second
+    with contextlib.ExitStack() as stack:
+        try: lock = stack.enter_context(locked(SIGNING_LOCK))
+        except BlockingIOError: return attempt(first_dir, first_state, processed, lambda: run_job(first_dir.name))
+        build = None
+        def start():
+            nonlocal build
+            if not runnable(second_dir.name): return
+            log_path, offset = begin_build(second_dir.name)
+            with log_path.open('a') as stream:
+                process = subprocess.Popen(build_command(second_dir.name), stdout=stream, stderr=subprocess.STDOUT,
+                                           env=dict(os.environ, IOS_REFRESH_LOCK_FD=str(lock.fileno())), pass_fds=(lock.fileno(),))
+            build = (process, log_path, offset, time.monotonic())
+        def finish():
+            process, log_path, offset, started = build
+            try: returncode = process.wait(timeout=max(1, BUILD_TIMEOUT - (time.monotonic() - started)))
+            except subprocess.TimeoutExpired:
+                process.kill(); process.wait(); raise
+            check_build(log_path, offset, returncode)
+        attempt(second_dir, second_state, processed, start, mark=False)
+        try: attempt(first_dir, first_state, processed, lambda: runnable(first_dir.name) and finish_job(first_dir.name, lock_held=True))
+        finally:
+            # A built job stays due: its own delivery follows in this worker run.
+            if build: attempt(second_dir, second_state, processed, finish, mark=False)
+
+
+def attempt(metadata, state, processed, action, mark=True):
+    """Run one step of a job and record its outcome (retry, rebuild or failure) in its state."""
+    failed = True
+    try:
+        action(); failed = False
+    except Rebuild as error:
+        attempts = state.get('rebuildAttempts', 0) + 1
+        if attempts > 2:
+            update(metadata / 'state.json', 'failed', message=str(error)[:300]); return
+        receipt = load(metadata / 'build-receipt.json', {})
+        receipt['complete'] = False; save(metadata / 'build-receipt.json', receipt)
+        update(metadata / 'state.json', 'waiting_mac', rebuildAttempts=attempts, nextAttempt=time.time() + 30, message=str(error)[:300])
+    except (Retry, BlockingIOError, subprocess.TimeoutExpired) as error:
+        update(metadata / 'state.json', 'waiting_mac', nextAttempt=time.time() + 30, message=str(error)[:300])
+    except Exception as error:
+        update(metadata / 'state.json', 'failed', message=str(error)[:400], nextAttempt=0)
+    finally:
+        if mark or failed: processed[metadata.name] = time.time()
 
 
 def prune():
@@ -844,22 +943,14 @@ def work(wait=True):
             due, earliest = scan(processed)
             # Fresh source/build/publication work precedes retries for packages already sent. One job
             # per scan, so a job that became ready meanwhile keeps its queue position instead of
-            # waiting for a whole earlier batch (a FileHost build is ~10 minutes).
-            for _retry, metadata, state in sorted(due, key=lambda item: (item[0], item[1].name))[:1]:
-                try: run_job(metadata.name)
-                except Rebuild as error:
-                    attempts = state.get('rebuildAttempts', 0) + 1
-                    if attempts > 2:
-                        update(metadata / 'state.json', 'failed', message=str(error)[:300]); continue
-                    receipt = load(metadata / 'build-receipt.json', {})
-                    receipt['complete'] = False; save(metadata / 'build-receipt.json', receipt)
-                    update(metadata / 'state.json', 'waiting_mac', rebuildAttempts=attempts, nextAttempt=time.time() + 30, message=str(error)[:300])
-                except (Retry, BlockingIOError, subprocess.TimeoutExpired) as error:
-                    update(metadata / 'state.json', 'waiting_mac', nextAttempt=time.time() + 30, message=str(error)[:300])
-                except Exception as error:
-                    update(metadata / 'state.json', 'failed', message=str(error)[:400], nextAttempt=0)
-                finally:
-                    processed[metadata.name] = time.time()
+            # waiting for a whole earlier batch (a FileHost build is ~10 minutes). A built job's phone
+            # delivery overlaps the next queued job's compile.
+            ordered = sorted(due, key=lambda item: (item[0], item[1].name))
+            if ordered:
+                first = ordered[0]
+                second = next((item for item in ordered[1:] if buildable(item[1])), None) if deliverable(first[1], first[2]) else None
+                if second: run_overlapped(first, second, processed)
+                else: attempt(first[1], first[2], processed, lambda: run_job(first[1].name))
             if due or not pruned:
                 prune(); pruned = True
             if due: continue

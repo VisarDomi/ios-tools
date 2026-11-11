@@ -508,6 +508,72 @@ class WorkerTests(unittest.TestCase):
         self.assertTrue(self.app.exists(), 'Do not delete the signed bytes a pending delivery can reuse')
         self.assertTrue(source.exists())
 
+    def queue_second(self, job='job-2'):
+        metadata, source = worker.paths(job); metadata.mkdir(parents=True)
+        shutil.copytree(self.source / 'Sources', source / 'Sources')
+        request = dict(self.request, id=job, files=common.manifest(source)); request['sourceHash'] = common.source_hash(request['files'])
+        common.save(metadata / 'request.json', request); worker.ready(job)
+        return metadata
+
+    def complete_build(self, metadata):
+        config = worker.configuration(worker.request_for(metadata), worker.paths(metadata.name)[1])
+        common.save(metadata / 'config.json', config)
+        common.save(metadata / 'build-receipt.json', dict(self.receipt, inputHash=worker.input_hash(config)))
+
+    def test_delivery_overlaps_the_next_build_under_the_one_shared_lock(self):
+        second = self.queue_second(); events = []; test = self
+        common.update(self.metadata / 'state.json', 'queued', nextAttempt=0)
+        class Build:
+            def __init__(self, command, **kwargs):
+                fd = int(kwargs['env']['IOS_REFRESH_LOCK_FD'])
+                test.assertEqual(kwargs['pass_fds'], (fd,)); test.assertIn('build-one', command); test.assertIn('job-2', command)
+                with test.assertRaises(BlockingIOError):  # renewal, simulator and pairing stay excluded
+                    with common.locked(worker.SIGNING_LOCK): pass
+                events.append('build started')
+            def wait(self, timeout=None):
+                events.append('build finished'); test.complete_build(second); return 0
+        def deliver(job, allow_ota=False, lock_held=False):
+            events.append(('deliver', job, lock_held))
+            common.update(worker.paths(job)[0] / 'state.json', 'installed')
+        with mock.patch.object(worker.subprocess, 'Popen', Build), mock.patch.object(worker, 'deliver', side_effect=deliver), \
+             mock.patch.object(worker, 'prune'):
+            worker.work()
+        self.assertEqual(events, ['build started', ('deliver', self.job, True), 'build finished', ('deliver', 'job-2', False)])
+
+    def test_overlapped_delivery_defers_pairing_recovery_until_the_lock_is_free(self):
+        with mock.patch.object(worker, 'deliver', side_effect=worker.RecoverTransport()), self.assertRaises(worker.Retry):
+            worker.finish_job(self.job, lock_held=True)
+        state = common.load(self.metadata / 'state.json')
+        self.assertTrue(state['transportRecovery'])
+        self.assertFalse(any('phone-pairing' in str(command) for command, _ in self.calls))
+        self.assertFalse(worker.deliverable(self.metadata, state))  # its retry runs on its own, with recovery
+
+    def test_busy_mac_lock_falls_back_without_starting_a_build(self):
+        second = self.queue_second(); processed = {}
+        common.update(self.metadata / 'state.json', 'queued', nextAttempt=0)
+        first = (False, self.metadata, common.load(self.metadata / 'state.json'))
+        with common.locked(worker.SIGNING_LOCK), mock.patch.object(worker.subprocess, 'Popen') as popen, \
+             mock.patch.object(worker, 'catalog') as catalog:
+            worker.run_overlapped(first, (False, second, common.load(second / 'state.json')), processed)
+        popen.assert_not_called(); catalog.assert_not_called()
+        self.assertEqual(common.load(self.metadata / 'state.json')['phase'], 'waiting_mac')
+        self.assertNotIn('job-2', processed)
+
+    def test_failed_overlapped_build_fails_only_its_own_job(self):
+        second = self.queue_second(); processed = {}
+        common.update(self.metadata / 'state.json', 'queued', nextAttempt=0)
+        class Build:
+            def __init__(self, command, **kwargs): kwargs['stdout'].write('Guarded build\nerror: compiler failed\n')
+            def wait(self, timeout=None): return 1
+        with mock.patch.object(worker.subprocess, 'Popen', Build), \
+             mock.patch.object(worker, 'deliver', side_effect=lambda job, **_: common.update(self.metadata / 'state.json', 'installed')):
+            worker.run_overlapped((False, self.metadata, common.load(self.metadata / 'state.json')),
+                                  (False, second, common.load(second / 'state.json')), processed)
+        self.assertEqual(common.load(self.metadata / 'state.json')['phase'], 'installed')
+        failed = common.load(second / 'state.json')
+        self.assertEqual(failed['phase'], 'failed'); self.assertIn('compiler failed', failed['message'])
+        self.assertIn('job-2', processed)
+
     def test_pairing_recovery_runs_outside_the_signing_lock(self):
         self.run.stop()
         def repair(command, **kwargs):

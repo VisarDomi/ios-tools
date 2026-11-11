@@ -178,6 +178,17 @@ The worker uses the existing signing lock and `mac-workload` admission, memory, 
 deadline and graphics policies. It does not compile alongside a guarded guest. There
 is no keep-awake helper or power-policy change.
 
+In a batch, a built job's phone delivery overlaps the next queued job's compile: the
+worker takes the shared lock once, starts the next guarded build under it
+(`mac-workload` accepts the inherited descriptor, `IOS_REFRESH_LOCK_FD`) and installs
+meanwhile. Renewal, simulator and pairing work stay excluded throughout. This saves
+each job's 9-18 s of phone work (catalog, install, confirmation; up to a minute when the
+phone answers slowly) after the first. A delivery that needs pairing recovery is
+retried on its own once the build releases the lock, because recovery takes the lock
+itself. OTA, Watch and validation-only jobs never overlap. A failed overlapped build
+fails only its own job. After a power cut both jobs resume from their durable state:
+the delivery is retried and the build starts again.
+
 Builds use `~/Developer/ios-push/checkpoints/JOB/source`. Later edits cannot enter a
 queued build. Ready is published only after bytes and directory entries are flushed.
 Interrupted uploads/builds resume; incomplete signed outputs rebuild before device
