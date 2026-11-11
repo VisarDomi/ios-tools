@@ -269,7 +269,10 @@ def close_owned_simulator_gui(owner):
     def present():
         identity=process_identity(owner['pid'])
         if identity is not None and identity!=owner['identity']:
-            raise UnsafeWorkload('Simulator GUI PID identity changed; refusing to signal it')
+            # While it exits, ps shows the same process (same start time) as "(Simulator)".
+            if identity.split()[:5]==owner['identity'].split()[:5] and identity.split()[5:] in (['(Simulator)'],['<defunct>']):
+                return False
+            raise UnsafeWorkload('Simulator GUI PID identity changed (now %r); refusing to signal it'%identity)
         return identity is not None
     if not present():return
     # A successful AppleScript return is only a quit request, not proof of exit.

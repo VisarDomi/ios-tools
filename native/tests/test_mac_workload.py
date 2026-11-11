@@ -297,6 +297,16 @@ class WorkloadTests(unittest.TestCase):
             m.close_owned_simulator_gui(owner)
         kill.assert_called_once_with(123,m.signal.SIGTERM)
 
+    def test_gui_cleanup_accepts_the_same_process_while_it_exits(self):
+        owner=dict(pid=123,identity='Wed Nov 11 16:31:30 2026     /Applications/Xcode.app/Contents/Developer/Applications/Simulator.app/Contents/MacOS/Simulator -CurrentDeviceUDID X')
+        with patch.object(m,'process_identity',side_effect=[owner['identity'],'Wed Nov 11 16:31:30 2026     (Simulator)']), \
+             patch.object(m.subprocess,'run'),patch.object(m.os,'kill') as kill:
+            m.close_owned_simulator_gui(owner)
+        kill.assert_not_called()
+        with patch.object(m,'process_identity',return_value='Wed Nov 11 16:40:00 2026     (Simulator)'),patch.object(m.os,'kill') as kill:
+            with self.assertRaisesRegex(m.UnsafeWorkload,'identity changed'):m.close_owned_simulator_gui(owner)
+        kill.assert_not_called()
+
     def test_gui_cleanup_refuses_a_reused_pid_and_keeps_unknown_ownership_explicit(self):
         with patch.object(m,'process_identity',return_value='someone else'),patch.object(m.os,'kill') as kill:
             with self.assertRaisesRegex(m.UnsafeWorkload,'identity changed'):
