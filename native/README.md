@@ -193,6 +193,30 @@ A long frame with no span of ours is the system's: Core Animation's commit, a la
 uploaded, a new player layer. The spans already in the apps name their work (`list.*`,
 `reader.*`, `viewer.*`, `open.*`, `close.*`, ...); keep new work inside a span.
 
+## Build speed: modules and compilation mode
+
+ios-push builds each project in a stable workspace whose DerivedData persists, so what an
+edit costs is the incremental build, and that depends on the app's Release compilation mode.
+
+- **Per-file** (video-platform, guidance, trader, custom-twitter): only the edited files and
+  the files that depend on them recompile. Video's 7,400-line app module takes 11-16 s per
+  edit. Keep these as they are.
+- **Whole-module** (manga-reader, gallery-reader, gallery-downloader, t3-watch): every edit
+  re-optimizes the whole module, on one core. Keep each module under about 3,000 lines by
+  moving code that does not need UIKit into module(s) of a local `apps/ios/Core` package,
+  with imports one way only. Measured November 11 (see each app's README, "Modules"):
+  - manga-reader (5,100 lines, three modules): 35-40 s per edit before, 15-24 s after.
+  - gallery-reader (3,300 lines, two modules): 25 s before, 18 s after.
+  - The costs: a cold build takes 5-8 s longer, and a new declaration in a lower module also
+    rebuilds the modules above it. Below about 3,000 lines the split does not pay.
+- Crossing a module boundary:
+  - What another module uses must be `public`, with an explicit `public init`; Swift's
+    memberwise initializer is never public.
+  - Public types lose implicit `Sendable`, so state it.
+  - An actor's `let` that another module reads synchronously must be `nonisolated`.
+  - Do not move types whose module name is persisted (keyed archives, `@objc` names).
+- Xcode keeps local package targets whole-module in Release whatever the app target uses.
+
 ## Mac workloads and Apple component tools
 
 Use `scripts/apple-tool simctl ...` / `devicectl ...` for installed Apple CLIs.
