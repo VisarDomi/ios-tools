@@ -19,7 +19,7 @@ def requires_swift_source_paths(source):
     return False
 
 
-def build_environment(environment, metadata, source, cache_root, *, product=None, app_name=None):
+def build_environment(environment, metadata, source, cache_root):
     result = dict(environment)
     metadata, source, cache_root = map(Path, (metadata, source, cache_root))
     ensure_directory(cache_root)
@@ -34,14 +34,11 @@ def build_environment(environment, metadata, source, cache_root, *, product=None
         if not original.is_absolute(): original = source / original
         if original.resolve() == config.resolve(): raise ValueError('Recursive xcconfig include')
         lines.append('#include ' + quoted(original))
-    mappings = [(source.resolve(), '/^src')]
-    if product is not None:
-        mappings.append(((source / Path(product).parent).resolve(), '/^products'))
-    if app_name:
-        mappings.append(((source / 'build/DerivedData' / app_name).resolve(), '/^derived'))
-    # More-specific paths must be considered before the frozen source root.
-    mappings.sort(key=lambda pair: len(str(pair[0])), reverse=True)
-    prefix_maps = ' '.join(quoted(str(path) + '=' + virtual) for path, virtual in mappings)
+    # One mapping, the same for every app built in this workspace. Build products, DerivedData and
+    # module caches all live under the source root. Per-app mappings (earlier per-provider output
+    # and DerivedData folders) made each provider's compiler settings differ, so switching providers
+    # re-planned and relinked every module: 12-13 s instead of 7 s, measured November 11.
+    prefix_maps = quoted(str(source.resolve()) + '=/^src')
     preserve_swift_paths = requires_swift_source_paths(source)
     lines += [
         'COMPILATION_CACHE_ENABLE_CACHING = YES',

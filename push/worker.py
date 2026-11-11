@@ -300,8 +300,7 @@ def compile_checkpoint(config, frozen, request, metadata, cache_log, cache_offse
     environment = dict(os.environ)
     for item in ['SIMULATOR', 'DECODER_PROBE', 'ORIGINAL_CODEC_PROBE']: environment.pop(item, None)
     environment.update(compile_config.get('environment', {}), SIGNING_DESTINATION='generic/platform=iOS')
-    environment = build_environment(environment, metadata, compile_source, MAC_HOME / 'Library/Caches/ios-tools/CompilationCache.noindex',
-                                    product=config['app'], app_name=config['name'])
+    environment = build_environment(environment, metadata, compile_source, MAC_HOME / 'Library/Caches/ios-tools/CompilationCache.noindex')
     print('Using shared Xcode compilation cache (8 GiB per CAS store)', flush=True)
     compile_started = time.monotonic()
     try:

@@ -34,19 +34,14 @@ class CompilationCacheTests(unittest.TestCase):
             self.assertIn('LM_SKIP_METADATA_EXTRACTION = YES\n', text)
             self.assertIn('SWIFT_ENABLE_PREFIX_MAPPING = YES\n', text)
 
-    def test_provider_output_and_derived_paths_share_virtual_cache_names(self):
+    def test_every_provider_in_a_workspace_gets_identical_compiler_settings(self):
+        # A provider switch must not change compiler settings, or Xcode re-plans and relinks every module.
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            for provider in ['asura', 'lua']:
-                source = root / provider
-                env = build_environment({}, root / (provider+'-metadata'), source, root/'cache',
-                                        product='build/'+provider+'.paid/Release-iphoneos/App.app', app_name=provider)
-                text = Path(env['XCODE_XCCONFIG_FILE']).read_text()
-                derived = str(source/'build/DerivedData'/provider)+'=/^derived'
-                products = str(source/'build'/ (provider+'.paid')/'Release-iphoneos')+'=/^products'
-                self.assertIn(derived, text)
-                self.assertIn(products, text)
-                self.assertLess(text.index(derived),text.index(str(source)+'=/^src'))
+            root = Path(temporary); source = root / 'workspace'; source.mkdir()
+            texts = [Path(build_environment({}, root / (provider + '-metadata'), source, root / 'cache')['XCODE_XCCONFIG_FILE']).read_text()
+                     for provider in ['asura', 'lua']]
+            self.assertEqual(texts[0], texts[1])
+            self.assertIn('"' + str(source.resolve()) + '=/^src"', texts[0])
 
     def test_frozen_jobs_share_a_bounded_cache_without_changing_source_or_optimisation(self):
         with tempfile.TemporaryDirectory() as temporary:
