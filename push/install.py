@@ -72,13 +72,24 @@ def install_mac():
     else: subprocess.run(['sudo', '-n', '/bin/sh', '-c', 'umask 022; exec ln -s "$1" "$2"', 'sh', str(expected), str(global_link)], check=True)
     label = 'com.visar.ios-push'; target = 'gui/' + str(os.getuid())
     plist = home / 'Library/LaunchAgents' / (label + '.plist')
+    # Standard priority: as a Background process the queue's builds ran ~3x slower (CPU and disk
+    # throttled; 33-39 s instead of 12-13 s for the same build). This Mac is a build station.
     contents = dict(Label=label, ProgramArguments=['/usr/bin/python3', str(TOOLS / 'push/worker.py'), 'work'],
-                    RunAtLoad=True, StartInterval=300, ProcessType='Background',
+                    RunAtLoad=True, StartInterval=300, ProcessType='Standard',
                     StandardOutPath=str(store / 'worker.log'), StandardErrorPath=str(store / 'worker-errors.log'))
-    atomic_bytes(plist, plistlib.dumps(contents))
-    loaded = subprocess.run(['launchctl', 'print', target + '/' + label], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    # Never boot out a running queue or its compiler just to refresh its entry point.
+    data = plistlib.dumps(contents)
+    changed = not plist.exists() or plist.read_bytes() != data
+    atomic_bytes(plist, data)
+    loaded = subprocess.run(['launchctl', 'print', target + '/' + label], capture_output=True, text=True)
     if loaded.returncode: subprocess.run(['launchctl', 'bootstrap', target, str(plist)], check=True)
+    elif changed:
+        # launchd reads a job's attributes only when it loads it. Never boot out a running queue or
+        # its compiler: an idle worker is reloaded now; a busy one picks the change up at its next load.
+        if 'state = running' in loaded.stdout:
+            print('The queue is busy; its new definition applies when launchd next loads it (rerun --mac when idle)')
+        else:
+            subprocess.run(['launchctl', 'bootout', target + '/' + label], check=True)
+            subprocess.run(['launchctl', 'bootstrap', target, str(plist)], check=True)
     subprocess.run(['launchctl', 'print', target + '/' + label], stdout=subprocess.DEVNULL, check=True)
     print('Mac GUI build/install queue installed; pending jobs resume at login')
 
