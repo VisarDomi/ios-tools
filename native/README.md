@@ -144,7 +144,9 @@ script approves them).
 is built from (its sources, `Kit`, project and build scripts). They are fingerprinted at
 approval, and a changed input blocks the unattended monthly renewal until the app is
 deployed again. So never leave an input changed without deploying it, not even a comment;
-docs outside those paths are free to change. `scripts/kit-test.sh` runs NativeKit's tests on this PC
+docs outside those paths are free to change. Inside a vendored `Kit`, `Kit/Tests` and `Kit/Linux`
+(the tests and their Linux support) are not fingerprinted: changing only them needs no deploy.
+Hashes approved before this rule (November 11, 2026) stay valid until each app's next approval. `scripts/kit-test.sh` runs NativeKit's tests on this PC
 (~7 s; `--pc` stops there) and then the iOS build of every module on the Mac.
 
 **Logic tests on the PC.** The Mac is the build station and virtual-iPhone tester; Swift logic

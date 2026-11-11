@@ -113,7 +113,7 @@ def ready(job_id):
         raise RuntimeError('Incomplete or changed source upload')
     if carry:
         previous = load(config_path(repo, app)); state = load(Path(previous['stateDir']) / 'state.json', {}) if previous else {}
-        if not previous or refresh.fingerprint(Path(previous['root']), previous['inputs']) != state.get('inputHash'):
+        if not previous or not refresh.inputs_match(Path(previous['root']), previous['inputs'], state.get('inputHash')):
             raise RuntimeError('Cannot inherit an unapproved generated input')
         for item in carry:
             if refresh.fingerprint(source, [item]) != refresh.fingerprint(Path(previous['root']), [item]):
@@ -199,7 +199,7 @@ def verify_files(source, files):
 
 def verify_checkpoint(config, frozen):
     source = Path(config['root']); verify_files(source, frozen['files'])
-    if input_hash(config) != frozen['inputHash']: raise RuntimeError('Frozen input tree changed')
+    if not refresh.inputs_match(Path(config['root']), config['inputs'], frozen['inputHash']): raise RuntimeError('Frozen input tree changed')
     # Catch a newly inserted helper/source without hashing generated build outputs.
     for folder, directories, files in os.walk(source):
         directories[:] = [name for name in directories if name not in {'__pycache__', 'xcuserdata', '.swiftpm', '.build', 'build'}]
@@ -332,7 +332,7 @@ def renewal_build(registration, validate_only=False):
     if recipe_hash(config) != recipe_hash(configuration(request, source)):
         raise RuntimeError('Renewal recipe differs from the approved checkpoint')
     state = load(Path(config['stateDir']) / 'state.json', {})
-    if state.get('pendingPush') or state.get('inputHash') != input_hash(config):
+    if state.get('pendingPush') or not refresh.inputs_match(Path(config['root']), config['inputs'], state.get('inputHash')):
         raise RuntimeError('Renewal inputs are not currently approved')
     verify_checkpoint(config, frozen)
     metadata = Path(config['stateDir'])
@@ -401,7 +401,7 @@ def build_one(job_id):
     if previous and not reused and not request.get('force'):
         state = load(Path(previous['stateDir']) / 'state.json', {})
         old_app = Path(previous['root']) / previous['app']
-        if before == state.get('inputHash') and input_hash(previous) == before and old_app.exists():
+        if refresh.inputs_match(Path(config['root']), config['inputs'], state.get('inputHash')) and input_hash(previous) == before and old_app.exists():
             try:
                 details = verify_app(config, old_app)
                 if not profiles_current(details, config): raise RuntimeError('Cached provisioning is older than the installed app')
@@ -449,7 +449,7 @@ def cleanup_intermediates(config):
 
 
 def validate_receipt(config, receipt, app):
-    if input_hash(config) != receipt['inputHash']: raise RuntimeError('Frozen build inputs changed')
+    if not refresh.inputs_match(Path(config['root']), config['inputs'], receipt['inputHash']): raise RuntimeError('Frozen build inputs changed')
     if not app.exists() or refresh.fingerprint(app.parent, [app.name]) != receipt['appHash']:
         raise Rebuild('Interrupted or changed signed artifact needs rebuilding')
     details = verify_app(config, app)
@@ -637,7 +637,7 @@ def deliver(job_id, allow_ota=False):
             if config.get('watch'): update(metadata / 'state.json', 'installing', phoneDelivery=phone_proof)
         if config.get('watch') and not deliver_watch(config, receipt, app, metadata): return
         # These checks run under the same lock as installation and approval.
-        if input_hash(config) != receipt['inputHash'] or refresh.fingerprint(app.parent, [app.name]) != receipt['appHash']:
+        if not refresh.inputs_match(Path(config['root']), config['inputs'], receipt['inputHash']) or refresh.fingerprint(app.parent, [app.name]) != receipt['appHash']:
             raise RuntimeError('Inputs changed before approval')
         approve(request, config, receipt)
         watch_result = ({'watchBundle': config['watch']['bundleId'], 'watchVersion': receipt['version']}

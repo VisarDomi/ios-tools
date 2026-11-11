@@ -37,19 +37,35 @@ def save(path, value):
             os.unlink(temporary)
 
 
-def fingerprint(root, inputs):
+# Inside a vendored NativeKit input (a directory named Kit), the subtrees that never reach the
+# app: its tests and its Linux test support. Changing them is not an app change, so they are
+# not fingerprinted (they are still captured: Kit's manifest declares the test targets).
+KIT_NON_BUILD = ('Tests', 'Linux')
+
+
+def fingerprint(root, inputs, legacy=False):
+    """legacy=True: the pre-November-2026 hash that included Kit/Tests and Kit/Linux."""
     digest = hashlib.sha256()
     for item in sorted(inputs):
         base = root / item
         if not base.exists():
             raise RuntimeError('Missing approved input: ' + item)
         files = sorted(base.rglob('*')) if base.is_dir() else [base]
+        kit = base.is_dir() and base.name == 'Kit' and not legacy
         for path in files:
             if not path.is_file() or 'xcuserdata' in path.parts or path.name == '.DS_Store':
+                continue
+            if kit and path.relative_to(base).parts[0] in KIT_NON_BUILD:
                 continue
             digest.update(str(path.relative_to(root)).encode() + b'\0')
             digest.update(hashlib.sha256(path.read_bytes()).digest())
     return digest.hexdigest()
+
+
+def inputs_match(root, inputs, recorded):
+    """Whether a recorded input hash still describes these inputs. Hashes recorded before
+    Kit/Tests and Kit/Linux were excluded stay valid until the app's next approval."""
+    return bool(recorded) and recorded in (fingerprint(root, inputs), fingerprint(root, inputs, legacy=True))
 
 
 def prune_completed_caches(config):
@@ -260,7 +276,7 @@ def run(config, action, force=False, wireless=False, keep_schedule=False, config
         print('Approved current delivered inputs and app IDs. '
               + ('Renewal schedule kept.' if kept else 'No renewal claimed; renewal is due now.'))
         return
-    if state.get('inputHash') != current_hash:
+    if not inputs_match(root, config['inputs'], state.get('inputHash')):
         raise RuntimeError('Inputs changed or not approved. Install/review deliberately, then run approve.')
     if not force and state.get('lastSuccess') and time.time() < next_due(config, state['lastSuccess']):
         print('Refresh is current; no build or install needed.')
@@ -282,7 +298,7 @@ def run(config, action, force=False, wireless=False, keep_schedule=False, config
         if state.get('pendingPush'):
             print('A queued push is finalizing this app; renewal will retry after delivery.')
             return
-        if state.get('inputHash') != fingerprint(root, config['inputs']):
+        if not inputs_match(root, config['inputs'], state.get('inputHash')):
             raise RuntimeError('Approved inputs changed before signing')
         cache = Path(config['profileCache'])
         stash = state_dir / 'profile-cache-backup'

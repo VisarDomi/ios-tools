@@ -60,7 +60,7 @@ def deliver(config, step, bundle):
     if not delivered:
         return skip(record, 'this deploy recorded no build')
     if step == 'built':
-        if delivered.get('inputHash') != inputs:
+        if not refresh.inputs_match(root, config['inputs'], delivered.get('inputHash')):
             return skip(record, 'build inputs changed during the build')
         refresh.save(record, {'inputHash': inputs, 'appHash': refresh.fingerprint(app.parent, [app.name])})
         return
@@ -71,7 +71,7 @@ def deliver(config, step, bundle):
     with lock_path.open('a') as lock:
         wait_for_lock(lock)
         # Checked under the lock: a renewal may have rebuilt the app while this step waited.
-        if refresh.fingerprint(root, config['inputs']) != delivered['inputHash']:
+        if not refresh.inputs_match(root, config['inputs'], delivered['inputHash']):
             return skip(record, 'build inputs changed after the build')
         if refresh.fingerprint(app.parent, [app.name]) != delivered['appHash']:
             return skip(record, 'the app was rebuilt after this deploy built it')

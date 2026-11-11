@@ -430,5 +430,31 @@ class RenewalTests(unittest.TestCase):
         self.assertFalse(refresh.advanced({}, {}, 0))
 
 
+class KitFingerprintTests(unittest.TestCase):
+    def test_kit_tests_and_linux_support_are_not_app_inputs_but_old_hashes_still_match(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in ['apps/ios/Kit/Sources/KitCore/A.swift', 'apps/ios/Kit/Package.swift',
+                         'apps/ios/Kit/Tests/KitCoreTests/T.swift', 'apps/ios/Kit/Linux/swift-env.sh',
+                         'apps/ios/App/Tests/AppOwn.swift']:
+                (root / name).parent.mkdir(parents=True, exist_ok=True); (root / name).write_text(name)
+            inputs = ['apps/ios/Kit', 'apps/ios/App']
+            new, old = refresh.fingerprint(root, inputs), refresh.fingerprint(root, inputs, legacy=True)
+            self.assertNotEqual(new, old)
+            self.assertTrue(refresh.inputs_match(root, inputs, new))
+            self.assertTrue(refresh.inputs_match(root, inputs, old))     # approved before the change
+            self.assertFalse(refresh.inputs_match(root, inputs, None))
+            (root / 'apps/ios/Kit/Tests/KitCoreTests/T.swift').write_text('changed test')
+            (root / 'apps/ios/Kit/Linux/swift-env.sh').write_text('changed helper')
+            self.assertEqual(refresh.fingerprint(root, inputs), new)         # not an app change
+            (root / 'apps/ios/App/Tests/AppOwn.swift').write_text('changed')
+            self.assertNotEqual(refresh.fingerprint(root, inputs), new)      # only Kit's subtrees are skipped
+            (root / 'apps/ios/App/Tests/AppOwn.swift').write_text('apps/ios/App/Tests/AppOwn.swift')
+            (root / 'apps/ios/Kit/Sources/KitCore/A.swift').write_text('changed source')
+            self.assertFalse(refresh.inputs_match(root, inputs, new))
+            self.assertFalse(refresh.inputs_match(root, inputs, old))
+
+
 if __name__ == '__main__':
     unittest.main(buffer=True)
