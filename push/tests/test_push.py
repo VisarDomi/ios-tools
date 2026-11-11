@@ -689,6 +689,31 @@ class ClientStatusTests(unittest.TestCase):
             self.assertEqual(common.load(job / 'state.json')['message'], 'Source transferred; waiting for guarded build')
 
 
+class PushTestGateTests(unittest.TestCase):
+    def test_tests_run_once_per_source_rerun_after_edits_and_failures_queue_nothing(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary); repo = base / 'repo'; (repo / 'apps/ios/scripts').mkdir(parents=True)
+            subprocess.run(['git', 'init', '-q', str(repo)], check=True)
+            counter = base / 'runs'
+            (repo / 'apps/ios/scripts/test.sh').write_text('echo run >> "%s"\n[ -e apps/ios/broken ] && { echo FAIL: broken; exit 1; }\necho PASS\n' % counter)
+            (repo / 'apps/ios/App.swift').write_text('v1')
+            project = {'root': str(repo), 'tests': ['bash', 'apps/ios/scripts/test.sh']}
+            runs = lambda: len(counter.read_text().splitlines()) if counter.exists() else 0
+            with mock.patch.object(client, 'STORE', base / 'store'), mock.patch.object(client, 'ON_MAC', False):
+                client.run_tests('demo', project); client.run_tests('demo', project)
+                self.assertEqual(runs(), 1)                      # second push of the batch reuses the pass
+                (repo / 'apps/ios/App.swift').write_text('v2')   # untracked working edits count
+                client.run_tests('demo', project)
+                self.assertEqual(runs(), 2)
+                (repo / 'apps/ios/broken').write_text('x')
+                with self.assertRaisesRegex(RuntimeError, 'FAIL: broken[\\s\\S]*tests failed'):
+                    client.run_tests('demo', project)
+                with self.assertRaises(RuntimeError): client.run_tests('demo', project)
+                self.assertEqual(runs(), 4)                      # a failure is never cached
+                client.run_tests('other', {'root': str(repo)})   # no declared tests: nothing runs
+                self.assertEqual(runs(), 4)
+
+
 class WatchClientTests(unittest.TestCase):
     def test_root_scripts_declaration_works_from_checkout_and_explicit_source(self):
         with tempfile.TemporaryDirectory() as directory:

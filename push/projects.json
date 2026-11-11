@@ -44,11 +44,19 @@
           "build/app/native"
         ]
       }
-    }
+    },
+    "tests": [
+      "bash",
+      "apps/ios/scripts/test.sh"
+    ]
   },
   "manga-reader": {
     "path": "manga/manga-reader",
-    "persistentBuildCache": true
+    "persistentBuildCache": true,
+    "tests": [
+      "bash",
+      "apps/ios/scripts/test.sh"
+    ]
   },
   "gallery-reader": {
     "path": "manga/gallery-reader",
@@ -65,7 +73,11 @@
           "build/shared/native"
         ]
       }
-    }
+    },
+    "tests": [
+      "bash",
+      "apps/ios/scripts/test.sh"
+    ]
   },
   "gallery-downloader": {
     "path": "manga/gallery-downloader",
@@ -77,7 +89,11 @@
         "apps/ios/build/DerivedData"
       ],
       "maximumBytes": 2147483648
-    }
+    },
+    "tests": [
+      "bash",
+      "apps/ios/scripts/test.sh"
+    ]
   },
   "trader": {
     "path": "trading/trader"

@@ -2,6 +2,7 @@
 from __future__ import annotations
 import argparse
 import datetime
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -75,8 +76,53 @@ def prepare(project, app):
         subprocess.run(['node', str(ios / 'scripts/build.mjs'), app['name'], '--prepare-only'], cwd=root, check=True)
 
 
-def enqueue(selector, project_name=None, source=None, validate_only=False, force=False):
+def tests_key(repo_root, project):
+    """The exact test inputs: every tracked and untracked, non-ignored file under the test scope
+    (default apps/ios), with the test command. Ignored build outputs are not part of it."""
+    scope = project.get('testScope', 'apps/ios')
+    listed = subprocess.run(['git', '-C', str(repo_root), 'ls-files', '-co', '--exclude-standard', '-z', '--', scope],
+                            capture_output=True, check=True).stdout.split(b'\0')
+    digest = hashlib.sha256(json.dumps(project['tests']).encode())
+    for name in sorted(item for item in listed if item):
+        path = repo_root / name.decode()
+        if not path.is_file(): continue
+        digest.update(name + b'\0'); digest.update(hashlib.sha256(path.read_bytes()).digest())
+    return digest.hexdigest()
+
+
+def run_tests(repo, project):
+    """The project's logic tests on this PC before its source is frozen: a broken change fails here
+    in seconds, not minutes into a Mac build. A pass is remembered for identical test inputs, so a
+    batch of pushes from one repository runs them once; concurrent pushes wait for the first run."""
+    command = project.get('tests')
+    if not command or ON_MAC: return
+    repo_root = Path(project['root']).resolve()
+    with locked(STORE / ('tests-' + identity(repo) + '.lock'), wait=900):
+        key = tests_key(repo_root, project)
+        results = load(STORE / 'test-results.json', {})
+        if results.get(repo, {}).get('key') == key:
+            print(repo + ' tests already passed for this source on this PC.', flush=True)
+            return
+        log = STORE / 'test-logs' / (identity(repo) + '.log')
+        ensure_directory(log.parent)
+        print('Running ' + repo + ' tests on this PC (' + ' '.join(command) + ')...', flush=True)
+        started = time.time()
+        with log.open('w') as stream:
+            result = subprocess.run(command, cwd=repo_root, stdout=stream, stderr=subprocess.STDOUT, timeout=900)
+        seconds = round(time.time() - started, 1)
+        if result.returncode:
+            tail = ''.join(log.read_text(errors='replace').splitlines(keepends=True)[-25:])
+            raise RuntimeError(tail + '\n' + repo + ' tests failed after ' + str(seconds) + ' s; nothing was queued. '
+                               'Full log: ' + str(log) + ' (fix the change, or push with --skip-tests deliberately)')
+        results = load(STORE / 'test-results.json', {})
+        results[repo] = {'key': key, 'seconds': seconds, 'at': time.time()}
+        save(STORE / 'test-results.json', results)
+        print(repo + ' tests passed in ' + str(seconds) + ' s.', flush=True)
+
+
+def enqueue(selector, project_name=None, source=None, validate_only=False, force=False, skip_tests=False):
     repo, project, app = choose(selector, project_name, source)
+    if not skip_tests: run_tests(repo, project)
     prepare(project, app)
     repo_root = Path(project['root']).resolve(); root = Path(app['root']).resolve()
     suffix = root.relative_to(repo_root)
@@ -195,6 +241,7 @@ def main():
     parser.add_argument('--project'); parser.add_argument('--source')
     parser.add_argument('--follow', action='store_true'); parser.add_argument('--json', action='store_true')
     parser.add_argument('--validate-only', action='store_true'); parser.add_argument('--force', action='store_true')
+    parser.add_argument('--skip-tests', action='store_true', help="don't run the project's PC tests first")
     args = parser.parse_args()
     if args.action == 'pump':
         try: pump()
@@ -247,7 +294,7 @@ def main():
                 print(name + ': ' + ', '.join(app['name'] for app in listing['apps']))
             except (OSError, subprocess.SubprocessError): continue
     else:
-        job_id = enqueue(args.action, args.project, args.source, args.validate_only, args.force)
+        job_id = enqueue(args.action, args.project, args.source, args.validate_only, args.force, args.skip_tests)
         print('Queued ' + job_id + '; source is frozen. ios-push status ' + job_id, flush=True)
         if args.follow: show(job_id, True, args.json)
 
