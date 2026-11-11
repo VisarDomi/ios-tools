@@ -304,10 +304,11 @@ def preflight(sample, booted, xcode_busy=False, allow_stale_load=False):
         raise UnsafeWorkload('; '.join(reasons))
 
 
-def wait_for_idle(wait=0, kind='simulator', warm=None):
-    """Builds can prove CPU headroom instead of waiting for a lagging load average.
-    `warm` is the idle guest this guard holds after a session; it is not someone else's workload."""
-    end=time.monotonic()+max(8 if kind=='build' else 0,min(wait,300))
+def wait_for_idle(wait=0, kind='simulator', warm=None, reuse=False):
+    """Builds can prove CPU headroom instead of waiting for a lagging load average, and so can a session
+    that reuses the warm guest (`reuse`): neither adds a boot. `warm` is the idle guest this guard holds
+    after a session; it is not someone else's workload."""
+    end=time.monotonic()+max(8 if kind=='build' or reuse else 0,min(wait,300))
     announced=False
     quiet_samples=0
     while True:
@@ -327,12 +328,12 @@ def wait_for_idle(wait=0, kind='simulator', warm=None):
             preflight(sample,[x['udid'] for x in known if x['state']!='Shutdown'],busy)
         try:
             idle=sample.get('cpuIdle')
-            quiet=(kind=='build' and idle is not None and idle>=50 and sample.get('probeSeconds',float('inf'))<.5
+            quiet=((kind=='build' or reuse) and idle is not None and idle>=50 and sample.get('probeSeconds',float('inf'))<.5
                    and sample['pressure']==1 and sample['diskGiB']>=12)
             quiet_samples=quiet_samples+1 if quiet else 0
             preflight(sample,[],busy,allow_stale_load=quiet_samples>=3)
             if sample['load']>6:
-                print('Admitting build after three idle CPU samples; residual load %.2f, CPU idle %.1f%%'%(sample['load'],idle),flush=True)
+                print('Admitting %s after three idle CPU samples; residual load %.2f, CPU idle %.1f%%'%('build' if kind=='build' else 'warm session',sample['load'],idle),flush=True)
             return devices() if warm else known
         except UnsafeWorkload:
             if time.monotonic()>=end:raise
@@ -718,7 +719,8 @@ def run_workload(args):
         if warm and warm['until'] <= time.time():
             release_warm(warm, 'idle for %d min' % round((warm['until'] - warm['lastUsed']) / 60))
             warm = None
-        known = wait_for_idle(getattr(args,'wait_for_idle',0),kind=args.kind,warm=warm)
+        reuse = bool(args.kind == 'simulator' and warm and warm['device'] == args.device and not getattr(args, 'cold', False))
+        known = wait_for_idle(getattr(args,'wait_for_idle',0),kind=args.kind,warm=warm,reuse=reuse)
         warm = held_warm(known)
         if args.kind=='simulator':check_panic_reports(policy())
         if args.kind=='simulator' and getattr(args,'visible',False) and subprocess.run(['/usr/bin/pgrep','-x','Simulator'],stdout=subprocess.DEVNULL).returncode==0:
@@ -746,6 +748,9 @@ def run_workload(args):
                 if mismatch:
                     release_warm(warm, mismatch)
                     warm = None
+                    if reuse:
+                        # Admitted for a reuse, possibly on CPU idle time; a boot needs the full admission.
+                        known = wait_for_idle(getattr(args,'wait_for_idle',0),kind='simulator')
                 else:
                     disabled_jobs, profile_name = warm['disabledJobs'], warm['profile']
         lease.write_text(json.dumps(dict(pid=os.getpid(), device=args.device, trial=args.trial, profile=profile_name, disabledJobs=disabled_jobs,

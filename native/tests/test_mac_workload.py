@@ -824,5 +824,18 @@ class WarmHoldTests(unittest.TestCase):
         self.assertTrue((self.root / 'simulator-warm.json').exists(), 'status never changes the hold')
 
 
+    def test_a_reuse_is_admitted_on_idle_cpu_but_a_boot_still_waits_for_the_load(self):
+        self.session()
+        residual = dict(HEALTHY, load=20, cpuIdle=90, probeSeconds=.01)
+        self.metrics.return_value = residual
+        with patch.object(m.time, 'sleep'):
+            self.assertEqual(self.session(), ['bootstatus', 'qa', 'close-gui'])
+            with self.assertRaisesRegex(m.UnsafeWorkload, 'load 20.00 > 6'):
+                self.session(app='video-platform')  # needs services the warm guest has off: a boot
+        self.assertNotIn('boot', self.steps)
+        with patch.object(m.time, 'sleep'), self.assertRaisesRegex(m.UnsafeWorkload, 'load 20.00 > 6'):
+            self.session(OTHER)
+
+
 if __name__ == '__main__':
     unittest.main()
