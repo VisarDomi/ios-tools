@@ -189,6 +189,12 @@ itself. OTA, Watch and validation-only jobs never overlap. A failed overlapped b
 fails only its own job. After a power cut both jobs resume from their durable state:
 the delivery is retried and the build starts again.
 
+The worker builds a job, then scans again, so jobs whose upload finishes during that
+build still overlap. Measured November 11: Violet's 11 s delivery ran during the next
+job's build, and the pair finished 12 s sooner. Each build log records when the build
+was requested (`ios-push: build requested at`); the guard's report name gives the
+admission time. `worker.log` in the queue store notes each overlap.
+
 Builds use `~/Developer/ios-push/checkpoints/JOB/source`. Later edits cannot enter a
 queued build. Ready is published only after bytes and directory entries are flushed.
 Interrupted uploads/builds resume; incomplete signed outputs rebuild before device
