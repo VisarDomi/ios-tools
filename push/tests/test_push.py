@@ -540,6 +540,23 @@ class WorkerTests(unittest.TestCase):
             worker.work()
         self.assertEqual(events, ['build started', ('deliver', self.job, True), 'build finished', ('deliver', 'job-2', False)])
 
+    def test_two_unbuilt_jobs_build_then_overlap_the_install_with_the_next_build(self):
+        second = self.queue_second(); events = []; test = self
+        common.save(self.metadata / 'build-receipt.json', dict(self.receipt, complete=False))
+        common.update(self.metadata / 'state.json', 'queued', nextAttempt=0)
+        def build(command, **kwargs):
+            if 'build-one' not in command: return subprocess.CompletedProcess(command, 0)
+            events.append(('build', command[-1])); test.complete_build(test.metadata); return subprocess.CompletedProcess(command, 0)
+        class Build:
+            def __init__(self, command, **kwargs): events.append(('overlapped build', command[-1]))
+            def wait(self, timeout=None): test.complete_build(second); return 0
+        def deliver(job, allow_ota=False, lock_held=False):
+            events.append(('deliver', job, lock_held)); common.update(worker.paths(job)[0] / 'state.json', 'installed')
+        with mock.patch.object(worker.subprocess, 'run', side_effect=build), mock.patch.object(worker.subprocess, 'Popen', Build), \
+             mock.patch.object(worker, 'deliver', side_effect=deliver), mock.patch.object(worker, 'prune'):
+            worker.work()
+        self.assertEqual(events, [('build', self.job), ('overlapped build', 'job-2'), ('deliver', self.job, True), ('deliver', 'job-2', False)])
+
     def test_overlapped_delivery_defers_pairing_recovery_until_the_lock_is_free(self):
         with mock.patch.object(worker, 'deliver', side_effect=worker.RecoverTransport()), self.assertRaises(worker.Retry):
             worker.finish_job(self.job, lock_held=True)

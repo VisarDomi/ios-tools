@@ -712,14 +712,19 @@ def check_build(log_path, offset, returncode):
     raise RuntimeError('Build failed: ' + detail)
 
 
-def run_job(job_id):
-    if not runnable(job_id): return
+def build_job(job_id):
+    """Its guarded build, if it has none yet; False when the job has nothing left to do."""
+    if not runnable(job_id): return False
     if not load(paths(job_id)[0] / 'build-receipt.json', {}).get('complete'):
         log_path, offset = begin_build(job_id)
         with log_path.open('a') as stream:
             result = subprocess.run(build_command(job_id), stdout=stream, stderr=subprocess.STDOUT, timeout=BUILD_TIMEOUT)
         check_build(log_path, offset, result.returncode)
-    finish_job(job_id)
+    return True
+
+
+def run_job(job_id):
+    if build_job(job_id): finish_job(job_id)
 
 
 def finish_job(job_id, lock_held=False):
@@ -948,8 +953,11 @@ def work(wait=True):
             ordered = sorted(due, key=lambda item: (item[0], item[1].name))
             if ordered:
                 first = ordered[0]
-                second = next((item for item in ordered[1:] if buildable(item[1])), None) if deliverable(first[1], first[2]) else None
-                if second: run_overlapped(first, second, processed)
+                second = next((item for item in ordered[1:] if buildable(item[1])), None)
+                if second and deliverable(first[1], first[2]): run_overlapped(first, second, processed)
+                elif second and buildable(first[1]) and not load(first[1] / 'request.json', {}).get('validateOnly'):
+                    # Build only; the next scan overlaps this job's delivery with the following build.
+                    attempt(first[1], first[2], processed, lambda: build_job(first[1].name), mark=False)
                 else: attempt(first[1], first[2], processed, lambda: run_job(first[1].name))
             if due or not pruned:
                 prune(); pruned = True
