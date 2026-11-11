@@ -698,7 +698,10 @@ def begin_build(job_id):
     metadata = paths(job_id)[0]
     update(metadata / 'state.json', 'building', message='Waiting for guarded Mac build admission')
     log_path = metadata / 'build.log'
-    return log_path, log_path.stat().st_size if log_path.exists() else 0
+    offset = log_path.stat().st_size if log_path.exists() else 0
+    # When the build was asked for: the guard's own report shows when it was admitted.
+    with log_path.open('a') as stream: stream.write('ios-push: build requested at %s\n' % datetime.datetime.now().astimezone().isoformat(timespec='seconds'))
+    return log_path, offset
 
 
 def check_build(log_path, offset, returncode):
@@ -788,10 +791,17 @@ def run_overlapped(first, second, processed):
                 process.kill(); process.wait(); raise
             check_build(log_path, offset, returncode)
         attempt(second_dir, second_state, processed, start, mark=False)
+        note('overlap: %s building while %s delivers' % (second_dir.name, first_dir.name) if build else 'overlap: %s not started' % second_dir.name)
         try: attempt(first_dir, first_state, processed, lambda: runnable(first_dir.name) and finish_job(first_dir.name, lock_held=True))
         finally:
+            note('overlap: %s delivery step done' % first_dir.name)
             # A built job stays due: its own delivery follows in this worker run.
             if build: attempt(second_dir, second_state, processed, finish, mark=False)
+
+
+def note(message):
+    """One timestamped line in the worker's launchd log (STORE/worker.log)."""
+    print(datetime.datetime.now().astimezone().isoformat(timespec='seconds') + ' ' + message, flush=True)
 
 
 def attempt(metadata, state, processed, action, mark=True):
