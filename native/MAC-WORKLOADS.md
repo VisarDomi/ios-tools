@@ -155,6 +155,29 @@ memory, disk, responsiveness or deadline checks. These controls contain workload
 failures; they cannot intercept a GPU driver kernel panic.
 Reports are private `~/Library/Caches/ios-app-refresh/workload-*.jsonl` (20 retained).
 
+## T3 Code's Device panel on this Mac
+
+The owner switched on T3 Code's Devices feature on 2026-11-12 (Settings → Devices): the Device
+panel can show an iOS Simulator next to a thread, and agents get `device_*` tools and an
+`agent-device` command. T3 installs its own helpers (a device hub and `agent-device`) with npm
+under `~/.t3`; Node 24 was installed for that, for the user only, in `~/.local/share/node` with
+`node`, `npm` and `npx` linked into `~/.local/bin`. Nothing was added at startup.
+
+T3 knows nothing about this guard, so on this Mac:
+
+- Agents do not boot, open or drive a simulator through T3 (`device_open`, `agent-device`, the
+  panel's **Start**). That is a raw boot outside the guard, and `agent-device`'s first iOS tap
+  compiles a test runner with Xcode outside it too. Simulator QA stays `mac-workload simulator`
+  with the shared device UUIDs, exactly as described below.
+- A simulator that T3 started is not the guard's warm guest. While it is booted the guard
+  refuses builds and simulator sessions, so app deliveries wait (`ios-push` shows them
+  pending) until it is powered off. If a delivery is stuck that way, say so and ask; do not
+  shut another owner's guest down.
+- The owner may use the panel himself. Watching the guard's warm guest in it is harmless.
+
+Android does not run here: the emulator and its virtual device are on the PC
+(`~/Android/Sdk`, virtual device `Pixel_9`), where T3 uses them without these limits.
+
 ## Build delivery has priority
 
 Queued app deliveries take priority over simulator QA. An incoming upload records
