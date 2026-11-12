@@ -31,7 +31,7 @@ site_base() {
 
 # One page listing every published app, newest first, each with its install link; every
 # manifest points at this site; then all of it is uploaded. The Mac's key for this can only
-# write into the site's folder.
+# run the receiving script on Hetzner.
 publish() {
     local base info b n s when
     base=$(site_base)
@@ -50,12 +50,22 @@ publish() {
                 "$s" "$base/$b/manifest.plist%3Fv%3D$s" "$n" "$b" "$when"
         done | sort -rn | cut -f2-
     } > "$root/index.html"
-    # Caddy on Hetzner reads the files through their group; the folder there keeps others out.
-    /bin/chmod -R u=rwX,go=rX "$root"
-    /bin/chmod 600 "$root/.token"
-    local transport="/usr/bin/ssh -i $HOME/.ssh/ios-apps_ed25519 -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15"
-    /usr/bin/rsync -rlt --delete --exclude=/index.html --exclude=/.token -e "$transport" "$root/" "$upload:${base##*/}/" &&
-        /usr/bin/rsync -lt -e "$transport" "$root/index.html" "$upload:index.html"
+    # The site as Hetzner serves it: the page on top, the apps under the random folder name.
+    # It replaces the site there as a whole (push/ota-site/receive, the only thing this key runs).
+    local stage
+    stage=$(mktemp -d)
+    mkdir "$stage/${base##*/}"
+    for info in "$root"/*/info.tsv; do
+        [ -f "$info" ] || continue
+        /bin/cp -R "$(dirname "$info")" "$stage/${base##*/}/"
+    done
+    /bin/cp "$root/index.html" "$stage/index.html"
+    COPYFILE_DISABLE=1 /usr/bin/tar -C "$stage" -cf - . |
+        /usr/bin/ssh -i "$HOME/.ssh/ios-apps_ed25519" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 "$upload" publish
+    local status=$?
+    rm -rf "$stage"
+    return $status
 }
 
 if [ "${1:-}" = --republish ]; then

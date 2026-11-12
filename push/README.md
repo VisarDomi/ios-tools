@@ -262,8 +262,10 @@ and resource-preparation recipe. Diagnostic builds are not product push targets.
 
 Tailscale was removed on 2026-11-12, so the page that installs an app when the Mac cannot reach
 the phone is on Hetzner. `native/scripts/phone-install --ota` on the Mac builds the `.ipa`, its
-manifest and one page listing every published app, and uploads them with rsync
-(`~/.ssh/ios-apps_ed25519`, which on Hetzner can only write into `/srv/ios-apps/site`).
+manifest and one page listing every published app, and uploads them as one tar stream
+(`~/.ssh/ios-apps_ed25519`, which on Hetzner can only run `push/ota-site/receive`; that script
+replaces `/srv/ios-apps/site` with the upload. The Mac's own rsync is too old for a restricted
+rsync).
 
 - `https://ios-apps.veron3.space/` is the page; it needs the veron3 login (Authelia rule
   `ios-apps.veron3.space: one_factor`).

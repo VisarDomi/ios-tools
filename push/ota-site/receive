@@ -1,0 +1,25 @@
+#!/bin/sh
+# Runs on Hetzner as the only command the Mac's publishing key may run (ios-tools
+# push/ota-site). Reads the published apps as a tar stream and replaces the site with them:
+# index.html (the page) and <random name>/<bundle id>/{app.ipa,manifest.plist,info.tsv}.
+set -eu
+umask 027
+home=/srv/ios-apps
+new=$(mktemp -d "$home/incoming.XXXXXX")
+trap 'rm -rf "$new"' EXIT
+# At most 2 GB; names stay inside the folder (tar refuses absolute names and ".."); the
+# sender's owners and modes are ignored.
+head -c 2000000000 | tar -x -C "$new" --no-same-owner --no-same-permissions -f -
+if find "$new" ! -type f ! -type d | grep -q .; then
+	echo "only files and folders are accepted" >&2; exit 1
+fi
+[ -f "$new/index.html" ] || { echo "no index.html in the upload" >&2; exit 1; }
+# erdal writes, Caddy reads through the group the folder passes on, nobody else enters.
+chmod -R u=rwX,g=rX,o= "$new"
+chmod g+s "$new"
+rm -rf "$home/previous"
+[ ! -e "$home/site" ] || mv "$home/site" "$home/previous"
+mv "$new" "$home/site"
+trap - EXIT
+rm -rf "$home/previous"
+echo "published $(find "$home/site" -name app.ipa | wc -l) apps"

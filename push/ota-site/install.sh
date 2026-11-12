@@ -4,12 +4,12 @@
 set -eu
 src=$(cd "$(dirname "$0")" && pwd)
 edge=erdal@157.90.28.14
-site=/srv/ios-apps/site
+receive=/usr/local/lib/ios-apps/receive
 
-# The Mac publishes with its own key, which can only write into the site folder (rrsync -wo).
+# The Mac publishes with its own key, which can only run the receiving script (./receive).
 ssh mac 'test -f ~/.ssh/ios-apps_ed25519 || ssh-keygen -q -t ed25519 -N "" -C ios-apps-publish@mac -f ~/.ssh/ios-apps_ed25519'
 key=$(ssh mac 'cat ~/.ssh/ios-apps_ed25519.pub')
-printf 'command="/usr/bin/rrsync -wo %s",restrict %s\n' "$site" "$key" | ssh "$edge" '
+printf 'command="%s",restrict %s\n' "$receive" "$key" | ssh "$edge" '
 	set -e; f=~/.ssh/authorized_keys; cp -p "$f" "$f.bak-ios-apps-$(date +%Y%m%d%H%M%S)"
 	IFS= read -r line
 	comment=${line##* }
@@ -20,10 +20,13 @@ printf 'command="/usr/bin/rrsync -wo %s",restrict %s\n' "$site" "$key" | ssh "$e
 	test "$(wc -l < "$f.new")" -eq $((before + 1)) || { rm -f "$f.new"; echo "authorized_keys check failed" >&2; exit 1; }
 	chmod 600 "$f.new"; mv "$f.new" "$f"'
 scp -q "$src/Caddyfile.snippet" "$edge:/tmp/ios-apps.Caddyfile"
+scp -q "$src/receive" "$edge:/tmp/ios-apps.receive"
 ssh "$edge" '
 	set -e
 	# erdal writes, Caddy reads, nobody else enters. New files take the folder'"'"'s group.
 	sudo -n install -d -o erdal -g caddy -m 2750 /srv/ios-apps /srv/ios-apps/site
+	sudo -n install -d -m 755 /usr/local/lib/ios-apps
+	sudo -n install -m 755 /tmp/ios-apps.receive /usr/local/lib/ios-apps/receive; rm -f /tmp/ios-apps.receive
 	c=/etc/caddy/Caddyfile
 	if ! sudo -n grep -q "^ios-apps.veron3.space {" $c; then
 		sudo -n cp -p $c $c.bak-ios-apps-$(date +%Y%m%d%H%M%S)
