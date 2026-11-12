@@ -291,11 +291,11 @@ diagnosis; ordinary updates use the shared queue:
 It syncs to the Mac, builds signed there, installs over the same bundle ID on the phone
 and approves the build as its renewal baseline. The install goes through
 [`scripts/phone-install`](scripts/phone-install): with `devicectl` when the Mac reaches the
-phone (the same network, the phone's Tailscale off); otherwise, as when the owner is out
-with the phone, it publishes the app on the tailnet and prints a link to pass on: on the
-phone, with Tailscale on, open `https://mac.tailf47c4e.ts.net:8443/` and tap Install (the
-deploy then skips its launch). This works wherever the PC, the Mac and the phone are,
-since every SSH to the Mac also falls back to Tailscale. When the Mac's pairing services
+phone (the same network); otherwise, as when the owner is out with the phone, it publishes
+the app on Hetzner and prints the address to pass on: on the phone, from anywhere, open
+`https://ios-apps.veron3.space/`, sign in and tap Install (the deploy then skips its launch;
+[push/README.md](../push/README.md), "Away installs"). This works wherever the PC, the Mac
+and the phone are, since every SSH to the Mac also falls back to its relay through Hetzner. When the Mac's pairing services
 lose a phone after a Wi-Fi change, [`scripts/phone-pairing`](scripts/phone-pairing) tests a real
 process-list request (catalog and device details can falsely say connected). When Bonjour
 multicast fails, [`scripts/phone-discovery`](scripts/phone-discovery) finds the phone on the
@@ -343,11 +343,9 @@ endpoint restored a real CoreDevice process request and a Maid Heroes installati
 developer connection: it was false during the successful install. Attempting to enable it
 returned `PasscodeRequired`; `PasswordProtected` was false. Do not remove trust records or
 change phone security settings to repair missing Bonjour discovery.
-The phone's policy is
-**Tailscale off at home, on at coffee**. At home use direct installation; away use
-the install link when direct installation is unavailable. The computers keep
-Tailscale available for remote access. Do not require an always-on phone VPN for
-this workflow. Each app
+Tailscale was removed from the phone and both computers on 2026-11-12. At home use direct
+installation; away use the install page when direct installation is unavailable. No VPN is
+involved. Each app
 doc has its details. The owner usually tests each app as soon as it appears on the phone,
 so deploy the app the change is about first.
 

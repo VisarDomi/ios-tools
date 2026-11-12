@@ -1,0 +1,29 @@
+# The owner's iPhone apps, installable from anywhere (ios-tools push/ota-site; phone-install --ota
+# on the Mac publishes here with a key that can only write into the site folder).
+ios-apps.veron3.space {
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Robots-Tag "noindex, nofollow"
+		Cache-Control "no-store"
+		-Server
+	}
+	root * /srv/ios-apps/site
+	# The page that lists the apps needs the veron3 login.
+	@page path / /index.html
+	handle @page {
+		import authelia
+		rewrite * /index.html
+		file_server
+	}
+	# iOS downloads the manifest and the app itself and cannot log in, so their address carries a
+	# key: the first path segment, a random folder name that only the page above knows. The apps
+	# contain the owner's keys; nothing else is served and nothing is listed.
+	@files path_regexp ^/[A-Za-z0-9_-]{43}/[A-Za-z0-9.-]+/(manifest\.plist|app\.ipa)$
+	handle @files {
+		file_server
+	}
+	handle {
+		respond 404
+	}
+}

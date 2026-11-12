@@ -33,10 +33,10 @@ continue working and check status at a natural checkpoint. Enqueue success is no
 installation success: only **installed** confirms in-place installation and renewal
 approval. Product apps are never launched or uninstalled; the phone UI is never driven.
 
-**awaiting_ota** means a signed package was published through the existing tailnet
-installer because direct installation was unavailable. Pass on
-`https://mac.tailf47c4e.ts.net:8443/`. This is not claimed as installed; delivery retries
-when the authenticated phone returns. Once installation/publication might have happened,
+**awaiting_ota** means a signed package was published for an install from anywhere because
+direct installation was unavailable. Pass on `https://ios-apps.veron3.space/` (the owner signs
+in with the veron3 login and taps Install; see "Away installs" below). This is not claimed as
+installed; delivery retries when the authenticated phone returns. Once installation/publication might have happened,
 finish or supersede the delivery with a newer push instead of cancelling it into an
 older renewal baseline.
 
@@ -257,3 +257,21 @@ Deep Town's missing PC-side RoboVM bundle can only be inherited from its existin
 approved Mac input. Prepare a changed game payload through its project runbook first;
 the queue never invents one. New projects can be added with their renewal declaration
 and resource-preparation recipe. Diagnostic builds are not product push targets.
+
+## Away installs: ios-apps.veron3.space
+
+Tailscale was removed on 2026-11-12, so the page that installs an app when the Mac cannot reach
+the phone is on Hetzner. `native/scripts/phone-install --ota` on the Mac builds the `.ipa`, its
+manifest and one page listing every published app, and uploads them with rsync
+(`~/.ssh/ios-apps_ed25519`, which on Hetzner can only write into `/srv/ios-apps/site`).
+
+- `https://ios-apps.veron3.space/` is the page; it needs the veron3 login (Authelia rule
+  `ios-apps.veron3.space: one_factor`).
+- iOS downloads the manifest and the app itself and cannot log in, so they sit under a random
+  folder name (`~/Library/Application Support/phone-install/.token` on the Mac, made once) that
+  only the page's links contain. Nothing else is served and nothing is listed. The apps contain
+  the owner's keys: never publish them anywhere else.
+- The site folder is `erdal:caddy`, mode 2750; Caddy only reads it.
+- `sh push/ota-site/install.sh` (from the PC, idempotent) sets up the key, the folder, the Caddy
+  site and the login rule. `phone-install --republish` on the Mac uploads what is published again.
+- The files stay on Hetzner, so an install works while the Mac is off.
