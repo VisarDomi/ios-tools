@@ -840,6 +840,23 @@ class ClientStatusTests(unittest.TestCase):
                 client.pump()
             self.assertEqual(common.load(job / 'state.json')['message'], 'Source transferred; waiting for guarded build')
 
+    def test_status_timeout_with_partial_stderr_backs_off_and_continues(self):
+        # subprocess.TimeoutExpired keeps captured stderr as bytes even with text=True.
+        with tempfile.TemporaryDirectory() as temporary, mock.patch.object(client, 'STORE', Path(temporary)):
+            jobs = []
+            for name in ('job-1', 'job-2'):
+                job = Path(temporary) / 'jobs' / name
+                common.save(job / 'request.json', {'id': name}); common.save(job / 'state.json', {'phase': 'submitted'})
+                common.save(job / 'uploaded.json', {'at': 1}); jobs.append(job)
+            timeout = subprocess.TimeoutExpired(['ssh', 'mac'], 45, output=b'', stderr=b'Connection to mac timed out\n')
+            remote = mock.Mock(side_effect=[timeout, subprocess.CompletedProcess([], 0, '{"phase": "building"}')])
+            with mock.patch.object(client, 'remote', remote):
+                client.pump()
+            state = common.load(jobs[0] / 'state.json')
+            self.assertEqual((state['transportAttempts'], state['transportError']), (1, 'Connection to mac timed out'))
+            self.assertGreater(state['transportNextAttempt'], time.time())
+            self.assertEqual(common.load(jobs[1] / 'state.json')['phase'], 'building')
+
 
 class PushTestGateTests(unittest.TestCase):
     """PC tests run on a frozen copy of their inputs while the Mac builds; the uploader reports them."""

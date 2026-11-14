@@ -264,7 +264,9 @@ def pump():
                 if current: save(directory / 'state.json', current)
             except (OSError, subprocess.SubprocessError, ValueError, RuntimeError) as error:
                 attempts = state.get('transportAttempts', 0) + 1
-                detail = (getattr(error, 'stderr', None) or str(error)).strip()[-400:]
+                detail = getattr(error, 'stderr', None) or str(error)
+                if isinstance(detail, bytes): detail = detail.decode(errors='replace')   # TimeoutExpired ignores text=True
+                detail = detail.strip()[-400:]
                 busy = isinstance(error, subprocess.CalledProcessError) and error.returncode == 75
                 if 'Incomplete or changed source upload' in detail: state['checksumTransfer'] = True
                 update(directory / 'state.json', state.get('phase', 'queued'), transportAttempts=attempts,
