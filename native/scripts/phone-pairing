@@ -37,6 +37,8 @@ import time
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 from apple_tools import tool_path
+sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'renewal/scripts'))
+from job_launcher import python_launcher
 
 LABEL = 'com.visar.phone-pairing'
 ROOT = Path(__file__).resolve().parents[2]
@@ -340,7 +342,7 @@ def install():
     LOG.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(plistlib.dumps(dict(
         Label=LABEL, RunAtLoad=True, StartInterval=INTERVAL, LimitLoadToSessionType='Aqua',
-        ProgramArguments=['/usr/bin/python3', str(Path(__file__).resolve())],
+        ProgramArguments=[python_launcher('iPhone pairing'), str(Path(__file__).resolve())],
         StandardOutPath=str(LOG), StandardErrorPath=str(LOG))))
     target.chmod(0o600)
     subprocess.run(['/bin/launchctl', 'bootout', domain + '/' + LABEL], stderr=subprocess.DEVNULL)

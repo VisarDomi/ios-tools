@@ -11,11 +11,18 @@ renew one calendar month after their last successful update.
 | manga-reader | `manga-reader/apps/ios` |
 | gallery-downloader | `gallery-downloader/apps/ios` |
 | gallery-reader | `gallery-reader/apps/ios` |
-| km-explorer | `km-explorer/apps/ios` |
 | video-platform | `video-platform/apps/ios` |
 | deep-town | `deep-town/apps/ios` |
 | custom-twitter | `custom-twitter` |
 | trader | `trader/apps/ios` |
+
+km-explorer is retired (November 19): its scheduler and renewal store were removed.
+
+Each LaunchAgent starts a named launcher from `job_launcher.py`
+(`~/Library/Application Support/ios-tools/launchers/<repo> renewal`, which execs
+`/usr/bin/python3`), so System Settings > Login Items lists "<repo> renewal" instead of
+a row of identical "python3" items. The push queue and phone pairing do the same
+("iOS push queue", "iPhone pairing").
 
 Each scheduler checks every ten minutes and at login, so offline or locked phones
 are retried. Due dates are local state: a run with nothing due ends without any

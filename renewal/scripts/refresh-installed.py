@@ -12,6 +12,7 @@ import time
 import tempfile
 
 from refresh import device_json, next_due
+from job_launcher import python_launcher, renewal_name
 
 STORE = Path.home() / 'Library/Application Support/ios-tools/renewal'
 
@@ -86,7 +87,7 @@ def install(config, path):
     target = Path.home() / 'Library/LaunchAgents' / (label + '.plist')
     target.parent.mkdir(parents=True, exist_ok=True)
     payload = plistlib.dumps(dict(Label=label, RunAtLoad=True, StartInterval=600,
-        LimitLoadToSessionType='Aqua', ProgramArguments=['/usr/bin/python3',
+        LimitLoadToSessionType='Aqua', ProgramArguments=[python_launcher(renewal_name(config['repo'])),
         str(Path(__file__).resolve()), 'refresh', '--config', str(path), '--scheduled'],
         StandardOutPath=str(logs / 'last-check.log'), StandardErrorPath=str(logs / 'last-check.log')))
     descriptor, temporary = tempfile.mkstemp(prefix='.renewal-agent-', dir=target.parent)

@@ -32,6 +32,7 @@ SIGNING_LOCK = MAC_HOME / 'Library/Caches/ios-app-refresh/signing.lock'
 CHECKPOINT_LOCK = STORE / 'checkpoints.lock'
 sys.path.insert(0, str(TOOLS / 'renewal/scripts'))
 import refresh
+from job_launcher import PYTHON, python_launcher, renewal_name
 
 
 class Retry(Exception):
@@ -530,8 +531,9 @@ def ensure_initial_scheduler(request, index, metadata):
         if subprocess.run(check, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10).returncode:
             if plist.exists():
                 data = plistlib.loads(plist.read_bytes())
-                expected = ['/usr/bin/python3', str(runner), 'refresh', '--config', str(index), '--scheduled']
-                if data.get('Label') != label or data.get('ProgramArguments') != expected:
+                tail = [str(runner), 'refresh', '--config', str(index), '--scheduled']
+                accepted = ([python_launcher(renewal_name(request['repo']))] + tail, [PYTHON] + tail)
+                if data.get('Label') != label or data.get('ProgramArguments') not in accepted:
                     raise RuntimeError('Existing renewal scheduler differs from the new project registration')
                 subprocess.run(['/bin/launchctl', 'bootstrap', domain, str(plist)], check=True, timeout=20)
             else:

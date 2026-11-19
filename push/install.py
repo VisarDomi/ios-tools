@@ -8,6 +8,7 @@ import plistlib
 import shlex
 import subprocess
 import sys
+import sys
 from common import atomic_bytes, ensure_directory, load, save, sync_directory
 
 TOOLS = Path(__file__).resolve().parents[1]
@@ -74,7 +75,9 @@ def install_mac():
     plist = home / 'Library/LaunchAgents' / (label + '.plist')
     # Standard priority: as a Background process the queue's builds ran ~3x slower (CPU and disk
     # throttled; 33-39 s instead of 12-13 s for the same build). This Mac is a build station.
-    contents = dict(Label=label, ProgramArguments=['/usr/bin/python3', str(TOOLS / 'push/worker.py'), 'work'],
+    sys.path.insert(0, str(TOOLS / 'renewal/scripts'))
+    from job_launcher import python_launcher
+    contents = dict(Label=label, ProgramArguments=[python_launcher('iOS push queue'), str(TOOLS / 'push/worker.py'), 'work'],
                     RunAtLoad=True, StartInterval=300, ProcessType='Standard',
                     StandardOutPath=str(store / 'worker.log'), StandardErrorPath=str(store / 'worker-errors.log'))
     data = plistlib.dumps(contents)
