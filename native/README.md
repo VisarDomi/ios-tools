@@ -10,13 +10,13 @@ that and this file before changing an app.
 | `/home/visar/Documents/work/manga/manga-reader` | Asura, Scythe, Yaksha, QiScans, Lua, EzScans, Violet | `apps/ios/README.md` |
 | `/home/visar/Documents/work/manga/gallery-reader` | gallery-a, gallery-b | `apps/ios/README.md` |
 | `/home/visar/Documents/work/manga/gallery-downloader` | Gallery Reader (offline, from the PC) | `apps/ios/README.md` |
-| `/home/visar/Documents/work/video/video-platform` | TsLive local, LADDER local, FMP4 local, FileHost local, Video Vault, TsLive | `apps/ios/README.md` |
+| `/home/visar/Documents/work/video/video-platform/private` | the video platform's live app, local-library apps and Video Vault | `apps/ios/README.md` |
 | `/home/visar/Documents/work/trading/trader` | Trader | `apps/ios/README.md` |
 | `/home/visar/Documents/work/games/guidance` | Guidance | `apps/ios/README.md` |
 
 Not native, on purpose: Twitter (an x.com wrapper), Maid Heroes (a Unity WebGL game), World
-Rumble (App Store); Deep Town was native already. The Safari Web Extensions (TsLive Login,
-LADDER live, FMP4 live) live inside the TsLive app. Ytb (km-explorer) was dropped: its site is gone.
+Rumble (App Store); Deep Town was native already. The video platform's Safari Web
+Extensions live inside its live app. Ytb (km-explorer) was dropped: its site is gone.
 Mac and phone access, signing and the phone's UDID:
 [mac-access.md](../../../environment/mac-access.md). Renewal: [renewal](../renewal/README.md).
 
@@ -73,7 +73,8 @@ native tunnel. See [the queue workflow](../push/README.md) before using it direc
 ## State transitions in the media/reader apps
 
 The video, manga and gallery cohort uses explicit lifecycle and work ownership
-models. [state-machines.json](state-machines.json) maps the 40 runtime workflows,
+models. [state-machines.json](state-machines.json) maps the 28 runtime workflows (the video platform's
+apps keep theirs in that project's own repository),
 state owners and invariants; it includes existing structured queues as well as
 newly extracted machines. Facts such as a muted preference, known dimensions or
 a scroll offset stay data, rather than becoming artificial workflow states.
@@ -265,7 +266,7 @@ behaviour; see "Boot only the services a check needs" in MAC-WORKLOADS.md.
 Use the shared asynchronous push command from the app's checkout:
 
 ```sh
-ios-push filehost
+ios-push vault
 ios-push gallery-a
 ios-push manga-reader:asura
 ios-push status JOB
@@ -364,5 +365,5 @@ history (`git show 65bec79:native/STATUS.md`, `PLAN.md`, `inventory/`).
 
 Video viewer contract: only the current video is visible at rest or while zoomed. Neighbours
 appear during unzoomed scrolling only, with no idle snap. VOD neighbours are paused; only
-TsLive live keeps muted neighbours playing. This visibility rule does not change scroll
+a live stream keeps muted neighbours playing. This visibility rule does not change scroll
 coordinates. Metadata reserves size before playback, and zoom disables the carousel.

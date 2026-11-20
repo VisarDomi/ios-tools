@@ -20,13 +20,20 @@ def toolchain_signature(environment):
     return hashlib.sha256(json.dumps(values).encode()).hexdigest()
 
 
+# The build recipe's scripts, in whichever folder an app keeps them (scripts/ or the app's own).
+RECIPE_SCRIPTS = {'build-provider.py', 'project.py'}
+
+
+def recipe_script(local):
+    folder, _, name = local.rpartition('/')
+    return name in RECIPE_SCRIPTS and folder != '' and '/' not in folder
+
+
 def module_inputs(module, files):
     if module == 'AetherEngine':
-        prefixes = ['ThirdParty/AetherCore/', 'ThirdParty/FFmpegBuild/', 'ThirdParty/LibDovi/']
-        names = {'FileHost/build-provider.py', 'FileHost/project.py', 'scripts/build-provider.py', 'scripts/project.py'}
+        prefixes, names = ['ThirdParty/AetherCore/', 'ThirdParty/FFmpegBuild/', 'ThirdParty/LibDovi/'], set()
     elif module == 'AetherFFmpegBuild':
-        prefixes = ['ThirdParty/FFmpegBuild/']
-        names = {'FileHost/build-provider.py', 'FileHost/project.py', 'scripts/build-provider.py', 'scripts/project.py'}
+        prefixes, names = ['ThirdParty/FFmpegBuild/'], set()
     elif module.startswith('Kit'):
         # Conservative dependency coverage: any NativeKit change may invalidate a module.
         prefixes, names = ['Kit/Sources/'], {'Kit/Package.swift'}
@@ -35,7 +42,7 @@ def module_inputs(module, files):
     selected = {}
     for name, value in files.items():
         local = name[len('apps/ios/'):] if name.startswith('apps/ios/') else name
-        if local in names or any(local.startswith(prefix) for prefix in prefixes):
+        if local in names or (module.startswith('Aether') and recipe_script(local)) or any(local.startswith(prefix) for prefix in prefixes):
             selected[name] = value
     # Some recipes freeze the repository root, others apps/ios itself. Never
     # compare an empty dependency set as evidence that a module was unchanged.

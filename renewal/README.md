@@ -168,8 +168,8 @@ per-app `build.log` preserve the reason. A guard stop after compilation starts i
 still a failed build; all guard thresholds and signing/workload locks stay intact.
 
 Apps approved from an ios-push checkpoint compile through the push worker's same
-cache helper, inside the inherited workload/signing lock. FileHost and Manga Reader
-reuse their bounded stable workspaces; the remaining projects use the shared CAS
+cache helper, inside the inherited workload/signing lock. The video platform's
+file-host app and Manga Reader reuse their bounded stable workspaces; the remaining projects use the shared CAS
 policy. The frozen request, recipe and source are verified before and after work.
 The monthly profile advancement and actual installation checks below still decide
 renewal success. `cache-report.json` beside `build.log` records compilation work;

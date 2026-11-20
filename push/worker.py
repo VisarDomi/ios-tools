@@ -280,6 +280,14 @@ def publish_product(source, app):
         recover_product(app)
 
 
+def cache_policy_for(request, app):
+    """The compiler-cache policy travels with the request, so every renewal of its checkpoint
+    builds the same way; a request from before that falls back to the registry."""
+    if 'persistentBuildCache' in request:
+        return build_workspace.policy({'persistentBuildCache': request['persistentBuildCache']}, app)
+    return build_workspace.policy(load(TOOLS / 'push/projects.json', {}).get(request['repo'], {}), app)
+
+
 def compile_checkpoint(config, frozen, request, metadata, cache_log, cache_offset=0):
     """One guarded compiler/cache path for pushes and approved monthly renewals."""
     source = Path(config['root']); app = source / config['app']
@@ -287,7 +295,7 @@ def compile_checkpoint(config, frozen, request, metadata, cache_log, cache_offse
     evicted = []
     compile_source, compile_config = source, config
     strategy = 'cas'
-    cache_policy = build_workspace.policy(load(TOOLS / 'push/projects.json', {}).get(request['repo'], {}), config['name'])
+    cache_policy = cache_policy_for(request, config['name'])
     if cache_policy:
         strategy = 'stable-workspace+cas'
         workspace = MAC_HOME / 'Library/Caches/ios-tools/BuildWorkspaces' / identity(request['repo'])
@@ -1040,7 +1048,7 @@ def work(wait=True):
             due, earliest = scan(processed)
             # Fresh source/build/publication work precedes retries for packages already sent. One job
             # per scan, so a job that became ready meanwhile keeps its queue position instead of
-            # waiting for a whole earlier batch (a FileHost build is ~10 minutes). A built job's phone
+            # waiting for a whole earlier batch (a large app build takes ~10 minutes). A built job's phone
             # delivery overlaps the next queued job's compile.
             ordered = sorted(due, key=lambda item: (item[0], item[1].name))
             built_only = False

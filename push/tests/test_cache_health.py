@@ -7,7 +7,7 @@ from common import load
 class CacheHealthTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
-        self.root=Path(self.temp.name);self.request={'id':'one','repo':'video-platform','app':'filehost-local'}
+        self.root=Path(self.temp.name);self.request={'id':'one','repo':'video-platform','app':'files-local'}
         self.files={'ThirdParty/AetherCore/Sources/core.swift':'core1','VideoApp/ViewerController.swift':'ui1'}
     def record(self,output,**kwargs):
         return cache_health.record(self.root,self.root/'job',self.request,self.files,output,seconds=12,strategy='stable-workspace+cas',toolchain='sdk1',success=True,**kwargs)
@@ -57,11 +57,11 @@ class CacheHealthTests(unittest.TestCase):
         self.assertEqual(self.record(miss)['health'],'regression')
     def test_failed_attempt_and_known_eviction_do_not_create_false_regressions(self):
         miss="note: Local cache miss for key: llvmcas://abc (in target 'AetherEngine' from project 'AetherEngine')"
-        self.record(miss,evicted=['build/filehost/DerivedData'])
+        self.record(miss,evicted=['build/files/DerivedData'])
         self.assertEqual(self.record(miss)['warnings'],[])
-        previous=load(self.root/'cache-health/video-platform/filehost-local.json')
+        previous=load(self.root/'cache-health/video-platform/files-local.json')
         cache_health.record(self.root,self.root/'failed',self.request,self.files,miss,seconds=1,strategy='stable-workspace+cas',toolchain='sdk1',success=False)
-        current=load(self.root/'cache-health/video-platform/filehost-local.json')
+        current=load(self.root/'cache-health/video-platform/files-local.json')
         self.assertEqual(current['baseline'],previous['baseline'])
         self.assertEqual(current['latest']['health'],'build-failed')
     def test_sdk_change_resets_comparison(self):

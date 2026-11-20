@@ -76,179 +76,6 @@
       "implementation": "explicit phase/ownership model"
     },
     {
-      "family": "video",
-      "machine": "playback readiness and intent",
-      "path": "video/video-platform/apps/ios/VideoApp/VideoPlaybackState.swift",
-      "states": [
-        "empty",
-        "resolving",
-        "preparing",
-        "ready",
-        "recovering(wasReady)",
-        "ended",
-        "failed(wasReady)"
-      ],
-      "invariant": "User intent is independent of automatic activation; recovery preserves readiness history and clock; stale EOF cannot finish a new seek/replay.",
-      "persistence": "Transient task/gesture phases restart from existing durable user state and committed media; process-local operation IDs are never persisted.",
-      "implementation": "explicit phase/ownership model"
-    },
-    {
-      "family": "video",
-      "machine": "seek chasing",
-      "path": "video/video-platform/apps/ios/VideoApp/ChasingSeek.swift",
-      "states": [
-        "idle",
-        "waiting",
-        "running(current,latest)"
-      ],
-      "invariant": "superseded seek callbacks and rejected seek readiness",
-      "persistence": "Transient task/gesture phases restart from existing durable user state and committed media; process-local operation IDs are never persisted.",
-      "implementation": "explicit phase/ownership model"
-    },
-    {
-      "family": "video",
-      "machine": "decoder lifecycle",
-      "path": "video/video-platform/apps/ios/VideoApp/DecoderLifecycle.swift",
-      "states": [
-        "opening",
-        "ready",
-        "ended",
-        "failed(wasReady)",
-        "stopping",
-        "stopped"
-      ],
-      "invariant": "late decoder events reopen EOF; error clock must retain last time",
-      "persistence": "Transient task/gesture phases restart from existing durable user state and committed media; process-local operation IDs are never persisted.",
-      "implementation": "explicit phase/ownership model"
-    },
-    {
-      "family": "video",
-      "machine": "video output restoration",
-      "path": "video/video-platform/apps/ios/VideoApp/DecoderLifecycle.swift",
-      "states": [
-        "enabled",
-        "disabled",
-        "awaitingForeground"
-      ],
-      "invariant": "late output restoration cannot undo backgrounding",
-      "persistence": "Existing navigation, list anchor, playback checkpoint and reader position formats retained. Transient animation/output phases are rebuilt; cancellation never replaces a committed position with a temporary zero.",
-      "implementation": "explicit phase/ownership model"
-    },
-    {
-      "family": "video",
-      "machine": "carousel interaction",
-      "path": "video/video-platform/apps/ios/VideoApp/ViewerInteractionState.swift",
-      "states": [
-        "contact(up/down)",
-        "motion(rest/dragging/decelerating)",
-        "zoom(minimum/pinching/magnified)"
-      ],
-      "invariant": "Contact and motion overlap; retouching momentum does not hide neighbours. Only validated settling or zoom changes carousel visibility; preserve pre-refactor callback semantics.",
-      "persistence": "Transient task/gesture phases restart from existing durable user state and committed media; process-local operation IDs are never persisted.",
-      "implementation": "explicit phase/ownership model"
-    },
-    {
-      "family": "video",
-      "machine": "viewer presentation",
-      "path": "video/video-platform/apps/ios/VideoApp/ViewerInteractionState.swift",
-      "states": [
-        "prepared",
-        "loading",
-        "revealed",
-        "closed"
-      ],
-      "invariant": "late reveal after closing",
-      "persistence": "Transient task/gesture phases restart from existing durable user state and committed media; process-local operation IDs are never persisted.",
-      "implementation": "explicit phase/ownership model"
-    },
-    {
-      "family": "video",
-      "machine": "local revision feed",
-      "path": "video/video-platform/apps/ios/VideoApp/LocalList.swift",
-      "states": [
-        "idle",
-        "running",
-        "finished"
-      ],
-      "invariant": "result and teardown ownership across reload/pause",
-      "persistence": "Transient task/gesture phases restart from existing durable user state and committed media; process-local operation IDs are never persisted.",
-      "implementation": "explicit phase/ownership model"
-    },
-    {
-      "family": "video",
-      "machine": "Vault refresh publication",
-      "path": "video/video-platform/apps/ios/VideoApp/VaultList.swift",
-      "states": [
-        "idle",
-        "running",
-        "finished"
-      ],
-      "invariant": "cancelled detached list merge must not replace newer refresh",
-      "persistence": "Transient task/gesture phases restart from existing durable user state and committed media; process-local operation IDs are never persisted.",
-      "implementation": "explicit phase/ownership model"
-    },
-    {
-      "family": "video",
-      "machine": "TsLive session renewal",
-      "path": "video/video-platform/apps/ios/VideoApp/TsLive.swift",
-      "states": [
-        "idle",
-        "renewing",
-        "cooldown"
-      ],
-      "invariant": "single rotating-token owner; cooldown and expiry remain separate",
-      "persistence": "Existing durable cookie jar and phone-only rotating-token family; pending desktop-login receipt remains durable and idempotent. Live tasks are rebuilt after restart; no token copying or sign-out added.",
-      "implementation": "explicit phase/ownership model"
-    },
-    {
-      "family": "video",
-      "machine": "TsLive stream authorization",
-      "path": "video/video-platform/apps/ios/VideoApp/TsLive.swift",
-      "states": [
-        "missing",
-        "usable(header,expires)",
-        "idle",
-        "authorizing",
-        "stopped",
-        "running"
-      ],
-      "invariant": "cached expiring token and one task; no sign-out on outage",
-      "persistence": "Existing durable cookie jar and phone-only rotating-token family; pending desktop-login receipt remains durable and idempotent. Live tasks are rebuilt after restart; no token copying or sign-out added.",
-      "implementation": "explicit phase/ownership model"
-    },
-    {
-      "family": "video",
-      "machine": "TsLive list and desktop login",
-      "path": "video/video-platform/apps/ios/VideoApp/TsLiveList.swift",
-      "states": [
-        "idle",
-        "running",
-        "finished",
-        "connecting",
-        "cooldown",
-        "durable pending receipt"
-      ],
-      "invariant": "generation/cancellation, durable login handoff",
-      "persistence": "Existing durable cookie jar and phone-only rotating-token family; pending desktop-login receipt remains durable and idempotent. Live tasks are rebuilt after restart; no token copying or sign-out added.",
-      "implementation": "explicit phase/ownership model"
-    },
-    {
-      "family": "video",
-      "machine": "list/viewer restore and deferred rows",
-      "path": "video/video-platform/apps/ios/VideoApp/VideoList.swift",
-      "states": [
-        "awaiting(anchor)",
-        "restored",
-        "absent",
-        "scheduled",
-        "ready",
-        "deferred snapshot"
-      ],
-      "invariant": "no snap or scroll waits; checkpoint, spare preparation, returned selection",
-      "persistence": "Existing navigation, list anchor, playback checkpoint and reader position formats retained. Transient animation/output phases are rebuilt; cancellation never replaces a committed position with a temporary zero.",
-      "implementation": "explicit phase/ownership model"
-    },
-    {
       "family": "manga",
       "machine": "catalog/planner",
       "path": "manga/manga-reader/apps/ios/MangaReader/Library.swift",
@@ -587,7 +414,7 @@
   "invariants": [
     "Free scrolling never snaps or waits for scroll-end to load content.",
     "Zoom disables video carousel; only current video is visible at rest.",
-    "VOD neighbours are paused; TsLive live neighbours remain muted.",
+    "VOD neighbours are paused; live-stream neighbours remain muted.",
     "Cancellation revokes only its owner; stale completions cannot publish or clear replacement work.",
     "Manga current+next belongs only to touched series; retirement grace is 24 hours; covers and progress persist.",
     "EOF, failure, stopping and paused intent remain distinct.",
@@ -609,21 +436,6 @@
       "path": "manga/gallery-reader/apps/ios/GalleryReader/Providers.swift",
       "owner": "GGCache",
       "representation": "One coalesced route refresh task; ready table has an expiry, independent of download ownership."
-    },
-    {
-      "path": "video/video-platform/apps/ios/VideoApp/ViewerOverlay.swift",
-      "owner": "Download-list membership",
-      "representation": "Existing ListState enum plus generation rejection; rename/block/scrub flags each describe independent binary facts."
-    },
-    {
-      "path": "video/video-platform/apps/ios/VideoApp/ViewerSession.swift",
-      "owner": "Audio session",
-      "representation": "Serialized audio queue, session generation and explicit begin/end; mute preference and Now Playing publication are independent facts."
-    },
-    {
-      "path": "video/video-platform/apps/ios/VideoApp/ViewerPC.swift",
-      "owner": "Edit transactions",
-      "representation": "Mutations capture recording identity; replacement application preserves the current visible identity/position. Existing retry/transaction contract retained."
     },
     {
       "path": "manga/gallery-downloader/apps/ios/GalleryReader/ViewPositions.swift",

@@ -11,44 +11,7 @@
     }
   },
   "video-platform": {
-    "path": "video/video-platform/private",
-    "prepare": "video",
-    "aliases": {
-      "filehost": "filehost-local",
-      "fmp4": "fmp4-local",
-      "ladder": "ladder-local",
-      "tslive": "tslive-live",
-      "tslive-local": "tslive-local",
-      "vault": "vault"
-    },
-    "persistentBuildCache": {
-      "apps": [
-        "filehost-local"
-      ],
-      "maximumBytes": 2147483648,
-      "cacheRoots": [
-        "build/filehost/native",
-        "build/filehost/DerivedData"
-      ],
-      "shared": {
-        "apps": [
-          "tslive-local",
-          "ladder-local",
-          "fmp4-local",
-          "vault",
-          "tslive-live"
-        ],
-        "maximumBytes": 2147483648,
-        "cacheRoots": [
-          "build/app/DerivedData",
-          "build/app/native"
-        ]
-      }
-    },
-    "tests": [
-      "bash",
-      "apps/ios/scripts/test.sh"
-    ]
+    "path": "video/video-platform/private"
   },
   "manga-reader": {
     "path": "manga/manga-reader",

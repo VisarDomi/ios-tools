@@ -64,23 +64,23 @@ class BuildWorkspaceTests(unittest.TestCase):
         self.assertEqual((self.workspace / 'Sources/code.swift').read_text(), self.code.read_text())
         self.assertEqual(signed.read_bytes(), b'signed checkpoint')
 
-    def test_filehost_policy_is_scoped_to_its_own_provider(self):
-        project={'persistentBuildCache':{'apps':['filehost-local'],'cacheRoots':['build/filehost/native','build/filehost/DerivedData']}}
-        self.assertIsNone(build_workspace.policy(project,'fmp4-local'))
-        self.assertTrue(build_workspace.policy(project,'filehost-local')['perApp'])
+    def test_a_per_app_policy_is_scoped_to_its_own_app(self):
+        project={'persistentBuildCache':{'apps':['files-local'],'cacheRoots':['build/files/native','build/files/DerivedData']}}
+        self.assertIsNone(build_workspace.policy(project,'live-c-local'))
+        self.assertTrue(build_workspace.policy(project,'files-local')['perApp'])
         self.assertFalse(build_workspace.policy({'persistentBuildCache':True},'lua')['perApp'])
-        with self.assertRaises(ValueError):build_workspace.policy({'persistentBuildCache':{'apps':['filehost-local'],'cacheRoots':['Sources']}},'filehost-local')
+        with self.assertRaises(ValueError):build_workspace.policy({'persistentBuildCache':{'apps':['files-local'],'cacheRoots':['Sources']}},'files-local')
 
     def test_shared_policy_puts_same_target_providers_in_one_workspace(self):
-        project={'persistentBuildCache':{'apps':['filehost-local'],'cacheRoots':['build/filehost/native','build/filehost/DerivedData'],
-                 'shared':{'apps':['fmp4-local','vault'],'maximumBytes':1<<30,'cacheRoots':['build/app/DerivedData','build/app/native']}}}
-        shared=build_workspace.policy(project,'fmp4-local')
+        project={'persistentBuildCache':{'apps':['files-local'],'cacheRoots':['build/files/native','build/files/DerivedData'],
+                 'shared':{'apps':['live-c-local','vault'],'maximumBytes':1<<30,'cacheRoots':['build/app/DerivedData','build/app/native']}}}
+        shared=build_workspace.policy(project,'live-c-local')
         self.assertFalse(shared['perApp'])
         self.assertEqual(shared['cacheRoots'],['build/app/DerivedData','build/app/native'])
         self.assertEqual(shared['maximumBytes'],1<<30)
         self.assertEqual(build_workspace.policy(project,'vault'),shared)
-        self.assertTrue(build_workspace.policy(project,'filehost-local')['perApp'])
-        self.assertIsNone(build_workspace.policy(project,'tslive-local'))
+        self.assertTrue(build_workspace.policy(project,'files-local')['perApp'])
+        self.assertIsNone(build_workspace.policy(project,'live-a-local'))
         with self.assertRaises(ValueError):
             build_workspace.policy({'persistentBuildCache':{'shared':{'apps':['vault']}}},'vault')
         with self.assertRaises(ValueError):
@@ -90,16 +90,16 @@ class BuildWorkspaceTests(unittest.TestCase):
     def test_provider_layout_budget_excludes_large_frozen_inputs(self):
         self.workspace.mkdir(parents=True);(self.workspace/'source-binary').write_bytes(b'x'*100)
         for name in ['native','DerivedData']:
-            p=self.workspace/'build/filehost'/name/'object';p.parent.mkdir(parents=True);p.write_bytes(b'x'*16)
-        removed=build_workspace.trim(self.workspace,'filehost-local',maximum=30,cache_roots=['build/filehost/native','build/filehost/DerivedData'])
-        self.assertEqual(removed,['build/filehost/native'])
-        self.assertTrue((self.workspace/'build/filehost/DerivedData/object').exists())
+            p=self.workspace/'build/files'/name/'object';p.parent.mkdir(parents=True);p.write_bytes(b'x'*16)
+        removed=build_workspace.trim(self.workspace,'files-local',maximum=30,cache_roots=['build/files/native','build/files/DerivedData'])
+        self.assertEqual(removed,['build/files/native'])
+        self.assertTrue((self.workspace/'build/files/DerivedData/object').exists())
         self.assertTrue((self.workspace/'source-binary').exists())
 
     def test_provider_cache_cannot_follow_an_external_parent_link(self):
         outside=self.root/'outside';outside.mkdir();(outside/'file').write_text('owner data')
-        (self.workspace/'build').mkdir(parents=True);(self.workspace/'build/filehost').symlink_to(outside,target_is_directory=True)
-        with self.assertRaises(ValueError):build_workspace.trim(self.workspace,'filehost-local',cache_roots=['build/filehost/DerivedData'])
+        (self.workspace/'build').mkdir(parents=True);(self.workspace/'build/files').symlink_to(outside,target_is_directory=True)
+        with self.assertRaises(ValueError):build_workspace.trim(self.workspace,'files-local',cache_roots=['build/files/DerivedData'])
         self.assertEqual((outside/'file').read_text(),'owner data')
 
     def test_repository_rooted_ios_cache_preserves_sources_and_signed_checkpoints(self):

@@ -24,10 +24,19 @@ RUNNER = '/Users/visar/Developer/ios-tools/push/worker.py'
 LABEL = 'com.visar.ios-push'
 
 
+# What a project may say about itself, in ios-push.json at its root: its short names, its
+# compiler-cache policy, how it is prepared and tested. Merged over the registry entry, so a
+# project's own (possibly private) app names never need to be in this repository.
+PROJECT_SETTINGS = ('aliases', 'persistentBuildCache', 'prepare', 'tests', 'testScope', 'carry', 'declaration')
+
+
 def projects():
     result = load(TOOLS / 'push/projects.json')
     base = Path(os.environ.get('IOS_PUSH_WORKSPACE', Path.home() / ('Developer' if ON_MAC else 'Documents/work')))
-    for name, item in result.items(): item['root'] = str(base / (name if ON_MAC else item['path']))
+    for name, item in result.items():
+        item['root'] = str(base / (name if ON_MAC else item['path']))
+        own = load(Path(item['root']) / 'ios-push.json', {})
+        item.update({key: value for key, value in own.items() if key in PROJECT_SETTINGS})
     return result
 
 
@@ -186,7 +195,9 @@ def enqueue(selector, project_name=None, source=None, validate_only=False, force
         request = {'version': 1, 'id': job_id, 'repo': identity(repo), 'app': identity(app['name']),
                    'createdAt': time.time(), 'sourceRevision': revision, 'sourceHash': source_hash(files),
                    'files': files, 'carry': missing, 'config': app, 'sourceRoot': str(root),
-                   'validateOnly': validate_only, 'force': force, 'neverLaunch': True, **(tests or {})}
+                   'validateOnly': validate_only, 'force': force, 'neverLaunch': True, **(tests or {}),
+                   # The Mac worker (and every renewal of this checkpoint) reads the cache policy here.
+                   **({'persistentBuildCache': project['persistentBuildCache']} if project.get('persistentBuildCache') else {})}
         update(directory / 'state.json', 'queued', id=job_id, repo=repo, app=app['name'], createdAt=request['createdAt'])
         save(directory / 'request.json', request)  # Publish last; uploader cannot race the initial state.
     except BaseException:

@@ -1,7 +1,7 @@
 # One-command iOS updates
 
 ```sh
-ios-push filehost
+ios-push vault
 ios-push gallery-a
 ios-push manga-reader:asura
 ios-push guidance
@@ -9,8 +9,10 @@ ios-push t3-watch
 ```
 
 Run from the app's checkout (worktrees are supported), or use `--source /path/to/checkout`.
-`ios-push list` lists the configured projects/apps. Short names `filehost`, `fmp4`, `ladder`,
-`vault` and `tslive` select their Video Platform apps; `tslive-local` is explicit.
+`ios-push list` lists the configured projects/apps. `projects.json` says where each project
+is; a project may add its own settings in `ios-push.json` at its root (its apps' short names,
+its compiler-cache policy, how it is prepared and tested), merged over its entry, so its app
+names need not be here. The Video Platform's short names select its apps that way.
 
 The command prepares resources, freezes the current source bytes and returns **Queued
 JOB**. Working edits and declared ignored inputs are captured; committing is recommended
@@ -107,9 +109,10 @@ own pruning targets 8 GiB per CAS store (2 GiB evicted unchanged NativeKit modul
 logs include cache diagnostics, and receipts record compilation seconds.
 
 Manga Reader, Gallery Reader (online and offline) and Video Platform builds also use stable,
-regenerable compiler workspaces, each capped at 2 GiB of retained compiler data. FileHost has its own
-provider workspace; the other video providers and the two online Gallery Reader providers
-(`shared` in `projects.json`) each build one common target in one shared workspace.
+regenerable compiler workspaces, each capped at 2 GiB of retained compiler data. The video
+platform's file-host app has its own provider workspace; its other apps and the two online Gallery
+Reader providers (`shared` in the policy) each build one common target in one shared workspace.
+The policy travels with each queued request, so renewals of its checkpoint build the same way.
 
 A stable path is what lets a second provider reuse the first one's app module. Xcode's
 compilation cache reuses NativeKit's modules across job paths, but an app module compiled at one
@@ -133,7 +136,7 @@ and an ordinary identical submission reused its signed app with 0 compilation
 seconds. These are build-stage measurements, excluding queue/upload/install time.
 A Swift edit still recompiles that release module with whole-module optimization.
 
-A November 7 FileHost validation on the same Intel Mac measured 758.4 s for the
+A November 7 validation of the video platform's file-host app on the same Intel Mac measured 758.4 s for the
 first retained-workspace build, 46.5 s for an unchanged forced Xcode build with
 zero Swift compilations, and 90.7 s for an app-only edit. The edit compiled only
 the app module; AetherEngine and NativeKit remained skipped. All three signed
@@ -215,7 +218,7 @@ checked before approval.
 After confirmation, only the requested app's renewal registration moves to the new
 checkpoint. Other apps keep their approved roots. Do not edit checkpoint directories
 or assume `~/Developer/REPO` remains an app's renewal root: read its registration or
-the push result. Submit shared changes for each intended app; a FileHost-only update
+the push result. Submit shared changes for each intended app; an update to one app only
 does not silently change other apps' baselines.
 
 A durable `pendingPush` marker makes renewal defer before installation/OTA publication,
