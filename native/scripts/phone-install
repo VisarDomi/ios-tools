@@ -146,6 +146,15 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 mkdir "$work/Payload"
 ditto "$app" "$work/Payload/$(basename "$app")"
+# An over-the-air install keeps the file modes in the .ipa. Builds made under umask 077 have
+# owner-only files, which the app itself then cannot read (the system still launches it, so
+# only bundled resources fail: the manga and gallery apps lost their PC address and key, and
+# with it Load/Save and search). devicectl installs reset modes, which is why only OTA broke.
+# Everyone may read; folders and executables stay traversable. Modes are not part of the
+# code signature, which is checked again before the app is published.
+chmod -R u+rwX,go+rX "$work/Payload"
+codesign --verify --deep --strict "$work/Payload/$(basename "$app")" ||
+    { echo "The app's signature does not verify; not publishing it." >&2; exit 1; }
 (cd "$work" && ditto -c -k --norsrc --keepParent Payload app.ipa)
 mv "$work/app.ipa" "$root/$bundle/app.ipa"
 
