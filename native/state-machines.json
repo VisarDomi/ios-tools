@@ -370,6 +370,20 @@
       "implementation": "existing structured owner retained"
     },
     {
+      "family": "manga",
+      "machine": "home search",
+      "path": "manga/manga-reader/apps/ios/Core/Sources/MangaLibrary/HomeSearch.swift",
+      "states": [
+        "hidden",
+        "ready",
+        "searching(query,request,showing)",
+        "showing(result)"
+      ],
+      "invariant": "only the current request number finishes or fails; PC/model availability is separate from the typed query; leaving a result restores the usual order and the remembered position",
+      "persistence": "The shown result and the anchor before it are saved with Home's navigation state; in-flight requests and availability are never persisted and are re-asked after relaunch.",
+      "implementation": "explicit phase/ownership model"
+    },
+    {
       "family": "gallery online",
       "machine": "list/strip/reader prefetch",
       "path": "manga/gallery-reader/apps/ios/GalleryReader/Prefetch.swift",
