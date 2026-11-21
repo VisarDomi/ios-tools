@@ -203,11 +203,17 @@ once 29 s) runs during the compile: inside a lone job's guarded build, or by the
 after an overlapped delivery while the next job still compiles. Both run under the Mac lock.
 A reachable answer counts for that job's first delivery within five minutes; retries ask again.
 
-An unreachable phone gets one pairing recovery (`phone-pairing --now`, about a minute under the
-Mac lock) per five-minute window, for every job waiting for that phone: the first job's recovery
-records the phone away (`phone-away.json` in the queue store), and the other jobs keep their
-published away-install update and retry after the window; an installation clears the record.
-Each job pairing on its own once kept the Mac locked back to back while the Mac was at the
+Before pairing, the worker asks the ops hub where the phone is (`/api/where`, environment repo
+`services/ops`, with the Mac sentinel's token from `~/.config/ops-sentinel/`). The hub knows it
+from the Mac's own CoreDevice view, whether the phone answers on the PC's home Wi-Fi, and which
+network the phone's own traffic comes from (home, the office, mobile data). When it says the
+phone is away from the Mac, the worker publishes to the away-install page at once and asks again
+five minutes later, without pairing. When the hub says the phone could be near, or does not
+answer, an unreachable phone gets one pairing recovery (`phone-pairing --now`, about a minute
+under the Mac lock) per five-minute window, for every job waiting for that phone: the first job's
+recovery records the phone away (`phone-away.json` in the queue store), and the other jobs keep
+their published away-install update and retry after the window; an installation clears the
+record. Each job pairing on its own once kept the Mac locked back to back while the Mac was at the
 office and the phone at home.
 
 The worker builds a job, then scans again, so jobs whose upload finishes during that
