@@ -10,7 +10,7 @@ receive=/usr/local/lib/ios-apps/receive
 ssh mac 'test -f ~/.ssh/ios-apps_ed25519 || ssh-keygen -q -t ed25519 -N "" -C ios-apps-publish@mac -f ~/.ssh/ios-apps_ed25519'
 key=$(ssh mac 'cat ~/.ssh/ios-apps_ed25519.pub')
 printf 'command="%s",restrict %s\n' "$receive" "$key" | ssh "$edge" '
-	set -e; f=~/.ssh/authorized_keys; cp -p "$f" "$f.bak-ios-apps-$(date +%Y%m%d%H%M%S)"
+	set -e; f=~/.ssh/authorized_keys
 	IFS= read -r line
 	comment=${line##* }
 	before=$(grep -vc " $comment\$" "$f" || true)
@@ -29,19 +29,21 @@ ssh "$edge" '
 	sudo -n install -m 755 /tmp/ios-apps.receive /usr/local/lib/ios-apps/receive; rm -f /tmp/ios-apps.receive
 	c=/etc/caddy/Caddyfile
 	if ! sudo -n grep -q "^ios-apps.veron3.space {" $c; then
-		sudo -n cp -p $c $c.bak-ios-apps-$(date +%Y%m%d%H%M%S)
+		sudo -n cp -p $c /tmp/Caddyfile.before-ios-apps
 		printf "\n" | sudo -n tee -a $c >/dev/null
 		sudo -n tee -a $c < /tmp/ios-apps.Caddyfile >/dev/null
 		if ! sudo -n caddy validate --config $c --adapter caddyfile >/dev/null 2>&1; then
-			sudo -n cp -p "$(sudo -n sh -c "ls -t $c.bak-ios-apps-* | head -1")" $c; echo "caddy validate failed; restored" >&2; exit 1
+			sudo -n cp /tmp/Caddyfile.before-ios-apps $c; sudo -n rm -f /tmp/Caddyfile.before-ios-apps
+			echo "caddy validate failed; restored" >&2; exit 1
 		fi
 		sudo -n systemctl reload caddy
+		sudo -n rm -f /tmp/Caddyfile.before-ios-apps  # the history is git -C /etc/caddy log
 	fi
 	rm -f /tmp/ios-apps.Caddyfile
 	# Authelia lets every host through unless it has a rule: the page needs one.
 	a=/etc/authelia/configuration.yml
 	if ! sudo -n grep -q "domain: ios-apps.veron3.space" $a; then
-		backup=$a.bak-ios-apps-$(date +%Y%m%d%H%M%S)
+		backup=/tmp/configuration.yml.before-ios-apps
 		sudo -n cp -p $a $backup
 		sudo -n python3 - $a <<"PY"
 import sys
@@ -53,8 +55,9 @@ open(path, "w").write(text.replace(anchor, anchor + "    - domain: ios-apps.vero
 PY
 		if sudo -n -u authelia sh -c "set -a; . /etc/authelia/environment; /usr/local/bin/authelia validate-config --config $a" >/dev/null; then
 			sudo -n systemctl restart authelia-native.service
+			sudo -n rm -f $backup  # the history is git -C /etc/authelia log
 		else
-			sudo -n cp -p $backup $a; echo "Authelia config invalid after adding the rule; restored" >&2; exit 1
+			sudo -n cp $backup $a; sudo -n rm -f $backup; echo "Authelia config invalid after adding the rule; restored" >&2; exit 1
 		fi
 	fi
 	systemctl is-active caddy authelia-native.service | tr "\n" " "; echo'
