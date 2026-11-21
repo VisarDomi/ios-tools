@@ -822,6 +822,12 @@ def finish_job(job_id, lock_held=False):
             validate_receipt(config, receipt, source / config['app'])
         update(metadata / 'state.json', 'validated', message='Signed source checkpoint verified; no phone operation', nextAttempt=0)
         return
+    # A published update for a phone the ops hub places away from the Mac: nothing to try, and
+    # asking the phone (5-6 s under the Mac lock) for every waiting job only blocks other work.
+    if load(metadata / 'state.json', {}).get('otaPublished') and phone_route() == 'page':
+        update(metadata / 'state.json', 'awaiting_ota', nextAttempt=time.time() + PHONE_AWAY_SECONDS,
+               message='Signed update published; the phone is away from the Mac')
+        return
     try: deliver(job_id, lock_held=lock_held)
     except RecoverTransport:
         if (metadata / 'cancelled.json').exists(): update(metadata / 'state.json', 'cancelled'); return

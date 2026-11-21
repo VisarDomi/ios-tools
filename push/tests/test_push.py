@@ -658,7 +658,7 @@ class WorkerTests(unittest.TestCase):
             self.assertEqual(deliveries, [False, True])  # published on the page at once
             worker.run_job(self.job)                     # five minutes later: still away, nothing to do
         self.assertEqual(pairings, [])
-        self.assertEqual(deliveries, [False, True, False])
+        self.assertEqual(deliveries, [False, True])      # not even a phone check under the Mac lock
         state = common.load(self.metadata / 'state.json')
         self.assertEqual(state['phase'], 'awaiting_ota'); self.assertGreater(state['nextAttempt'], time.time() + 200)
         # Next to the Mac again (or unknown): pairing recovery as before.
