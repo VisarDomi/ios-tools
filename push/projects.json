@@ -13,6 +13,9 @@
   "video-platform": {
     "path": "video/video-platform/private"
   },
+  "video-platform-apps": {
+    "path": "video/video-platform"
+  },
   "manga-reader": {
     "path": "manga/manga-reader",
     "persistentBuildCache": true,
