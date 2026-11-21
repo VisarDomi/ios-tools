@@ -344,9 +344,9 @@ endpoint restored a real CoreDevice process request and a Maid Heroes installati
 developer connection: it was false during the successful install. Attempting to enable it
 returned `PasscodeRequired`; `PasswordProtected` was false. Do not remove trust records or
 change phone security settings to repair missing Bonjour discovery.
-Tailscale was removed from the phone and both computers on 2026-11-12. At home use direct
-installation; away use the install page when direct installation is unavailable. No VPN is
-involved. Each app
+Direct installation needs the phone next to the Mac (the Mac is a laptop, at home or at the
+office); otherwise the app goes to the away-install page (push/README.md, "Away installs"). No
+VPN is involved. Each app
 doc has its details. The owner usually tests each app as soon as it appears on the phone,
 so deploy the app the change is about first.
 

@@ -203,6 +203,13 @@ once 29 s) runs during the compile: inside a lone job's guarded build, or by the
 after an overlapped delivery while the next job still compiles. Both run under the Mac lock.
 A reachable answer counts for that job's first delivery within five minutes; retries ask again.
 
+An unreachable phone gets one pairing recovery (`phone-pairing --now`, about a minute under the
+Mac lock) per five-minute window, for every job waiting for that phone: the first job's recovery
+records the phone away (`phone-away.json` in the queue store), and the other jobs keep their
+published away-install update and retry after the window; an installation clears the record.
+Each job pairing on its own once kept the Mac locked back to back while the Mac was at the
+office and the phone at home.
+
 The worker builds a job, then scans again, so jobs whose upload finishes during that
 build still overlap. Measured November 11: Violet's 11 s delivery ran during the next
 job's build, and the pair finished 12 s sooner. Each build log records when the build
@@ -263,8 +270,8 @@ and resource-preparation recipe. Diagnostic builds are not product push targets.
 
 ## Away installs: ios-apps.veron3.space
 
-Tailscale was removed on 2026-11-12, so the page that installs an app when the Mac cannot reach
-the phone is on Hetzner. `native/scripts/phone-install --ota` on the Mac builds the `.ipa`, its
+The page that installs an app when the Mac cannot reach the phone (the phone is not next to the
+Mac, which is often at the office) is on Hetzner. `native/scripts/phone-install --ota` on the Mac builds the `.ipa`, its
 manifest and one page listing every published app, and uploads them as one tar stream
 (`~/.ssh/ios-apps_ed25519`, which on Hetzner can only run `push/ota-site/receive`; that script
 replaces `/srv/ios-apps/site` with the upload. The Mac's own rsync is too old for a restricted

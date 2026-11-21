@@ -480,10 +480,9 @@ phone/Watch symbol caches (6.5 GiB) and indexes projects in the background.
 
 ## Recovery
 
-If SSH slows, stop issuing more builds and boots. `mac-connect` now lets the actual
-pinned SSH connection wait up to 30 seconds on the documented Wi-Fi/Tailscale
-addresses; its old extra two-second key scan could falsely reject a loaded Mac.
-Discovery of other addresses still requires the pinned key. A failed SSH probe
+If SSH slows, stop issuing more builds and boots. `mac-connect` lets the pinned SSH
+connection wait up to 30 seconds on the home LAN addresses or the Hetzner relay;
+discovery of other addresses requires the pinned key. A failed SSH probe
 does not determine sleep, power, Ethernet state or the reason for failure.
 
 Use the existing trusted route to stop the exact owned guest:
