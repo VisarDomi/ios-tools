@@ -643,6 +643,34 @@ class WorkerTests(unittest.TestCase):
         worker.note_phone_away('PHONE', back=True)
         self.assertEqual(worker.phone_away_until('PHONE'), 0)
 
+    def test_a_phone_the_hub_places_away_from_the_mac_is_never_paired(self):
+        self.run.stop()
+        pairings, deliveries = [], []
+        def repair(command, **kwargs):
+            pairings.append(command); return subprocess.CompletedProcess(command, 0)
+        def away(job_id, allow_ota=False, lock_held=False):
+            deliveries.append(allow_ota)
+            if not allow_ota: raise worker.RecoverTransport()
+            common.update(self.metadata / 'state.json', 'awaiting_ota', otaPublished=True, nextAttempt=time.time() + 300)
+        with mock.patch.object(worker, 'deliver', side_effect=away), mock.patch.object(worker.subprocess, 'run', side_effect=repair), \
+             mock.patch.object(worker, 'phone_route', return_value='page'):
+            worker.run_job(self.job)
+            self.assertEqual(deliveries, [False, True])  # published on the page at once
+            worker.run_job(self.job)                     # five minutes later: still away, nothing to do
+        self.assertEqual(pairings, [])
+        self.assertEqual(deliveries, [False, True, False])
+        state = common.load(self.metadata / 'state.json')
+        self.assertEqual(state['phase'], 'awaiting_ota'); self.assertGreater(state['nextAttempt'], time.time() + 200)
+        # Next to the Mac again (or unknown): pairing recovery as before.
+        with mock.patch.object(worker, 'deliver', side_effect=[worker.RecoverTransport(), None]), \
+             mock.patch.object(worker.subprocess, 'run', side_effect=repair), mock.patch.object(worker, 'phone_route', return_value='try'), \
+             mock.patch.object(worker, 'phone_away_until', return_value=0):
+            worker.run_job(self.job)
+        self.assertEqual(len(pairings), 1)
+
+    def test_phone_route_needs_the_hub(self):
+        self.assertIsNone(worker.phone_route())  # no sentinel config under this test's home
+
     def test_validate_only_never_contacts_the_phone(self):
         request = common.load(self.metadata / 'request.json'); request['validateOnly'] = True
         common.save(self.metadata / 'request.json', request)

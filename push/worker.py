@@ -15,6 +15,7 @@ import threading
 import sys
 import tempfile
 import time
+import urllib.request
 from compilation_cache import build_environment
 import build_workspace
 import cache_health
@@ -833,8 +834,19 @@ def finish_job(job_id, lock_held=False):
         # pairing on its own (a minute under the Mac lock, every five minutes) kept the Mac
         # locked back to back while the phone was away.
         device = load(metadata / 'config.json').get('device', '')
+        published = load(metadata / 'state.json', {}).get('otaPublished')
+        if phone_route() == 'page':
+            # The phone is known to be away from the Mac (on the home Wi-Fi while the Mac is at the
+            # office, on mobile data...): pairing cannot reach it. Publish once, then ask again.
+            if published:
+                update(metadata / 'state.json', 'awaiting_ota', nextAttempt=time.time() + PHONE_AWAY_SECONDS,
+                       message='Signed update published; the phone is away from the Mac')
+                return
+            deliver(job_id, allow_ota=True)
+            if load(metadata / 'state.json', {}).get('phase') == 'awaiting_ota': note_phone_away(device)
+            return
         away = phone_away_until(device)
-        if away and load(metadata / 'state.json', {}).get('otaPublished'):
+        if away and published:
             update(metadata / 'state.json', 'awaiting_ota', nextAttempt=away,
                    message='Signed update published; direct installation will retry when the phone returns')
             return
@@ -851,6 +863,23 @@ def finish_job(job_id, lock_held=False):
 # When a phone was last proved away (a pairing recovery after which it still could not be
 # reached): the other jobs waiting for it retry after this window without pairing again.
 PHONE_AWAY_SECONDS = 300
+
+
+def phone_route(timeout=5):
+    """How an install should go now, from the ops hub's /api/where (environment repo services/ops):
+    'direct', 'page' or 'try'. It knows where the phone is from the Mac's own CoreDevice view, the
+    PC's view of the home Wi-Fi and the network the phone's traffic comes from. None when the hub is
+    not configured here or does not answer; the worker then pairs as before."""
+    try:
+        config = json.loads((MAC_HOME / '.config/ops-sentinel/config.json').read_text())
+        token = Path(os.path.expanduser(config.get('token_file', '~/.config/ops-sentinel/token'))).read_text().strip()
+        request = urllib.request.Request(config['hub'].rstrip('/') + '/api/where',
+                                         headers={'Authorization': 'Bearer ' + token, 'User-Agent': 'ios-push'})
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            route = (json.load(response).get('phone') or {}).get('install')
+    except Exception:
+        return None
+    return route if route in ('direct', 'page', 'try') else None
 
 
 def phone_away_until(device):

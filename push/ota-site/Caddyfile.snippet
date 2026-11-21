@@ -1,6 +1,8 @@
 # The owner's iPhone apps, installable from anywhere (ios-tools push/ota-site; phone-install --ota
-# on the Mac publishes here with a key that can only write into the site folder).
+# on the Mac publishes here with a key that can only write into the site folder). owner_device_log
+# (environment repo services/ops) tells the ops hub where the phone is.
 ios-apps.veron3.space {
+	import owner_device_log
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options "nosniff"
