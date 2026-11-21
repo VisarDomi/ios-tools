@@ -622,6 +622,27 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(delivery.call_count, 2)
         self.assertTrue(delivery.call_args.kwargs['allow_ota'])
 
+    def test_a_phone_proved_away_is_not_paired_again_by_every_waiting_job(self):
+        self.run.stop()
+        pairings = []
+        def repair(command, **kwargs):
+            pairings.append(command); return subprocess.CompletedProcess(command, 0)
+        def still_away(job_id, allow_ota=False, lock_held=False):
+            if not allow_ota: raise worker.RecoverTransport()
+            common.update(self.metadata / 'state.json', 'awaiting_ota', otaPublished=True, nextAttempt=time.time() + 300)
+        with mock.patch.object(worker, 'deliver', side_effect=still_away), mock.patch.object(worker.subprocess, 'run', side_effect=repair):
+            worker.run_job(self.job)
+            self.assertEqual(len(pairings), 1)
+            away = worker.phone_away_until('PHONE')
+            self.assertGreater(away, time.time())
+            # The next waiting job (this one again, five minutes later) waits out the window.
+            worker.run_job(self.job)
+        self.assertEqual(len(pairings), 1, 'no second pairing recovery inside the window')
+        self.assertEqual(common.load(self.metadata / 'state.json')['nextAttempt'], away)
+        # Back home: an installation clears the record.
+        worker.note_phone_away('PHONE', back=True)
+        self.assertEqual(worker.phone_away_until('PHONE'), 0)
+
     def test_validate_only_never_contacts_the_phone(self):
         request = common.load(self.metadata / 'request.json'); request['validateOnly'] = True
         common.save(self.metadata / 'request.json', request)

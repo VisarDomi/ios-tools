@@ -829,10 +829,39 @@ def finish_job(job_id, lock_held=False):
             # this delivery runs again on its own, with recovery, once that build is done.
             update(metadata / 'state.json', 'waiting_mac', transportRecovery=True)
             raise Retry('Phone unreachable; pairing recovery follows the overlapped build')
+        # One pairing recovery per window covers every job waiting for the same phone: each job
+        # pairing on its own (a minute under the Mac lock, every five minutes) kept the Mac
+        # locked back to back while the phone was away.
+        device = load(metadata / 'config.json').get('device', '')
+        away = phone_away_until(device)
+        if away and load(metadata / 'state.json', {}).get('otaPublished'):
+            update(metadata / 'state.json', 'awaiting_ota', nextAttempt=away,
+                   message='Signed update published; direct installation will retry when the phone returns')
+            return
         # Pairing recovery uses the same global lock itself. Never call it while
         # retaining the installation lock, and never change trust or phone UI.
-        subprocess.run([str(TOOLS / 'native/scripts/phone-pairing'), '--now'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
+        if not away:
+            subprocess.run([str(TOOLS / 'native/scripts/phone-pairing'), '--now'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
         deliver(job_id, allow_ota=True)
+        phase = load(metadata / 'state.json', {}).get('phase')
+        if phase == 'awaiting_ota': note_phone_away(device)
+        elif phase == 'installed': note_phone_away(device, back=True)
+
+
+# When a phone was last proved away (a pairing recovery after which it still could not be
+# reached): the other jobs waiting for it retry after this window without pairing again.
+PHONE_AWAY_SECONDS = 300
+
+
+def phone_away_until(device):
+    until = load(STORE / 'phone-away.json', {}).get(device, 0)
+    return until if until > time.time() else 0
+
+
+def note_phone_away(device, back=False):
+    record = {name: until for name, until in load(STORE / 'phone-away.json', {}).items() if until > time.time() and name != device}
+    if not back: record[device] = time.time() + PHONE_AWAY_SECONDS
+    save(STORE / 'phone-away.json', record)
 
 
 def deliverable(metadata, state):
