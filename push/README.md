@@ -36,8 +36,11 @@ installation success: only **installed** confirms in-place installation and rene
 approval. Product apps are never launched or uninstalled; the phone UI is never driven.
 
 **awaiting_ota** means a signed package was published for an install from anywhere because
-direct installation was unavailable. Pass on `https://ios-apps.veron3.space/` (the owner signs
-in with the veron3 login and taps Install; see "Away installs" below). This is not claimed as
+direct installation was unavailable: it is **not installed**. `ios-push status` says so on its
+own line with the page to pass on, `https://ios-apps.veron3.space/` (the owner signs in with the
+veron3 login and taps Install; see "Away installs" below); `--json` adds `installed: false`,
+`installUrl` and that `action` text, and `--follow` prints it before exiting 10. Until November 22
+the status said only "Signed update published", which read as delivered. This is not claimed as
 installed; delivery retries when the authenticated phone returns. Once installation/publication might have happened,
 finish or supersede the delivery with a newer push instead of cancelling it into an
 older renewal baseline.

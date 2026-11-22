@@ -11,6 +11,16 @@ import tempfile
 import time
 
 TERMINAL = {'installed', 'failed', 'cancelled', 'superseded', 'validated'}
+# Where the owner installs a signed update when the Mac cannot reach the phone (ota-site; veron3 login, then Install).
+OTA_PAGE = 'https://ios-apps.veron3.space/'
+AWAY_PHASES = {'awaiting_ota'}
+
+
+def install_note(value):
+    """What the caller must pass on for a job the phone has not received: the update is published, not installed."""
+    if value.get('phase') not in AWAY_PHASES: return ''
+    return ('NOT INSTALLED: the Mac cannot reach the phone. Install it on the phone from ' + OTA_PAGE +
+            ' (veron3 login, tap Install); direct installation retries when the phone is next to the Mac.')
 IDENTITY = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$')
 
 

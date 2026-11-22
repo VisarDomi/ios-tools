@@ -1,3 +1,4 @@
+import io
 import json
 import os
 import shutil
@@ -995,6 +996,27 @@ class WatchClientTests(unittest.TestCase):
             with mock.patch.object(client, 'STORE', root), mock.patch.object(client.time, 'sleep') as sleep:
                 with self.assertRaises(SystemExit) as result: client.show('demo', follow=True)
             self.assertEqual(result.exception.code, 10); sleep.assert_not_called()
+
+    def test_an_away_delivery_says_it_is_not_installed_and_names_the_install_page(self):
+        # 2026-11-22: the Mac was at the office and the phone at home; status said only "Signed update published".
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            common.save(root / 'jobs/demo/state.json', {'id': 'demo', 'repo': 'trader', 'app': 'trader', 'phase': 'awaiting_ota',
+                                                        'message': 'Signed update published; the phone is away from the Mac'})
+            common.save(root / 'jobs/done/state.json', {'id': 'done', 'phase': 'installed', 'message': 'Installed'})
+            with mock.patch.object(client, 'STORE', root), mock.patch('sys.stdout', new_callable=io.StringIO) as out:
+                client.show('demo')
+                client.show('done')
+            text = out.getvalue()
+            self.assertIn('NOT INSTALLED', text); self.assertIn(common.OTA_PAGE, text)
+            self.assertEqual(text.count(common.OTA_PAGE), 1)   # an installed job carries no install page
+            with mock.patch.object(client, 'STORE', root), mock.patch('sys.stdout', new_callable=io.StringIO) as out:
+                client.show('demo', as_json=True)
+            value = json.loads(out.getvalue())
+            self.assertEqual((value['installed'], value['installUrl']), (False, common.OTA_PAGE))
+            with mock.patch.object(client, 'STORE', root), mock.patch.object(client.time, 'sleep'), mock.patch('sys.stdout', new_callable=io.StringIO) as out:
+                with self.assertRaises(SystemExit) as result: client.show('demo', follow=True)
+            self.assertEqual(result.exception.code, 10); self.assertIn(common.OTA_PAGE, out.getvalue())
 
 
 if __name__ == '__main__': unittest.main()

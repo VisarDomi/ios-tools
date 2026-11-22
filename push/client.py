@@ -13,7 +13,7 @@ import sys
 import time
 import uuid
 
-from common import TERMINAL, ensure_directory, identity, load, locked, save, source_hash, update, verify
+from common import OTA_PAGE, TERMINAL, install_note, ensure_directory, identity, load, locked, save, source_hash, update, verify
 from snapshot import capture
 
 TOOLS = Path(__file__).resolve().parents[1]
@@ -296,10 +296,14 @@ def show(job_id=None, follow=False, as_json=False):
                 tests = load(path / 'tests.json', {})
                 if not tests.get('result'): value['message'] = (value.get('message', '') + ' · PC tests running').lstrip(' ·')
                 elif tests['result'] == 'failed': value['message'] = value.get('message', '') + ' · PC test log: ' + tests.get('log', '')
+            # Published is not installed: an away delivery names the page the owner installs it from.
+            if install_note(value): value.update(installed=False, installUrl=OTA_PAGE, action=install_note(value))
             values.append(value)
         if as_json: print(json.dumps(values[0] if job_id else values, indent=2), flush=True)
         else:
-            for value in values: print(value.get('id', ''), value.get('repo', ''), value.get('app', ''), value.get('phase'), value.get('message', ''), flush=True)
+            for value in values:
+                print(value.get('id', ''), value.get('repo', ''), value.get('app', ''), value.get('phase'), value.get('message', ''), flush=True)
+                if value.get('action'): print('  ' + value['action'], flush=True)
         if not follow: return
         if all(value.get('phase') in TERMINAL or value.get('phase') in {'awaiting_ota', 'awaiting_watch'} for value in values):
             if any(value.get('phase') == 'failed' for value in values): raise SystemExit(1)
