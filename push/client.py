@@ -86,15 +86,28 @@ def prepare(project, app):
         subprocess.run(['node', str(ios / 'scripts/build.mjs'), app['name'], '--prepare-only'], cwd=root, check=True)
 
 
+def test_files(repo_root, scope):
+    """Tracked and untracked, non-ignored files under scope. A linked directory in it (a
+    deployment's `engine` link to a public checkout's apps/ios) contributes the files its own
+    repository lists there, so the frozen copy carries what the link points at."""
+    listed = subprocess.run(['git', '-C', str(repo_root), 'ls-files', '-co', '--exclude-standard', '-z', '--', scope],
+                            capture_output=True, check=True).stdout.split(b'\0')
+    for name in (item for item in listed if item):
+        path = Path(repo_root) / name.decode()
+        if path.is_symlink() and path.is_dir():
+            inner = subprocess.run(['git', '-C', str(path.resolve()), 'ls-files', '-co', '--exclude-standard', '-z'],
+                                   capture_output=True, check=True).stdout.split(b'\0')
+            yield from (name + b'/' + item for item in inner if item)
+        else: yield name
+
+
 def tests_key(repo_root, project, copy_to=None):
     """The exact test inputs: every tracked and untracked, non-ignored file under the test scope
     (default apps/ios), with the test command. Ignored build outputs are not part of it.
     With copy_to, the same bytes are also written there (the job's frozen test source)."""
     scope = project.get('testScope', 'apps/ios')
-    listed = subprocess.run(['git', '-C', str(repo_root), 'ls-files', '-co', '--exclude-standard', '-z', '--', scope],
-                            capture_output=True, check=True).stdout.split(b'\0')
     digest = hashlib.sha256(json.dumps(project['tests']).encode())
-    for name in sorted(item for item in listed if item):
+    for name in sorted(test_files(repo_root, scope)):
         path = repo_root / name.decode()
         if not path.is_file(): continue
         data = path.read_bytes()

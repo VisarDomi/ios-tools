@@ -953,6 +953,20 @@ class PushTestGateTests(unittest.TestCase):
             self.assertEqual((common.load(fourth / 'tests.json')['result'], self.runs()), ('failed', 3))   # failures are not cached
             self.assertIn('FAIL: broken', Path(common.load(fourth / 'tests.json')['log']).read_text())
 
+    def test_a_linked_engine_is_frozen_with_the_files_its_repository_lists(self):
+        # A deployment links a public checkout's apps/ios as apps/ios/engine: its tests need those files.
+        engine = self.base / 'public/apps/ios'; (engine / 'scripts').mkdir(parents=True); (engine / 'build').mkdir()
+        subprocess.run(['git', 'init', '-q', str(self.base / 'public')], check=True)
+        (self.base / 'public/.gitignore').write_text('build/\n')
+        (engine / 'scripts/test.sh').write_text('echo engine\n'); (engine / 'build/output').write_text('ignored')
+        (self.repo / 'apps/ios/engine').symlink_to(engine, target_is_directory=True)
+        before = client.tests_key(self.repo, self.project, copy_to=self.base / 'copy')
+        self.assertEqual((self.base / 'copy/apps/ios/engine/scripts/test.sh').read_text(), 'echo engine\n')
+        self.assertFalse((self.base / 'copy/apps/ios/engine/build').exists(), "the public repository's ignored files stay out")
+        self.assertFalse((self.base / 'copy/apps/ios/engine').is_symlink())
+        (engine / 'scripts/test.sh').write_text('echo engine v2\n')
+        self.assertNotEqual(client.tests_key(self.repo, self.project), before, 'an engine edit is a new test input')
+
     def test_uploader_reports_results_starts_missing_runs_and_never_uploads_a_failed_job(self):
         failed, _ = self.job('job-1'); common.save(failed / 'tests.json', {'result': 'failed', 'key': 'x', 'log': '/log'})
         passed, key = self.job('job-2'); common.save(passed / 'tests.json', {'result': 'passed', 'key': key, 'reported': False})
