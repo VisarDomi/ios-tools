@@ -65,6 +65,37 @@ touch "$CONNECTED"
         self.assertEqual(result.returncode, 33, result.stderr)
         self.assertNotIn('pairing', calls)
 
+    def test_republish_generates_dark_mobile_page_sorted_newest_first(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            home = root / 'home'
+            store = home / 'Library/Application Support/phone-install'
+            (store / 'com.example.old').mkdir(parents=True)
+            (store / 'com.example.new').mkdir(parents=True)
+            (store / '.token').write_text('test-token')
+            (store / 'com.example.old/info.tsv').write_text('Old App\t100\t2026-11-20 10:00\n')
+            (store / 'com.example.new/info.tsv').write_text('New & Cool\t200\t2026-11-23 22:35\n')
+            fake_bin = root / 'bin'
+            fake_bin.mkdir()
+            fake_ssh = fake_bin / 'ssh'
+            fake_ssh.write_text('#!/bin/sh\ncat >/dev/null\n')
+            fake_ssh.chmod(0o755)
+            installer = root / 'phone-install'
+            text = SCRIPT.read_text()
+            text = text.replace('/usr/bin/ssh', str(fake_ssh))
+            text = text.replace('/usr/bin/tar', 'tar')
+            text = text.replace('/bin/cp', 'cp')
+            installer.write_text(text)
+            installer.chmod(0o755)
+            result = subprocess.run([str(installer), '--republish'], env=dict(os.environ, HOME=str(home)),
+                                    capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            page = (store / 'index.html').read_text()
+            self.assertIn('<meta name="color-scheme" content="dark">', page)
+            self.assertIn('New &amp; Cool', page)
+            self.assertIn('itms-services://?action=download-manifest&amp;url=https://ios-apps.veron3.space/test-token/com.example.new/manifest.plist%3Fv%3D200', page)
+            self.assertLess(page.index('New &amp; Cool'), page.index('Old App'))
+
 
 if __name__ == '__main__':
     unittest.main()

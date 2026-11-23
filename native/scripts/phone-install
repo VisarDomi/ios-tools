@@ -39,19 +39,165 @@ publish() {
         [ -f "$info" ] || continue
         /usr/bin/sed -i '' -E "s#<string>https://[^<]*/([^/<]+)/app\\.ipa\\?v=#<string>$base/\\1/app.ipa?v=#" "$info"
     done
-    {
-        echo '<!doctype html><meta name="viewport" content="width=device-width">'
-        echo '<title>Install on the phone</title><body style="font:18px -apple-system;margin:24px">'
-        # Newest release first: by the date shown ("YYYY-MM-DD HH:MM" sorts as text), then by
-        # the package stamp. The stamp alone is not the order: a repackaged app gets a new one.
-        for info in "$root"/*/info.tsv; do
-            [ -f "$info" ] || continue
-            b=$(basename "$(dirname "$info")")
-            IFS=$'\t' read -r n s when < "$info"
-            printf '%s\t%s\t<p><a href="itms-services://?action=download-manifest&amp;url=%s">Install %s</a><br><small>%s · %s</small></p>\n' \
-                "$when" "$s" "$base/$b/manifest.plist%3Fv%3D$s" "$n" "$b" "$when"
-        done | LC_ALL=C sort -t $'\t' -k1,1r -k2,2nr | cut -f3-
-    } > "$root/index.html"
+    /usr/bin/python3 - "$root" "$base" <<'PY' > "$root/index.html"
+import html, pathlib, sys
+
+root = pathlib.Path(sys.argv[1])
+base = sys.argv[2]
+entries = []
+for info in root.glob("*/info.tsv"):
+    parts = info.read_text(encoding="utf-8").rstrip("\r\n").split("\t")
+    if len(parts) < 3:
+        continue
+    name, stamp, when = parts[0], parts[1], parts[2]
+    bundle = info.parent.name
+    entries.append((when, int(stamp) if stamp.isdigit() else 0, stamp, bundle, name))
+
+# Newest release first: by the date shown ("YYYY-MM-DD HH:MM" sorts as text), then by
+# the package stamp. The stamp alone is not the order: a repackaged app gets a new one.
+entries.sort(key=lambda item: (item[0], item[1]), reverse=True)
+
+rows = []
+for when, _stamp_num, stamp, bundle, name in entries:
+    href = f"itms-services://?action=download-manifest&amp;url={html.escape(f'{base}/{bundle}/manifest.plist%3Fv%3D{stamp}', quote=True)}"
+    rows.append(
+        f'    <a class="app" href="{href}">'
+        f'<span class="meta">'
+        f'<span class="name">{html.escape(name)}</span>'
+        f'<span class="when">{html.escape(when)}</span>'
+        f'<span class="bundle">{html.escape(bundle)}</span>'
+        f'</span>'
+        f'<span class="btn">Install</span>'
+        f'</a>'
+    )
+
+body = "\n".join(rows) if rows else '    <p class="empty">No apps published yet.</p>'
+print(f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0d1016">
+<title>Install on iPhone</title>
+<style>
+  :root {{
+    --bg: #0d1016;
+    --surface: #151a23;
+    --surface-press: #1b2230;
+    --border: #232b3a;
+    --text: #e2e7f0;
+    --muted: #8a94a6;
+    --subtle: #697386;
+    --btn-bg: #1b2c44;
+    --btn-border: #2c476e;
+    --btn-text: #8ec1ff;
+  }}
+  * {{ box-sizing: border-box; -webkit-tap-highlight-color: transparent; }}
+  html, body {{
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }}
+  main {{
+    max-width: 520px;
+    margin: 0 auto;
+    padding: max(20px, env(safe-area-inset-top)) 16px max(32px, env(safe-area-inset-bottom));
+  }}
+  header {{ margin-bottom: 16px; }}
+  h1 {{
+    margin: 0 0 4px;
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--text);
+  }}
+  .sub {{ margin: 0; font-size: 13.5px; color: var(--muted); }}
+  .search {{
+    width: 100%;
+    margin: 0 0 14px;
+    padding: 10px 14px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 16px;
+    outline: none;
+    -webkit-appearance: none;
+  }}
+  .search::placeholder {{ color: var(--muted); }}
+  .search:focus {{ border-color: var(--btn-border); }}
+  .list {{ display: flex; flex-direction: column; gap: 10px; }}
+  .app {{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 13px 15px;
+    border-radius: 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    text-decoration: none;
+    color: inherit;
+    transition: background 120ms ease, border-color 120ms ease;
+  }}
+  .app:active {{ background: var(--surface-press); border-color: var(--btn-border); }}
+  .meta {{ min-width: 0; display: flex; flex-direction: column; gap: 2px; }}
+  .name {{
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text);
+    overflow-wrap: anywhere;
+  }}
+  .when {{
+    font-size: 13px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }}
+  .bundle {{
+    font-size: 12px;
+    color: var(--subtle);
+    overflow-wrap: anywhere;
+  }}
+  .btn {{
+    flex: none;
+    padding: 7px 14px;
+    border-radius: 999px;
+    background: var(--btn-bg);
+    border: 1px solid var(--btn-border);
+    color: var(--btn-text);
+    font-size: 14px;
+    font-weight: 600;
+  }}
+  .app[hidden] {{ display: none; }}
+  .empty {{ color: var(--muted); font-size: 14px; margin: 12px 0; }}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Install on iPhone</h1>
+    <p class="sub">Newest builds first · tap any app to install</p>
+  </header>
+  <input class="search" type="search" placeholder="Filter apps…" aria-label="Filter apps" autocomplete="off" spellcheck="false">
+  <div class="list">
+{body}
+  </div>
+</main>
+<script>
+const input = document.querySelector('.search');
+const items = [...document.querySelectorAll('.app')];
+input.addEventListener('input', () => {{
+  const q = input.value.trim().toLowerCase();
+  for (const el of items) el.hidden = q !== '' && !el.textContent.toLowerCase().includes(q);
+}});
+</script>
+</body>
+</html>""")
+PY
     # The site as Hetzner serves it: the page on top, the apps under the random folder name.
     # It replaces the site there as a whole (push/ota-site/receive, the only thing this key runs).
     local stage
