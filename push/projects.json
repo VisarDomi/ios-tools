@@ -27,19 +27,6 @@
   "gallery-reader": {
     "path": "manga/gallery-reader",
     "prepare": "gallery",
-    "persistentBuildCache": {
-      "shared": {
-        "apps": [
-          "gallery-a",
-          "gallery-b"
-        ],
-        "maximumBytes": 2147483648,
-        "cacheRoots": [
-          "build/shared/DerivedData",
-          "build/shared/native"
-        ]
-      }
-    },
     "tests": [
       "bash",
       "apps/ios/scripts/test.sh"

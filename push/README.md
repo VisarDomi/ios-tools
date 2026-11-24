@@ -2,7 +2,7 @@
 
 ```sh
 ios-push vault
-ios-push gallery-a
+ios-push trader
 ios-push manga-reader:asura
 ios-push guidance
 ios-push t3-watch

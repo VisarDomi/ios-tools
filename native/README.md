@@ -8,7 +8,7 @@ that and this file before changing an app.
 | Repository (this PC; Mac mirror `~/Developer/<name>`) | Apps | App doc |
 |---|---|---|
 | `/home/visar/Documents/work/manga/manga-reader` | Asura, Scythe, Yaksha, QiScans, Lua, EzScans, Violet | `apps/ios/README.md` |
-| `/home/visar/Documents/work/manga/gallery-reader` | gallery-a, gallery-b | `apps/ios/README.md` |
+| `/home/visar/Documents/work/manga/gallery-reader` | two gallery apps | `apps/ios/README.md` |
 | `/home/visar/Documents/work/manga/gallery-downloader` | Gallery Reader (offline, from the PC) | `apps/ios/README.md` |
 | `/home/visar/Documents/work/video/video-platform/private` | the video platform's live app, local-library apps and Video Vault | `apps/ios/README.md` |
 | `/home/visar/Documents/work/trading/trader` | Trader | `apps/ios/README.md` |
@@ -257,7 +257,7 @@ behaviour; see "Boot only the services a check needs" in MAC-WORKLOADS.md.
   `scripts/restore-frames.py` (here): the slow, visual one, frame by frame.
 - The simulator trusts the PC's mkcert CA. Gallery Reader's simulator builds save only what
   is viewed unless launched with `-downloads`.
-- Sites behind Cloudflare (gallery-b) challenge curl from this PC but accept Apple's network
+- Sites behind Cloudflare challenge curl from this PC but accept Apple's network
   stack: take fixtures with a small URLSession program on the Mac, or the agent Chromium
   profile (`/home/visar/Documents/environment/browser/chromium-agent.md`; close it after).
 
@@ -267,7 +267,7 @@ Use the shared asynchronous push command from the app's checkout:
 
 ```sh
 ios-push vault
-ios-push gallery-a
+ios-push trader
 ios-push manga-reader:asura
 ios-push status JOB
 ```
@@ -356,8 +356,8 @@ so deploy the app the change is about first.
   apps' moves of cookies, `views.json` and `view-state.json`): the phone ran them on
   October 11, 2026.
 - Gallery Reader: animated GIF pages show their first frame (WebKit animated them; rare).
-- The owner's standing defaults: continuous lists instead of page numbers (Gallery Reader,
-  gallery-a, gallery-b); no pinch zoom on list screens (readers and videos zoom). The installed Ytb
+- The owner's standing defaults: continuous lists instead of page numbers (the gallery
+  apps); no pinch zoom on list screens (readers and videos zoom). The installed Ytb
   app and its renewal (`com.visar.renewal.km-explorer`) can be removed.
 
 The rewrite's plan, its surveys of the WebKit apps and its round-by-round status are in Git

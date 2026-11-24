@@ -5,8 +5,7 @@
 
 The data folder is where the app writes debug-state.json, relative to its data container:
   manga apps      'Library/Application Support/<Product>/shared'  (AsuraReader, ScytheReader, ...)
-  gallery-a, gallery-b,  'Library/Application Support/GalleryReader'
-  Gallery Reader
+  gallery apps    'Library/Application Support/GalleryReader'
   video apps      'Library/Application Support/LocalVideos'
 The apps write it when they leave the screen, so use the app, leave it, then run this. It
 prints the frames watched (while something scrolled), those over 25 and 50 ms, the worst,
