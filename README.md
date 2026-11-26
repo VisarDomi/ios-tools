@@ -1,7 +1,5 @@
 # ios-tools
 
-This working copy’s Mac-specific changes are backed up to the private `VisarDomi/ios-tools-private` repository (`private-backup` remote). The public `origin` remains upstream; local incident notes are not published there.
-
 Shared iOS tooling for the app repositories, used from this PC and the Mac
 (`~/Developer/ios-tools`):
 
@@ -16,8 +14,7 @@ Shared iOS tooling for the app repositories, used from this PC and the Mac
 Mac-only settings (signing team and phone UDID) live in `ios-tools.local.json`;
 start from `ios-tools.example.json`. [`mac-sync`](mac-sync) mirrors this repository to the
 Mac, leaving that file and generated files alone; the PC's `ios-tools-mac-sync.timer`
-runs it every 5 minutes, and running it by hand syncs at once. Nothing is copied by hand. Mac and phone access:
-[mac-access.md](../../environment/mac-access.md).
+runs it every 5 minutes, and running it by hand syncs at once. Nothing is copied by hand.
 
 On a fresh Mac the mirror alone does not install the phone monitor. Restore
 `ios-tools.local.json` (the actual team/device settings are backed up in the environment
@@ -29,9 +26,7 @@ automatic checks start authenticated discovery even without past Bonjour success
 Host network changes and a returning authenticated phone bypass stale retry delays;
 no phone VPN toggle or routine repair command is required at home. Automatic checks
 leave Apple services alone when no endpoint authenticates, and respect workload
-locks. Exact commands
-and the source/configuration backup map are in
-[Mac recovery](../../environment/mac-renewal/RECOVERY.md#restore-wireless-phone-recovery-and-network-access).
+locks.
 
 Failed device requests clear the monitor's healthy status. Native recovery targets
 exact launchd jobs, preserving trust records and avoiding process-name kills.
